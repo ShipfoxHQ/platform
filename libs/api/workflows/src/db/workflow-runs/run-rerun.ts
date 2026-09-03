@@ -19,6 +19,13 @@ export interface CreateRerunWorkflowRunParams {
   actorUserId: string;
 }
 
+function rerunSessionCarryOver(
+  sourceAttemptId: string,
+  mode: CreateRerunWorkflowRunParams['mode'],
+) {
+  return mode === 'failed' ? {carryOverFromWorkflowRunAttemptId: sourceAttemptId} : {};
+}
+
 export async function createRerunWorkflowRun(
   params: CreateRerunWorkflowRunParams,
 ): Promise<WorkflowRun> {
@@ -97,6 +104,7 @@ export async function createRerunWorkflowRun(
       run: sourceRun,
       workflowRunAttempt: newAttemptRow,
       materializedJobs: graphJobs,
+      ...rerunSessionCarryOver(sourceAttemptRow.id, params.mode),
     });
 
     const [newRunRow] = await tx

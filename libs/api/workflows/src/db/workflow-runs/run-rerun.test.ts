@@ -529,6 +529,9 @@ describe('workflow run queries', () => {
           definitionId: rerun.definitionId,
         }),
       );
+      expect(events.find((event) => event.attempt === 2)).not.toHaveProperty(
+        'carryOverFromWorkflowRunAttemptId',
+      );
     });
 
     test('failed mode carries succeeded jobs and resets every non-succeeded job', async () => {
@@ -545,6 +548,13 @@ describe('workflow run queries', () => {
         workflowRunId: source.id,
         mode: 'failed',
         actorUserId: crypto.randomUUID(),
+      });
+      const sourceAttempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const sourceAttempt = sourceAttempts.find((attempt) => attempt.attempt === 1);
+      if (!sourceAttempt) throw new Error('Expected source attempt');
+      const events = await runAttemptCreatedEvents(rerun.id);
+      expect(events.find((event) => event.attempt === 2)).toMatchObject({
+        carryOverFromWorkflowRunAttemptId: sourceAttempt.id,
       });
 
       const rerunJobs = await getJobsByWorkflowRunId(rerun.id);
@@ -602,6 +612,40 @@ describe('workflow run queries', () => {
       expect(second.currentAttempt).toBe(2);
       expect(second.id).toBe(source.id);
       expect(third).toMatchObject({id: source.id, currentAttempt: 3});
+    });
+
+    test('pins the current attempt as the source across consecutive failed reruns', async () => {
+      const source = await createTerminalSourceRun();
+      const second = await createRerunWorkflowRun({
+        workflowRunId: source.id,
+        mode: 'failed',
+        actorUserId: crypto.randomUUID(),
+      });
+      const secondJobs = await getJobsByWorkflowRunId(second.id);
+      await markJob(secondJobs, 'test', 'failed');
+      await updateWorkflowRunStatus({
+        workflowRunId: second.id,
+        status: 'failed',
+        expectedVersion: 1,
+      });
+
+      const third = await createRerunWorkflowRun({
+        workflowRunId: second.id,
+        mode: 'failed',
+        actorUserId: crypto.randomUUID(),
+      });
+      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const firstAttempt = attempts.find((attempt) => attempt.attempt === 1);
+      const secondAttempt = attempts.find((attempt) => attempt.attempt === 2);
+      if (!firstAttempt || !secondAttempt) throw new Error('Expected source attempts');
+      const events = await runAttemptCreatedEvents(third.id);
+
+      expect(events.find((event) => event.attempt === 2)).toMatchObject({
+        carryOverFromWorkflowRunAttemptId: firstAttempt.id,
+      });
+      expect(events.find((event) => event.attempt === 3)).toMatchObject({
+        carryOverFromWorkflowRunAttemptId: secondAttempt.id,
+      });
     });
 
     test('rejects a concurrent rerun while a new attempt is active', async () => {

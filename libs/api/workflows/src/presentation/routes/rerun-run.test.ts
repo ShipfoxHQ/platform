@@ -22,7 +22,6 @@ import {
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
-import {agentTestClient} from '#test/fixtures/agent-inter-module.js';
 import {workflowModel} from '#test/index.js';
 import {rerunRunRoute} from './rerun-run.js';
 
@@ -55,12 +54,11 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces, agentTestClient));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
     await app.ready();
   });
 
   beforeEach(() => {
-    vi.mocked(agentTestClient.carryOverSessions).mockClear();
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     projectAccessState.workspaceId = workspaceId;
@@ -144,10 +142,6 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
-    expect(agentTestClient.carryOverSessions).toHaveBeenCalledWith({
-      fromWorkflowRunAttemptId: sourceAttempt.id,
-      toWorkflowRunAttemptId: targetAttempt.id,
-    });
   });
 
   test('does not carry sessions for an all-jobs rerun', async () => {
@@ -160,7 +154,6 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(agentTestClient.carryOverSessions).not.toHaveBeenCalled();
   });
 
   test('returns 409 without creating an attempt for an oversized legacy config', async () => {
