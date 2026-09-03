@@ -662,6 +662,9 @@ export async function executeStep(params: {
   const replaceInferenceSecrets = params.replaceInferenceSecrets
     ? (replacement: string[]) => {
         params.replaceInferenceSecrets?.(replacement);
+        const currentJobSecrets = [...params.secrets];
+        secretState.subscribedSecrets = currentJobSecrets;
+        secretState.crashSecrets = currentJobSecrets;
         secretState.inferenceSecrets = [
           ...new Set(replacement.filter((secret) => secret.length > 0)),
         ];
