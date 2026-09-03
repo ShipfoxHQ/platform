@@ -18,8 +18,10 @@ export const modelProviderValidationCount = meter.createCounter<{
 export const agentRuntimeConfigResolvedCount = meter.createCounter<{
   source: 'workspace' | 'instance';
   outcome: 'resolved' | 'unavailable' | 'decryption_failed';
+  has_job_identity: boolean;
 }>('agent_runtime_config_resolved', {
-  description: 'Lease-scoped agent runtime credential resolution by source and outcome',
+  description:
+    'Lease-scoped agent runtime credential resolution by source, outcome, and job identity presence',
 });
 
 export const sessionClaimReleaseCount = meter.createCounter<{

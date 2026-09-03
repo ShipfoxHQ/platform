@@ -30,6 +30,46 @@ describe('agentInterModuleContract', () => {
     expect(output.default_harness_id).toBe('pi');
   });
 
+  test('carries job identity in the runtime credentials context', () => {
+    const input = {
+      workspaceId: UUID,
+      runId: '00000000-0000-4000-8000-000000000002',
+      stepAttemptId: '00000000-0000-4000-8000-000000000003',
+      jobIdentity: {
+        projectId: '00000000-0000-4000-8000-000000000004',
+        jobId: '00000000-0000-4000-8000-000000000005',
+        jobExecutionId: '00000000-0000-4000-8000-000000000006',
+        stepId: '00000000-0000-4000-8000-000000000007',
+        attempt: 2,
+      },
+      harness: 'pi' as const,
+      provider: 'shipfox' as const,
+      model: 'managed-model',
+      thinking: 'high' as const,
+    };
+
+    const parsed = agentInterModuleContract.methods.resolveRuntimeCredentials.input.parse(input);
+
+    expect(parsed).toEqual(input);
+  });
+
+  test('rejects an incomplete runtime job identity', () => {
+    expect(() =>
+      agentInterModuleContract.methods.resolveRuntimeCredentials.input.parse({
+        workspaceId: UUID,
+        runId: '00000000-0000-4000-8000-000000000002',
+        stepAttemptId: '00000000-0000-4000-8000-000000000003',
+        jobIdentity: {
+          projectId: '00000000-0000-4000-8000-000000000004',
+        },
+        harness: 'pi',
+        provider: 'shipfox',
+        model: 'managed-model',
+        thinking: 'high',
+      }),
+    ).toThrow();
+  });
+
   test('accepts valid claimSession payloads in both modes', () => {
     const input = {
       workspaceId: UUID,

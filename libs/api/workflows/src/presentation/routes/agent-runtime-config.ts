@@ -84,7 +84,7 @@ export function createAgentRuntimeConfigRoute(params: {
     },
     handler: async (request, reply) => {
       const {step_id: stepId, attempt} = request.query;
-      const {step, workspaceId} = await loadRunningLeasedStep({
+      const {step, workspaceId, projectId} = await loadRunningLeasedStep({
         runners: params.runners,
         request,
         stepId,
@@ -117,6 +117,13 @@ export function createAgentRuntimeConfigRoute(params: {
         workspaceId,
         runId: stepAttempt.workflowRunId,
         stepAttemptId: stepAttempt.attempt.id,
+        jobIdentity: {
+          projectId,
+          jobId: stepAttempt.jobId,
+          jobExecutionId: stepAttempt.jobExecutionId,
+          stepId: stepAttempt.attempt.stepId,
+          attempt: stepAttempt.attempt.attempt,
+        },
         harness: agentConfig.harness,
         provider: agentConfig.provider,
         model: agentConfig.model,

@@ -5,6 +5,7 @@ import {
   agentSessionDescriptorSchema,
   agentThinkingSchema,
   harnessSchema,
+  managedProviderJobIdentitySchema,
   modelProviderRefSchema,
 } from '#schemas/index.js';
 
@@ -84,6 +85,7 @@ export const agentInterModuleContract = defineInterModuleContract({
         workspaceId: z.string().uuid(),
         runId: z.string().uuid(),
         stepAttemptId: z.string().uuid(),
+        jobIdentity: managedProviderJobIdentitySchema.optional(),
         harness: harnessSchema,
         provider: modelProviderRefSchema,
         model: z.string(),
