@@ -255,15 +255,21 @@ function toLargeOverviewJobsDto(
   pageSize?: number,
 ): Extract<WorkflowRunOverviewResponseDto['jobs'], {kind: 'large'}> {
   if (overview.jobs.kind === 'large') {
+    const items = overview.jobs.firstPage.items.slice(
+      0,
+      pageSize ?? overview.jobs.firstPage.items.length,
+    );
+    const last = items.at(-1);
     return {
       kind: 'large',
       total: overview.jobs.total,
       status_counts: overview.jobs.statusCounts,
       first_page: {
-        items: overview.jobs.firstPage.items.map(toJobListSummaryDto),
-        next_cursor: overview.jobs.firstPage.nextCursor
-          ? encodeJobCursor(overview.jobs.firstPage.nextCursor)
-          : null,
+        items: items.map(toJobListSummaryDto),
+        next_cursor:
+          last && items.length < overview.jobs.firstPage.total
+            ? encodeJobCursor({position: last.position, id: last.id})
+            : null,
         total: overview.jobs.firstPage.total,
       },
     };

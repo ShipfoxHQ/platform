@@ -3,6 +3,7 @@ import {WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
+import {decodeNumberIdCursor} from '@shipfox/node-drizzle';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
@@ -32,10 +33,32 @@ const mocks = vi.hoisted(() => ({
   getStepAttemptDetail: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
+  getWorkflowJobDetail: vi.fn(),
+  getWorkflowJobExecutionContext: vi.fn(),
+  getWorkflowJobReadScope: vi.fn(),
+  getWorkflowRunAccessScopeById: vi.fn(),
+  getWorkflowRunAnnotationOrigins: vi.fn(),
+  getWorkflowRunAttemptIdForScope: vi.fn(),
   getWorkflowRunDetail: vi.fn(),
+  getWorkflowRunOverview: vi.fn(),
+  getWorkflowRunSource: vi.fn(),
+  getWorkflowStepReadScope: vi.fn(),
+  listFailedStepAttempts: vi.fn(),
+  listRunAttemptsPage: vi.fn(),
   listStepAttemptIdsByJobId: vi.fn(),
+  listWorkflowExecutionSteps: vi.fn(),
+  listWorkflowJobExecutionSummaries: vi.fn(),
+  listWorkflowRunJobExplanationsPage: vi.fn(),
   listWorkflowRunJobSummaries: vi.fn(),
+  listWorkflowRunJobsPage: vi.fn(),
   listWorkflowRuns: vi.fn(),
+  listWorkflowStepAttemptSummaries: vi.fn(),
+  workflowRunAnnotationOriginKey: (origin: {
+    jobId: string;
+    jobExecutionId: string;
+    stepId: string;
+    stepAttempt: number;
+  }) => [origin.jobId, origin.jobExecutionId, origin.stepId, origin.stepAttempt].join(':'),
 }));
 
 vi.mock('#db/index.js', () => mocks);
@@ -101,11 +124,259 @@ describe('Workflows inter-module presentation', () => {
     mocks.getStepAttemptDetail.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
+    mocks.getWorkflowJobDetail.mockReset();
+    mocks.getWorkflowJobExecutionContext.mockReset();
+    mocks.getWorkflowJobReadScope.mockReset();
+    mocks.getWorkflowRunAccessScopeById.mockReset();
+    mocks.getWorkflowRunAnnotationOrigins.mockReset();
+    mocks.getWorkflowRunAttemptIdForScope.mockReset();
     mocks.getWorkflowRunDetail.mockReset();
+    mocks.getWorkflowRunOverview.mockReset();
+    mocks.getWorkflowRunSource.mockReset();
+    mocks.getWorkflowStepReadScope.mockReset();
+    mocks.listFailedStepAttempts.mockReset();
+    mocks.listRunAttemptsPage.mockReset();
     mocks.listWorkflowRunJobSummaries.mockReset();
+    mocks.listWorkflowExecutionSteps.mockReset();
+    mocks.listWorkflowJobExecutionSummaries.mockReset();
+    mocks.listWorkflowRunJobExplanationsPage.mockReset();
+    mocks.listWorkflowRunJobsPage.mockReset();
     mocks.listWorkflowRuns.mockReset();
+    mocks.listWorkflowStepAttemptSummaries.mockReset();
     mocks.deliverEventToListener.mockReset();
     mocks.deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
+  });
+
+  it('authorizes bounded run reads and round-trips opaque cursors', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    const projectId = input.projectId;
+    const nextCursor = {value: 3, id: crypto.randomUUID()};
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId,
+    });
+    mocks.listRunAttemptsPage.mockResolvedValue({attempts: [], nextCursor});
+
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const result = await presentation.handlers.listWorkflowRunAttempts(
+      {workspaceId, workflowRunId, limit: 1},
+      {signal: new AbortController().signal},
+    );
+
+    expect(result).toMatchObject({items: [], nextCursor: expect.any(String)});
+    expect(decodeNumberIdCursor(result?.nextCursor ?? undefined)).toEqual(nextCursor);
+    expect(mocks.listRunAttemptsPage).toHaveBeenCalledWith({
+      workflowRunId,
+      projectId,
+      limit: 1,
+      cursor: undefined,
+    });
+  });
+
+  it('resolves the latest concrete attempt before reading run source', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    mocks.getLatestRunAttempt.mockResolvedValue(3);
+    mocks.getWorkflowRunSource.mockResolvedValue({
+      workflowRunId,
+      workflowRunAttempt: 3,
+      origin: 'synced',
+      sourceSnapshot: {content: 'name: Build\n', format: 'yaml'},
+      sourceSnapshotBytes: 12,
+    });
+
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    await expect(
+      presentation.handlers.getWorkflowRunSource(
+        {workspaceId, workflowRunId},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({
+      kind: 'available',
+      workflow_run_id: workflowRunId,
+      workflow_run_attempt: 3,
+      source_snapshot: {content: 'name: Build\n', format: 'yaml'},
+    });
+
+    expect(mocks.getLatestRunAttempt).toHaveBeenCalledWith({workspaceId, workflowRunId});
+    expect(mocks.getWorkflowRunSource).toHaveBeenCalledWith({workflowRunId, attempt: 3});
+  });
+
+  it('returns the resolved attempt on run-level pages even when they are empty', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    const attempt = 3;
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    mocks.getLatestRunAttempt.mockResolvedValue(attempt);
+    mocks.listWorkflowRunJobsPage.mockResolvedValue({items: [], nextCursor: null, total: 0});
+    mocks.listWorkflowRunJobExplanationsPage.mockResolvedValue({items: [], nextCursor: null});
+    mocks.listFailedStepAttempts.mockResolvedValue([]);
+    mocks.getWorkflowRunAttemptIdForScope.mockResolvedValue(crypto.randomUUID());
+    mocks.getWorkflowRunAnnotationOrigins.mockResolvedValue([]);
+    const annotations = {
+      listAnnotationsForRunAttempt: vi.fn().mockResolvedValue({
+        annotations: [],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    };
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      annotations: annotations as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const context = {signal: new AbortController().signal};
+
+    await expect(
+      presentation.handlers.listWorkflowRunJobs({workspaceId, workflowRunId, limit: 100}, context),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null, total: 0});
+    await expect(
+      presentation.handlers.listWorkflowRunAnnotations(
+        {workspaceId, workflowRunId, limit: 100},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    await expect(
+      presentation.handlers.listWorkflowRunJobExplanations(
+        {workspaceId, workflowRunId, limit: 100},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    await expect(
+      presentation.handlers.listFailedStepAttempts(
+        {workspaceId, workflowRunId, limit: 10},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: []});
+  });
+
+  it('masks cross-workspace bounded reads and rejects malformed cursors before the DB page', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId: crypto.randomUUID(),
+      projectId: input.projectId,
+    });
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+
+    await expect(
+      presentation.handlers.getWorkflowRunOverview(
+        {workspaceId, workflowRunId},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toBeNull();
+    expect(mocks.getWorkflowRunOverview).not.toHaveBeenCalled();
+
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    await expect(
+      presentation.handlers.listWorkflowRunAttempts(
+        {workspaceId, workflowRunId, limit: 1, cursor: 'malformed'},
+        {signal: new AbortController().signal},
+      ),
+    ).rejects.toThrow('Invalid workflow read cursor');
+    expect(mocks.listRunAttemptsPage).not.toHaveBeenCalled();
+  });
+
+  it('maps bounded failed step-attempt coordinates for run diagnostics', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    const coordinate = {
+      workflowRunId,
+      workflowRunAttempt: 2,
+      jobId: crypto.randomUUID(),
+      jobExecutionId: crypto.randomUUID(),
+      stepId: crypto.randomUUID(),
+      stepAttemptId: crypto.randomUUID(),
+      stepAttempt: 1,
+    };
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    mocks.getLatestRunAttempt.mockResolvedValue(2);
+    mocks.listFailedStepAttempts.mockResolvedValue([coordinate]);
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+
+    await expect(
+      presentation.handlers.listFailedStepAttempts(
+        {workspaceId, workflowRunId, limit: 10},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toEqual({
+      workflow_run_attempt: 2,
+      items: [
+        {
+          workflow_run_id: workflowRunId,
+          workflow_run_attempt: 2,
+          job_id: coordinate.jobId,
+          job_execution_id: coordinate.jobExecutionId,
+          step_id: coordinate.stepId,
+          step_attempt_id: coordinate.stepAttemptId,
+          step_attempt: 1,
+        },
+      ],
+    });
+    expect(mocks.listFailedStepAttempts).toHaveBeenCalledWith({
+      workspaceId,
+      projectId: input.projectId,
+      workflowRunId,
+      attempt: 2,
+      limit: 10,
+    });
   });
 
   it('resolves latest run and step attempts within the requested workspace', async () => {

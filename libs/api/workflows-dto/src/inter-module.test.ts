@@ -1,3 +1,12 @@
+import {
+  WORKFLOW_JOB_EXECUTION_PAGE_LIMIT,
+  WORKFLOW_JOB_STEP_PAGE_LIMIT,
+  WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
+  WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT,
+  WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT,
+  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
+  WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT,
+} from './index.js';
 import {workflowsInterModuleContract} from './inter-module.js';
 
 describe('workflowsInterModuleContract', () => {
@@ -63,6 +72,144 @@ describe('workflowsInterModuleContract', () => {
       workflowsInterModuleContract.methods.getLatestRunAttempt.input.safeParse({
         workspaceId,
         workflowRunId: 'not-a-uuid',
+      }).success,
+    ).toBe(false);
+  });
+
+  test('defines bounded nullable workflow diagnostic reads with deterministic defaults', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const workflowRunId = '00000000-0000-4000-8000-000000000002';
+    const jobId = '00000000-0000-4000-8000-000000000003';
+    const executionId = '00000000-0000-4000-8000-000000000004';
+    const stepId = '00000000-0000-4000-8000-000000000005';
+
+    expect(
+      workflowsInterModuleContract.methods.getWorkflowRunOverview.input.parse({
+        workspaceId,
+        workflowRunId,
+      }),
+    ).toEqual({workspaceId, workflowRunId});
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunAttempts.input.parse({
+        workspaceId,
+        workflowRunId,
+      }).limit,
+    ).toBe(25);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobs.input.parse({
+        workspaceId,
+        workflowRunId,
+      }).limit,
+    ).toBe(WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowJobExecutions.input.parse({
+        workspaceId,
+        jobId,
+      }).limit,
+    ).toBe(WORKFLOW_JOB_EXECUTION_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowExecutionSteps.input.parse({
+        workspaceId,
+        jobId,
+        executionId,
+      }).limit,
+    ).toBe(WORKFLOW_JOB_STEP_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowStepAttempts.input.parse({
+        workspaceId,
+        stepId,
+      }).limit,
+    ).toBe(WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunAnnotations.input.parse({
+        workspaceId,
+        workflowRunId,
+      }).limit,
+    ).toBe(WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobExplanations.input.parse({
+        workspaceId,
+        workflowRunId,
+      }).limit,
+    ).toBe(WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT);
+    expect(
+      workflowsInterModuleContract.methods.listFailedStepAttempts.input.parse({
+        workspaceId,
+        workflowRunId,
+      }).limit,
+    ).toBe(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT);
+
+    for (const method of [
+      workflowsInterModuleContract.methods.getWorkflowRunOverview,
+      workflowsInterModuleContract.methods.listWorkflowRunAttempts,
+      workflowsInterModuleContract.methods.listWorkflowRunJobs,
+      workflowsInterModuleContract.methods.getWorkflowJobDetail,
+      workflowsInterModuleContract.methods.listWorkflowJobExecutions,
+      workflowsInterModuleContract.methods.listWorkflowExecutionSteps,
+      workflowsInterModuleContract.methods.listWorkflowStepAttempts,
+      workflowsInterModuleContract.methods.getWorkflowRunSource,
+      workflowsInterModuleContract.methods.getWorkflowJobExecutionContext,
+      workflowsInterModuleContract.methods.getWorkflowStepAttemptDetail,
+      workflowsInterModuleContract.methods.listWorkflowRunAnnotations,
+      workflowsInterModuleContract.methods.listWorkflowRunJobExplanations,
+      workflowsInterModuleContract.methods.listFailedStepAttempts,
+    ]) {
+      expect(method.output.parse(null)).toBeNull();
+    }
+
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobs.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunAnnotations.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobExplanations.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listFailedStepAttempts.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: []});
+  });
+
+  test('rejects page limits outside the producer-owned bounds', () => {
+    const workspaceId = '00000000-0000-4000-8000-000000000001';
+    const workflowRunId = '00000000-0000-4000-8000-000000000002';
+    const jobId = '00000000-0000-4000-8000-000000000003';
+
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobs.input.safeParse({
+        workspaceId,
+        workflowRunId,
+        limit: 101,
+      }).success,
+    ).toBe(false);
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowJobExecutions.input.safeParse({
+        workspaceId,
+        jobId,
+        limit: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      workflowsInterModuleContract.methods.listFailedStepAttempts.input.safeParse({
+        workspaceId,
+        workflowRunId,
+        limit: 11,
       }).success,
     ).toBe(false);
   });

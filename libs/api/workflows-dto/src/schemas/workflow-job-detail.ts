@@ -44,7 +44,10 @@ const stepTypeSchema = z.enum(['setup', 'run', 'agent', 'checkout', 'tool']);
 
 const stepGateResultSummarySchema = z
   .union([stepGateResultDtoSchema.unwrap(), z.object({kind: z.literal('unknown')})])
-  .transform((result) => (result.kind === 'unknown' ? {kind: 'unknown'} : result));
+  .transform(
+    (result): Exclude<z.output<typeof stepGateResultDtoSchema>, null> | {kind: 'unknown'} =>
+      result.kind === 'unknown' ? {kind: 'unknown'} : result,
+  );
 
 export type StepGateResultSummaryDto = z.infer<typeof stepGateResultSummarySchema>;
 

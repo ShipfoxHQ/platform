@@ -151,6 +151,7 @@ export function createWorkflowsModule({
     interModulePresentations: [
       createWorkflowsInterModulePresentation({
         agent,
+        annotations,
         definitions,
         integrations,
         projects,
