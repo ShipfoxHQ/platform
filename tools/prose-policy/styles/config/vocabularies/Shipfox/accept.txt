@@ -191,6 +191,7 @@ provider
 providers
 agent
 agents
+agentic
 tool
 tools
 readme

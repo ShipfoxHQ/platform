@@ -10,7 +10,7 @@
   <a href="CONTRIBUTING.md"><b>Contributing</b></a>
 </p>
 
-**The agent platform for engineering teams.**
+**Shipfox is an agentic workflows platform for engineering teams.**
 
 Shipfox turns engineering work into automated workflows built from AI agents and
 shell commands. Workflows live as YAML in your repository and react to events
