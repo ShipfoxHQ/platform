@@ -220,7 +220,7 @@ describe('selected-job API hooks', () => {
     if (!embeddedStep) throw new Error('Expected an embedded step');
     const refreshedStep = {...embeddedStep, status: 'running' as const};
 
-    const mergedSteps = mergeWorkflowJobStepSummaries([[embeddedStep], [refreshedStep]]);
+    const mergedSteps = mergeWorkflowJobStepSummaries([[refreshedStep], [embeddedStep]]);
 
     expect(mergedSteps).toHaveLength(1);
     expect(mergedSteps[0]).toBe(refreshedStep);

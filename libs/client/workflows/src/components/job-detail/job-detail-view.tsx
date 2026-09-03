@@ -553,7 +553,7 @@ function useSelectedJobDetailPresentation({
   const presentedSteps = useMemo(() => {
     const embeddedSteps = selectedDetailExecution?.steps.items ?? [];
     return mergeWorkflowJobStepSummaries(
-      stepsResourceIsNewer ? [embeddedSteps, loadedSteps] : [loadedSteps, embeddedSteps],
+      stepsResourceIsNewer ? [loadedSteps, embeddedSteps] : [embeddedSteps, loadedSteps],
     );
   }, [loadedSteps, selectedDetailExecution?.steps.items, stepsResourceIsNewer]);
   const presentedStepById = useMemo(
@@ -579,8 +579,8 @@ function useSelectedJobDetailPresentation({
         attemptsStepId,
         mergeWorkflowJobStepAttempts(
           attemptsResourceIsNewer
-            ? [embeddedAttempts, loadedAttempts]
-            : [loadedAttempts, embeddedAttempts],
+            ? [loadedAttempts, embeddedAttempts]
+            : [embeddedAttempts, loadedAttempts],
         ),
       ],
     ]);

@@ -252,10 +252,14 @@ function toLegacyStep(
   };
 }
 
+/** Sources are ordered newest first, so delayed responses cannot overwrite fresher items. */
 function mergeById<T extends {id: string}>(sources: readonly (readonly T[])[]): T[] {
   const merged = new Map<string, T>();
   for (const source of sources) {
-    for (const item of source) merged.set(item.id, item);
+    for (const item of source) {
+      if (merged.has(item.id)) continue;
+      merged.set(item.id, item);
+    }
   }
   return [...merged.values()];
 }
