@@ -1,4 +1,5 @@
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {mkdtemp, rm, stat, symlink, writeFile} from 'node:fs/promises';
 import {connect} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -187,6 +188,31 @@ describe('credential socket transport framing', () => {
       await expect(staleServer.start()).resolves.toBeUndefined();
     } finally {
       await staleServer.close();
+    }
+  });
+
+  it('sweeps interrupted lock artifacts when their owner is gone', async () => {
+    const sweepSocketPath = join(root, 'sweep.sock');
+    const staleCandidatePath = `${sweepSocketPath}.lock.${randomUUID()}.tmp`;
+    const staleQuarantinePath = `${sweepSocketPath}.lock.${randomUUID()}.stale`;
+    const staleReclaimerPath = `${sweepSocketPath}.lock.reclaim`;
+    await writeFile(staleCandidatePath, 'malformed candidate');
+    await writeFile(staleQuarantinePath, 'malformed quarantine');
+    await symlink('-1:stale-reclaimer', staleReclaimerPath);
+    const sweepServer = createCredentialSocketTransportServer({
+      socketPath: sweepSocketPath,
+      capability,
+      timeoutMs: 60_000,
+      handleRequest,
+    });
+
+    try {
+      await sweepServer.start();
+      await expect(stat(staleCandidatePath)).rejects.toThrow();
+      await expect(stat(staleQuarantinePath)).rejects.toThrow();
+      await expect(stat(staleReclaimerPath)).rejects.toThrow();
+    } finally {
+      await sweepServer.close();
     }
   });
 

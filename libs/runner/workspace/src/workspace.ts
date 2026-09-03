@@ -17,7 +17,7 @@ const FALLBACK_CREDENTIAL_SOCKET_SUFFIX = '.sock';
 const FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX = '.owner';
 const FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX = '.lock';
 const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE =
-  /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock(?:\.[0-9a-f-]+\.(?:tmp|stale))?)?$/u;
+  /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock(?:\.(?:reclaim|(?:[0-9]+\.)?[0-9a-f-]+\.(?:tmp|stale)))?)?$/u;
 
 export function runnerFallbackCredentialSocketPath(capability: string): string {
   assertUuidCapability(capability);
@@ -238,7 +238,7 @@ async function cleanupOrphanedFallbackCredentialSockets(): Promise<void> {
 
   const capabilities = new Set<string>();
   for (const entry of entries) {
-    if (!entry.isFile() && !entry.isSocket()) continue;
+    if (!entry.isFile() && !entry.isSocket() && !entry.isSymbolicLink()) continue;
     const match = FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.exec(entry.name);
     const capability = match?.groups?.capability;
     if (capability !== undefined && isUuid(capability)) capabilities.add(capability);
@@ -260,7 +260,7 @@ async function cleanupFallbackCredentialSocket(
   const lockPrefix = `${capability}${FALLBACK_CREDENTIAL_SOCKET_SUFFIX}${FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
   for (const entry of entries) {
     if (
-      entry.isFile() &&
+      (entry.isFile() || entry.isSymbolicLink()) &&
       entry.name.startsWith(lockPrefix) &&
       FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.test(entry.name)
     ) {
