@@ -58,8 +58,11 @@ export type {
 } from './entities/step-attempt.js';
 export {StepAttempt} from './entities/step-attempt.js';
 export type {
+  WorkflowDiagnosticField,
+  WorkflowDiagnosticUnavailableField,
   WorkflowExecutionStepsPage,
   WorkflowJobDetail,
+  WorkflowJobExecutionContext,
   WorkflowJobExecutionDetail,
   WorkflowJobExecutionPage,
   WorkflowJobExecutionSummary,

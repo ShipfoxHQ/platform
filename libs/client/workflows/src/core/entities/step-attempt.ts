@@ -1,4 +1,5 @@
 import {type Duration, intervalToDuration} from 'date-fns';
+import type {WorkflowDiagnosticUnavailableField} from './workflow-diagnostics.js';
 
 export type StepGateResult =
   | {kind: 'none'}
@@ -104,6 +105,15 @@ export interface StepAttemptDetail {
   config: Record<string, unknown> | null;
   toolArguments: unknown | null;
   evaluationTrace: EvaluationTraceEntry[] | null;
+  /** Additive diagnostic fields are optional while old and new servers roll out together. */
+  output?: Record<string, unknown> | null | undefined;
+  outputs?: Record<string, unknown> | null | undefined;
+  response?: string | null | undefined;
+  error?: Record<string, unknown> | null | undefined;
+  gateResult?: StepGateResult | undefined;
+  invocations?: StepAttemptInvocation[] | undefined;
+  restartFeedback?: string | null | undefined;
+  oversizedFields?: WorkflowDiagnosticUnavailableField[] | undefined;
 }
 
 export function stepAttemptDisplayDurationFromTimestamps({

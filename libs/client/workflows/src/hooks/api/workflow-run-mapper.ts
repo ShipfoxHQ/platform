@@ -1,10 +1,12 @@
 import type {
   EvaluationTraceDto,
   JobListeningDto,
+  OversizedFieldDto,
   StepAttemptDetailResponseDto,
   StepAttemptDto,
   StepGateResultDto,
   WorkflowExecutionEventDto,
+  WorkflowJobExecutionContextResponseDto,
   WorkflowRunAttemptDto,
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
@@ -24,7 +26,6 @@ import {
   WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
   WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
   WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
-  WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import {
   defaultJobExecution,
@@ -39,7 +40,9 @@ import {
   type StepAttemptSession,
   type StepGateResult,
   toWorkflowRunOverviewExecutionDuration,
+  type WorkflowDiagnosticUnavailableField,
   type WorkflowExecutionEvent,
+  type WorkflowJobExecutionContext,
   type WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunAttemptSummary,
@@ -158,27 +161,6 @@ export function toWorkflowRunSource(dto: WorkflowRunSourceResponseDto): Workflow
     kind: 'available',
     sourceSnapshot: {content: dto.source_snapshot.content, format: dto.source_snapshot.format},
   };
-}
-
-export function toWorkflowRunSourceFromRunDetail(detail: WorkflowRunDetail): WorkflowRunSource {
-  const identity = {
-    workflowRunId: detail.id,
-    workflowRunAttempt: detail.runAttempt.attempt,
-  };
-  if (!detail.sourceSnapshot) {
-    return {
-      ...identity,
-      kind: 'unavailable',
-      reason: detail.origin === 'dev' ? 'temporary_run' : 'pre_snapshot_run',
-    };
-  }
-  if (
-    new TextEncoder().encode(detail.sourceSnapshot.content).byteLength >
-    WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES
-  ) {
-    return {...identity, kind: 'unavailable', reason: 'legacy_snapshot_too_large'};
-  }
-  return {...identity, kind: 'available', sourceSnapshot: detail.sourceSnapshot};
 }
 
 export function toWorkflowRunOverview(dto: WorkflowRunOverviewResponseDto): WorkflowRunOverview {
@@ -708,15 +690,7 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
     error: dto.error ?? null,
     gateResult: toStepGateResult(dto.gate_result),
     restartFeedback: dto.restart_feedback ?? null,
-    invocations: dto.invocations.map((invocation) => ({
-      callIndex: invocation.call_index,
-      startedAt: invocation.started_at,
-      ...(invocation.finished_at === undefined ? {} : {finishedAt: invocation.finished_at}),
-      ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
-      ...(invocation.error_code === undefined ? {} : {errorCode: invocation.error_code}),
-      ...(invocation.duration_ms === undefined ? {} : {durationMs: invocation.duration_ms}),
-      ...(invocation.next_due_at === undefined ? {} : {nextDueAt: invocation.next_due_at}),
-    })),
+    invocations: dto.invocations.map(toStepAttemptInvocation),
     startedAt: dto.started_at,
     finishedAt: dto.finished_at ?? null,
   });
@@ -735,6 +709,35 @@ export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
     config: dto.config,
     toolArguments: toolConfigValue(dto.config)?.with ?? null,
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+    output: dto.output === undefined ? undefined : (dto.output ?? null),
+    outputs: dto.outputs === undefined ? undefined : (dto.outputs ?? null),
+    response: dto.response === undefined ? undefined : (dto.response ?? null),
+    error: dto.error === undefined ? undefined : (dto.error ?? null),
+    gateResult: dto.gate_result === undefined ? undefined : toStepGateResult(dto.gate_result),
+    invocations: dto.invocations?.map(toStepAttemptInvocation),
+    restartFeedback:
+      dto.restart_feedback === undefined ? undefined : (dto.restart_feedback ?? null),
+    oversizedFields: dto.oversized_fields?.map(toWorkflowDiagnosticUnavailableField),
+  };
+}
+
+export function toWorkflowJobExecutionContext(
+  dto: WorkflowJobExecutionContextResponseDto,
+): WorkflowJobExecutionContext {
+  return {
+    workflowRunId: dto.workflow_run_id,
+    workflowRunAttempt: dto.workflow_run_attempt,
+    jobId: dto.job_id,
+    jobExecutionId: dto.job_execution_id,
+    jobRunner: dto.job_runner,
+    executionRunner: dto.execution_runner,
+    jobOutputs: dto.job_outputs,
+    executionOutputs: dto.execution_outputs,
+    triggerEvents: dto.trigger_events.map(toWorkflowExecutionEvent),
+    jobEvaluationTrace: toEvaluationTrace(dto.job_evaluation_trace),
+    executionEvaluationTrace: toEvaluationTrace(dto.execution_evaluation_trace),
+    condition: dto.condition,
+    oversizedFields: dto.oversized_fields.map(toWorkflowDiagnosticUnavailableField),
   };
 }
 
@@ -754,6 +757,28 @@ function toJobListening(dto: JobListeningDto): JobListening {
     onResolve: dto.on_resolve,
     executionTimeoutMs: dto.execution_timeout_ms,
     name: dto.name,
+  };
+}
+
+function toStepAttemptInvocation(invocation: StepAttemptDto['invocations'][number]) {
+  return {
+    callIndex: invocation.call_index,
+    startedAt: invocation.started_at,
+    ...(invocation.finished_at === undefined ? {} : {finishedAt: invocation.finished_at}),
+    ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
+    ...(invocation.error_code === undefined ? {} : {errorCode: invocation.error_code}),
+    ...(invocation.duration_ms === undefined ? {} : {durationMs: invocation.duration_ms}),
+    ...(invocation.next_due_at === undefined ? {} : {nextDueAt: invocation.next_due_at}),
+  };
+}
+
+function toWorkflowDiagnosticUnavailableField(
+  dto: OversizedFieldDto,
+): WorkflowDiagnosticUnavailableField {
+  return {
+    field: dto.field,
+    storedBytes: dto.stored_bytes,
+    reason: dto.reason,
   };
 }
 

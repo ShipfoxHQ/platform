@@ -1,6 +1,7 @@
 import type {
   WorkflowExecutionStepsResponseDto,
   WorkflowJobDetailDto,
+  WorkflowJobExecutionContextResponseDto,
   WorkflowJobExecutionSummariesResponseDto,
   WorkflowStepAttemptSummariesResponseDto,
 } from '@shipfox/api-workflows-dto';
@@ -20,9 +21,11 @@ import {jsonResponse} from '#test/pages.js';
 import {
   invalidateWorkflowJobResources,
   useWorkflowExecutionStepsInfiniteQuery,
+  useWorkflowJobExecutionContextQuery,
   useWorkflowJobExecutionsInfiniteQuery,
   useWorkflowStepAttemptsInfiniteQuery,
   workflowJobDetailQueryOptions,
+  workflowJobExecutionContextQueryOptions,
 } from './workflow-job-detail.js';
 import {
   mergeWorkflowJobStepAttempts,
@@ -109,6 +112,89 @@ describe('selected-job API hooks', () => {
     expect(observer.options.refetchInterval(query)).toBe(false);
     if (typeof observer.options.refetchOnWindowFocus !== 'function') return;
     expect(observer.options.refetchOnWindowFocus(query)).toBe(false);
+  });
+
+  test('keeps context disabled until requested and polls only while active', () => {
+    const disabledOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      enabled: false,
+    });
+    expect(disabledOptions.enabled).toBe(false);
+
+    const terminalOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      polling: false,
+    });
+    expect(terminalOptions.staleTime).toBe(Infinity);
+    expect(terminalOptions.refetchOnWindowFocus).toBe(false);
+    if (typeof terminalOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware context query options');
+    }
+    expect(terminalOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(false);
+
+    const activeOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      polling: true,
+    });
+    expect(activeOptions.staleTime).toBe(2_000);
+    expect(activeOptions.refetchOnWindowFocus).toBe(true);
+    if (typeof activeOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware context query options');
+    }
+    expect(activeOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(4_000);
+    expect(
+      activeOptions.refetchInterval({
+        state: {data: undefined, error: new Error('failed')},
+      } as never),
+    ).toBe(false);
+  });
+
+  test('fetches and maps context only through its bounded route', async () => {
+    const context = workflowJobExecutionContextResponseDto();
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL) => jsonResponse(context));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const disabled = renderWithQueryClient(() =>
+      useWorkflowJobExecutionContextQuery({
+        jobId: JOB_ID,
+        executionId: EXECUTION_ID,
+        enabled: false,
+      }),
+    );
+    expect(disabled.result.current.fetchStatus).toBe('idle');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    cleanup();
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowJobExecutionContextQuery({
+        jobId: JOB_ID,
+        executionId: EXECUTION_ID,
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.data?.jobExecutionId).toBe(EXECUTION_ID));
+
+    expect(requestUrl(fetchImpl.mock.calls[0]?.[0] as RequestInfo)).toBe(
+      `https://api.example.test/workflows/runs/jobs/${JOB_ID}/executions/${EXECUTION_ID}/context`,
+    );
+    expect(result.current.data).toMatchObject({
+      workflowRunId: RUN_ID,
+      jobRunner: ['shared-runner'],
+      executionRunner: ['execution-runner'],
+      jobOutputs: {build: 'complete'},
+      triggerEvents: [{event: 'push', data: {branch: 'main'}}],
+      condition: 'inputs.enabled',
+      oversizedFields: [
+        {
+          field: 'job_outputs',
+          storedBytes: 70_000,
+          reason: 'legacy_value_exceeds_inline_limit',
+        },
+      ],
+    });
   });
 
   test('uses bounded cursor resources for execution, step, and attempt history', async () => {
@@ -287,6 +373,42 @@ function selectedJobDetailResponseDto(): WorkflowJobDetailDto {
     jobId: JOB_ID,
     executionId: EXECUTION_ID,
   });
+}
+
+function workflowJobExecutionContextResponseDto(): WorkflowJobExecutionContextResponseDto {
+  return {
+    workflow_run_id: RUN_ID,
+    workflow_run_attempt: 1,
+    job_id: JOB_ID,
+    job_execution_id: EXECUTION_ID,
+    job_runner: ['shared-runner'],
+    execution_runner: ['execution-runner'],
+    job_outputs: {build: 'complete'},
+    execution_outputs: {release: 'published'},
+    trigger_events: [
+      {
+        source: 'github',
+        event: 'push',
+        delivery_id: 'delivery-1',
+        received_at: '2026-06-21T12:00:00.000Z',
+        project: {id: '22222222-2222-4222-8222-222222222222'},
+        repository: 'shipfox/platform-v1',
+        ref: 'refs/heads/main',
+        commit: 'abcdef',
+        data: {branch: 'main'},
+      },
+    ],
+    job_evaluation_trace: null,
+    execution_evaluation_trace: null,
+    condition: 'inputs.enabled',
+    oversized_fields: [
+      {
+        field: 'job_outputs',
+        stored_bytes: 70_000,
+        reason: 'legacy_value_exceeds_inline_limit',
+      },
+    ],
+  };
 }
 
 function executionPage(cursor: string | null): WorkflowJobExecutionSummariesResponseDto {

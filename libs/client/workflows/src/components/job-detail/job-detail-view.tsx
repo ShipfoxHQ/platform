@@ -310,7 +310,11 @@ export function JobDetailView({
                 executionDisplayStatus={detailData.executionDisplayStatus}
                 jobContext={
                   selectedJobExecution ? (
-                    <JobContextPanel job={job} execution={selectedJobExecution} />
+                    <JobContextPanel
+                      job={job}
+                      execution={selectedJobExecution}
+                      selectedExecution={selectedJobResources.selectedDetailExecution}
+                    />
                   ) : undefined
                 }
               />

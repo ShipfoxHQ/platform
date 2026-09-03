@@ -347,18 +347,11 @@ describe('workflow run bounded overview API hooks', () => {
     });
   });
 
-  test('uses the legacy detail bridge when the source projection is unavailable', async () => {
-    const detail = workflowRunDetailDto({
-      id: RUN_ID,
-      source_snapshot: {format: 'yaml', content: 'jobs: {}'},
-    });
+  test('does not fall back to the legacy detail route when source is unavailable', async () => {
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL(requestInputUrl(input));
       if (url.pathname.endsWith('/source')) {
         return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname === `/workflows/runs/${RUN_ID}`) {
-        return Promise.resolve(jsonResponse(detail));
       }
       return Promise.reject(new Error(`Unexpected request: ${url.pathname}`));
     });
@@ -368,19 +361,11 @@ describe('workflow run bounded overview API hooks', () => {
       useWorkflowRunSourceQuery({workflowRunId: RUN_ID, enabled: true}),
     );
 
-    await waitFor(() => expect(result.current.data?.kind).toBe('available'));
+    await waitFor(() => expect(result.current.isError).toBe(true));
     expect(requestUrls(fetchImpl)).toEqual([
       `https://api.example.test/workflows/runs/${RUN_ID}/source`,
-      `https://api.example.test/workflows/runs/${RUN_ID}`,
     ]);
-    const bridgeRequest = (fetchImpl.mock.calls as unknown[][])[1]?.[0];
-    if (!(bridgeRequest instanceof Request)) throw new Error('Expected a bridge Request');
-    expect(bridgeRequest.headers.get(WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER)).toBe('bridge');
-    expect(result.current.data).toMatchObject({
-      workflowRunId: RUN_ID,
-      workflowRunAttempt: 1,
-      sourceSnapshot: {format: 'yaml', content: 'jobs: {}'},
-    });
+    expect(result.current.data).toBeUndefined();
   });
 
   test('uses the legacy detail bridge only when the overview route is unavailable', async () => {

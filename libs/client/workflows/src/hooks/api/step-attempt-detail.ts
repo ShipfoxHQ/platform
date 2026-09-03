@@ -4,6 +4,9 @@ import {queryOptions, type UseQueryOptions, useQuery} from '@tanstack/react-quer
 import type {StepAttemptDetail} from '#core/workflow-run.js';
 import {toStepAttemptDetail} from './workflow-run-mapper.js';
 
+export const STEP_ATTEMPT_DETAIL_ACTIVE_POLL_MS = 4_000;
+export const STEP_ATTEMPT_DETAIL_STALE_TIME_MS = 2_000;
+
 export const stepAttemptDetailQueryKeys = {
   all: ['workflow-step-attempt-details'] as const,
   detail: (stepId: string, attempt: number) =>
@@ -41,26 +44,36 @@ async function getStepAttemptDetail({
 export function stepAttemptDetailQueryOptions(
   stepId: string | undefined,
   attempt: number | undefined,
+  options: {polling?: boolean | undefined} = {},
 ): StepAttemptDetailQueryOptions {
+  const polling = options.polling ?? false;
+  const queryEnabled = Boolean(stepId) && attempt !== undefined;
   return queryOptions({
     queryKey:
       stepId && attempt !== undefined
         ? stepAttemptDetailQueryKeys.detail(stepId, attempt)
         : ([...stepAttemptDetailQueryKeys.all] as const),
-    enabled: Boolean(stepId) && attempt !== undefined,
+    enabled: queryEnabled,
     queryFn: ({signal}) =>
       getStepAttemptDetail({stepId: stepId ?? '', attempt: attempt ?? 0, signal}),
-    staleTime: Infinity,
+    staleTime: polling ? STEP_ATTEMPT_DETAIL_STALE_TIME_MS : Infinity,
+    refetchOnWindowFocus: polling,
+    refetchInterval: (query) => {
+      if (!queryEnabled || !polling) return false;
+      if (query.state.error !== null && query.state.data === undefined) return false;
+      return STEP_ATTEMPT_DETAIL_ACTIVE_POLL_MS;
+    },
+    refetchIntervalInBackground: false,
   });
 }
 
 export function useStepAttemptDetailQuery(
   stepId: string | undefined,
   attempt: number | undefined,
-  options?: {enabled?: boolean | undefined},
+  options?: {enabled?: boolean | undefined; polling?: boolean | undefined},
 ) {
   return useQuery({
-    ...stepAttemptDetailQueryOptions(stepId, attempt),
+    ...stepAttemptDetailQueryOptions(stepId, attempt, options),
     ...options,
     enabled: Boolean(stepId) && attempt !== undefined && (options?.enabled ?? true),
   });

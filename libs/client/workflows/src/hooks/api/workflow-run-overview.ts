@@ -32,7 +32,6 @@ import {
   toWorkflowRunOverviewJobPage,
   toWorkflowRunOverviewJobsPageFromRunDetail,
   toWorkflowRunSource,
-  toWorkflowRunSourceFromRunDetail,
 } from './workflow-run-mapper.js';
 import {workflowRunQueryOptions, workflowRunsQueryKeys} from './workflow-runs.js';
 
@@ -335,7 +334,7 @@ export function workflowRunSourceQueryOptions({
       ? workflowRunOverviewQueryKeys.source(workflowRunId)
       : ([...workflowRunsQueryKeys.all, 'source'] as const),
     enabled: Boolean(workflowRunId) && enabled,
-    queryFn: ({signal, client}) => getWorkflowRunSource(workflowRunId ?? '', client, signal),
+    queryFn: ({signal}) => getWorkflowRunSource(workflowRunId ?? '', signal),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
@@ -349,21 +348,13 @@ export function useWorkflowRunSourceQuery(input: WorkflowRunSourceQueryInput) {
 
 async function getWorkflowRunSource(
   workflowRunId: string,
-  client: QueryClient,
   signal?: AbortSignal,
 ): Promise<WorkflowRunSource> {
-  try {
-    return toWorkflowRunSource(
-      await checkedApiRequest(
-        workflowRunSourceResponseSchema,
-        `/workflows/runs/${workflowRunId}/source`,
-        {signal},
-      ),
-    );
-  } catch (error) {
-    if (!isLegacyOverviewEndpointError(error)) throw error;
-    return toWorkflowRunSourceFromRunDetail(
-      await getLegacyWorkflowRunDetail(client, workflowRunId, undefined, signal),
-    );
-  }
+  return toWorkflowRunSource(
+    await checkedApiRequest(
+      workflowRunSourceResponseSchema,
+      `/workflows/runs/${workflowRunId}/source`,
+      {signal},
+    ),
+  );
 }
