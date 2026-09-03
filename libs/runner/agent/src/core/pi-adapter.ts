@@ -56,6 +56,7 @@ import {
 } from '#core/pi-extensions.js';
 import {createPiToolErrorNormalizerExtension} from '#core/pi-tool-error-normalizer.js';
 import {createPiToolSvgNormalizerExtension} from '#core/pi-tool-svg-normalizer.js';
+import {PrerequisiteLedger} from '#core/prerequisite-ledger.js';
 import {type SessionForwarder, startSessionForwarder} from '#core/session-forwarder.js';
 import {toolSelectionOption} from '#core/tool-selection.js';
 
@@ -112,6 +113,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
     onSessionEntry,
   } = invocation;
   const collector = new OutputCollector(invocation.outputs);
+  const prerequisiteLedger = new PrerequisiteLedger(invocation.prerequisites);
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const toolSurface = resolvePiToolSurface(invocation);
@@ -169,6 +171,7 @@ async function runPiAgent(invocation: HarnessInvocation): Promise<HarnessResult>
       hasDeclaredOutputs,
       prompt,
       collector,
+      prerequisiteLedger,
       sessionInvocation: invocationSession,
       forkedFromExistingSession,
     });
@@ -237,6 +240,7 @@ async function runPiSession(params: {
   hasDeclaredOutputs: boolean;
   prompt: string;
   collector: OutputCollector;
+  prerequisiteLedger: PrerequisiteLedger;
   sessionInvocation: HarnessInvocation['session'];
   forkedFromExistingSession: boolean;
 }): Promise<HarnessResult> {
@@ -262,6 +266,7 @@ async function runActivePiSession(
     mode: 'print',
     onError: (error) => logger().warn({err: error}, 'Pi extension failed'),
   });
+  installPiCompletionHooks(params);
   if (params.signal.aborted) throw new Error('Agent step aborted during pi session creation');
 
   const forwarder = startForwarding(
@@ -309,6 +314,7 @@ async function runPiOutputTurns(
         response = params.session.getLastAssistantText() ?? '';
       },
       missingRequired: () => params.collector.missingRequired(),
+      completionMissing: () => params.prerequisiteLedger.missing(),
       guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
     });
   } catch (error) {
@@ -977,6 +983,66 @@ function isAssistantMessage(message: unknown): message is {
     'role' in message &&
     message.role === 'assistant'
   );
+}
+
+function installPiCompletionHooks(params: Parameters<typeof runPiSession>[0]): void {
+  const agent = (params.session as PiSession & {agent?: PiSession['agent']}).agent;
+  if (agent === undefined) return;
+
+  const previousAfterToolCall = agent.afterToolCall;
+  agent.afterToolCall = async (context, signal) => {
+    const rejectedOutput =
+      context.toolCall.name === 'set_output' && isRejectedOutputDetails(context.result.details);
+    const previousResult = await previousAfterToolCall?.(context, signal);
+    const isError = context.isError || previousResult?.isError === true;
+    if (!isError && !rejectedOutput) {
+      const toolCall = prerequisiteToolCall(
+        context.toolCall.name,
+        context.args,
+        context.result.details,
+      );
+      if (toolCall !== undefined) {
+        params.prerequisiteLedger.recordToolSuccess(toolCall.toolName, toolCall.args);
+      }
+    }
+    return rejectedOutput ? {...previousResult, isError: true} : previousResult;
+  };
+  agent.shouldStopAfterTurn = () =>
+    (params.hasDeclaredOutputs || params.prerequisiteLedger.hasRequirements()) &&
+    params.collector.isComplete() &&
+    params.prerequisiteLedger.isComplete();
+}
+
+function isRejectedOutputDetails(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && 'ok' in value && value.ok === false;
+}
+
+function prerequisiteToolCall(
+  toolName: string,
+  args: unknown,
+  details: unknown,
+): {readonly toolName: string; readonly args: unknown} | undefined {
+  if (toolName !== PI_MCP_TOOL_NAME) return {toolName, args};
+  if (!isRecord(args) || typeof args.tool !== 'string') return undefined;
+  if (!isRecord(details) || typeof details.tool !== 'string') return undefined;
+
+  return {
+    toolName: details.tool,
+    args: parseMcpProxyArgs(args.args),
+  };
+}
+
+function parseMcpProxyArgs(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function setOutputTool(collector: OutputCollector) {
