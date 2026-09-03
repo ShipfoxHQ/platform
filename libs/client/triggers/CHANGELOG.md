@@ -1,5 +1,13 @@
 # @shipfox/client-triggers
 
+## 33.0.0
+
+### Patch Changes
+
+- Updated dependencies [f3df1e5]
+  - @shipfox/api-triggers-dto@21.0.0
+  - @shipfox/client-projects@33.0.0
+
 ## 32.0.0
 
 ### Patch Changes

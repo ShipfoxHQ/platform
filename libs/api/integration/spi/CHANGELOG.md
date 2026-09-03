@@ -1,5 +1,17 @@
 # @shipfox/api-integration-spi
 
+## 4.0.0
+
+### Major Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+
+### Patch Changes
+
+- Updated dependencies [b6298b8]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-integration-core-dto@21.0.0
+
 ## 3.0.2
 
 ### Patch Changes

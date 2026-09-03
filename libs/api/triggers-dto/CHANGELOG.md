@@ -1,5 +1,11 @@
 # @shipfox/api-triggers-dto
 
+## 21.0.0
+
+### Minor Changes
+
+- f3df1e5: Add bounded Agent Access trigger-event detail and facet discovery tools.
+
 ## 19.0.0
 
 ### Minor Changes

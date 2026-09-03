@@ -1,5 +1,13 @@
 # @shipfox/expression
 
+## 2.6.1
+
+### Patch Changes
+
+- 8825c23: Bounds evaluation traces to stay within the observation size budget while keeping deterministic prefixes and accurate dropped-entry counts.
+- Updated dependencies [e225f5e]
+  - @shipfox/workflow-document@3.5.0
+
 ## 2.6.0
 
 ### Minor Changes

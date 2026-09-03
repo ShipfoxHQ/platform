@@ -1,5 +1,20 @@
 # @shipfox/api-integration-github
 
+## 21.0.0
+
+### Minor Changes
+
+- 879f227: Adds GitHub authorization state for selected and all repository access.
+
+### Patch Changes
+
+- 9b166c2: Restores GitHub pull request timeline comment publishing for scoped installation tokens.
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+- Updated dependencies [879f227]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-integration-github-dto@21.0.0
+  - @shipfox/api-integration-spi@4.0.0
+
 ## 20.4.0
 
 ### Patch Changes

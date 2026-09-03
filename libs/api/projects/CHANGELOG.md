@@ -1,5 +1,16 @@
 # @shipfox/api-projects
 
+## 21.0.0
+
+### Patch Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+- Updated dependencies [b6298b8]
+- Updated dependencies [879f227]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-integration-core-dto@21.0.0
+  - @shipfox/api-projects-dto@21.0.0
+
 ## 20.4.0
 
 ### Patch Changes

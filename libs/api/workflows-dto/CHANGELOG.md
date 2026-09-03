@@ -1,5 +1,24 @@
 # @shipfox/api-workflows-dto
 
+## 21.0.0
+
+### Minor Changes
+
+- 12f7b10: Exposes bounded workflow-run diagnostics through the Workflows inter-module contract.
+- cffa62d: Adds bounded workflow-run overviews with API-provided status, duration, and
+  `has_started_job_execution`, plus pinned-attempt workspace navigation and
+  attempt/source reads.
+- b5d02d1: Adds renewable inference credential metadata, capability, and failure-reason contracts while preserving legacy behavior.
+
+### Patch Changes
+
+- 32e9fa0: Carries named agent sessions into failed-job reruns.
+- Updated dependencies [ff45d70]
+- Updated dependencies [e225f5e]
+- Updated dependencies [b5d02d1]
+  - @shipfox/api-agent-dto@21.0.0
+  - @shipfox/api-definitions-dto@21.0.0
+
 ## 20.4.0
 
 ### Minor Changes

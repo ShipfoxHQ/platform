@@ -1,5 +1,13 @@
 # @shipfox/api-secrets
 
+## 21.0.0
+
+### Patch Changes
+
+- Updated dependencies [879f227]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-projects-dto@21.0.0
+
 ## 20.4.0
 
 ### Patch Changes

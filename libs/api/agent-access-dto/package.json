@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-agent-access-dto",
   "license": "MIT",
-  "version": "20.3.0",
+  "version": "21.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

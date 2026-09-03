@@ -1,5 +1,39 @@
 # @shipfox/api-integration-core
 
+## 21.0.0
+
+### Major Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+
+### Patch Changes
+
+- b6298b8: Adds Test VCS credential invalidation, refresh controls, and shared E2E setup DTOs.
+- 879f227: Adds GitHub authorization state for selected and all repository access.
+- 6e746e2: Allows integration tool errors to satisfy declared MCP output schemas.
+- Updated dependencies [12f7b10]
+- Updated dependencies [ff45d70]
+- Updated dependencies [b6298b8]
+- Updated dependencies [e225f5e]
+- Updated dependencies [9b166c2]
+- Updated dependencies [879f227]
+- Updated dependencies [cffa62d]
+- Updated dependencies [5886bf2]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-agent-dto@21.0.0
+  - @shipfox/api-integration-core-dto@21.0.0
+  - @shipfox/api-integration-github@21.0.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-integration-spi@4.0.0
+  - @shipfox/api-integration-gitea@21.0.0
+  - @shipfox/api-integration-jira@21.0.0
+  - @shipfox/api-integration-linear@21.0.0
+  - @shipfox/api-integration-sentry@21.0.0
+  - @shipfox/api-integration-slack@21.0.0
+  - @shipfox/api-integration-webhook@21.0.0
+
 ## 20.4.0
 
 ### Patch Changes

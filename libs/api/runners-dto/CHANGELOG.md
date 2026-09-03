@@ -1,5 +1,11 @@
 # @shipfox/api-runners-dto
 
+## 21.0.0
+
+### Minor Changes
+
+- b5d02d1: Adds renewable inference credential metadata, capability, and failure-reason contracts while preserving legacy behavior.
+
 ## 20.0.0
 
 ### Minor Changes
