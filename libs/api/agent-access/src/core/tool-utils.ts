@@ -51,7 +51,8 @@ export function decodeStringCursor(
 export function decodeNumberCursor(
   value: string | undefined,
 ): {value: number; id: string} | undefined {
-  return value === undefined ? undefined : decodeNumberIdCursor(value);
+  const cursor = value === undefined ? undefined : decodeNumberIdCursor(value);
+  return cursor !== undefined && Number.isSafeInteger(cursor.value) ? cursor : undefined;
 }
 
 export function validateBoundedNumberCursor(

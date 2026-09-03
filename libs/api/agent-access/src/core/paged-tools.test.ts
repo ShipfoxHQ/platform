@@ -238,6 +238,23 @@ describe('paged agent-access tools', () => {
     expect(JSON.stringify(response)).not.toContain('tool-call');
   });
 
+  test('rejects numeric cursors outside the safe integer range', async () => {
+    const mocks = clients();
+    const cursor = Buffer.from(
+      JSON.stringify({value: '9007199254740993', id: annotationId}),
+      'utf8',
+    ).toString('base64url');
+
+    const response = await tool(mocks, 'get_run_annotations').execute({
+      context,
+      arguments: {run_id: runId, cursor},
+    });
+
+    expect(response).toEqual({ok: false, error: {code: 'invalid-request'}});
+    expect(mocks.workflows.getLatestRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.annotations.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+  });
+
   test('maps trigger filters and projects connection metadata', async () => {
     const mocks = clients();
     mocks.triggers.listTriggerEvents.mockResolvedValue({
