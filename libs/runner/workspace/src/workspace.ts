@@ -1,6 +1,16 @@
 import {randomUUID} from 'node:crypto';
 import type {Dirent} from 'node:fs';
-import {link, mkdir, readdir, readFile, readlink, rm, symlink, writeFile} from 'node:fs/promises';
+import {
+  link,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, parse, resolve} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -17,7 +27,7 @@ const FALLBACK_CREDENTIAL_SOCKET_SUFFIX = '.sock';
 const FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX = '.owner';
 const FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX = '.lock';
 const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE =
-  /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock(?:\.(?:reclaim|(?:[0-9]+\.)?[0-9a-f-]+\.(?:tmp|stale)))?)?$/u;
+  /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock(?:\.(?:[0-9]+\.)?[0-9a-f-]+\.(?:tmp|stale))?)?$/u;
 
 export function runnerFallbackCredentialSocketPath(capability: string): string {
   assertUuidCapability(capability);
@@ -238,7 +248,7 @@ async function cleanupOrphanedFallbackCredentialSockets(): Promise<void> {
 
   const capabilities = new Set<string>();
   for (const entry of entries) {
-    if (!entry.isFile() && !entry.isSocket() && !entry.isSymbolicLink()) continue;
+    if (!entry.isFile() && !entry.isSocket()) continue;
     const match = FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.exec(entry.name);
     const capability = match?.groups?.capability;
     if (capability !== undefined && isUuid(capability)) capabilities.add(capability);
@@ -260,7 +270,7 @@ async function cleanupFallbackCredentialSocket(
   const lockPrefix = `${capability}${FALLBACK_CREDENTIAL_SOCKET_SUFFIX}${FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
   for (const entry of entries) {
     if (
-      (entry.isFile() || entry.isSymbolicLink()) &&
+      entry.isFile() &&
       entry.name.startsWith(lockPrefix) &&
       FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.test(entry.name)
     ) {
@@ -269,6 +279,8 @@ async function cleanupFallbackCredentialSocket(
   }
   let owner: string | undefined;
   try {
+    const ownerStats = await lstat(ownerPath);
+    if (!ownerStats.isFile()) return;
     owner = (await readFile(ownerPath, 'utf8')).trim();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {

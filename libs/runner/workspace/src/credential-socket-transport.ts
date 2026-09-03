@@ -10,8 +10,8 @@ import {
   readdir,
   readFile,
   readlink,
+  rename,
   rm,
-  symlink,
 } from 'node:fs/promises';
 import {connect, createServer, type Server, type Socket} from 'node:net';
 import {basename, dirname, join} from 'node:path';
@@ -522,7 +522,7 @@ async function tryPublishSocketLock(
     if (await socketLockRecordOwnerIsAlive(socketPath, existingLock)) {
       throw new CredentialSocketError('Credential socket path is occupied');
     }
-    await tryReclaimStaleSocketLock(lockPath, existingLock);
+    await tryReclaimStaleSocketLock(socketPath, lockPath, existingLock);
     return false;
   }
 }
@@ -567,43 +567,42 @@ async function socketLockRecordOwnerIsAlive(socketPath: string, record: string):
   }
 }
 
-async function tryReclaimStaleSocketLock(lockPath: string, expectedLock: string): Promise<boolean> {
-  const reclaimPath = `${lockPath}.reclaim`;
-
-  while (true) {
-    try {
-      await symlink(`${process.pid}:${randomUUID()}`, reclaimPath);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      if (!(await isStaleSocketLockReclaimer(reclaimPath))) return false;
-      await rm(reclaimPath, {force: true});
-    }
-  }
-
+async function tryReclaimStaleSocketLock(
+  socketPath: string,
+  lockPath: string,
+  expectedLock: string,
+): Promise<boolean> {
+  const stalePath = `${lockPath}.${process.pid}.${randomUUID()}.stale`;
   try {
-    if ((await readSocketLock(lockPath)) !== expectedLock) return false;
-    await rm(lockPath, {force: true});
-    return true;
-  } finally {
-    await rm(reclaimPath, {force: true});
+    await rename(lockPath, stalePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
+
+  const currentLock = await readSocketLock(stalePath);
+  if (currentLock !== expectedLock) {
+    await restoreSocketLock(stalePath, lockPath);
+    return false;
+  }
+
+  if (await isSocketActive(socketPath)) {
+    await restoreSocketLock(stalePath, lockPath);
+    return false;
+  }
+
+  await rm(stalePath, {force: true});
+  return true;
 }
 
-async function isStaleSocketLockReclaimer(reclaimPath: string): Promise<boolean> {
-  let target: string;
+async function restoreSocketLock(stalePath: string, lockPath: string): Promise<void> {
   try {
-    target = await readlink(reclaimPath);
+    await link(stalePath, lockPath);
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ENOENT';
-  }
-  const owner = Number(target.split(':', 1)[0]);
-  if (!Number.isSafeInteger(owner) || owner <= 0) return true;
-  try {
-    process.kill(owner, 0);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'EEXIST' && code !== 'ENOENT') throw error;
+  } finally {
+    await rm(stalePath, {force: true});
   }
 }
 
@@ -623,17 +622,10 @@ async function sweepSocketLockArtifacts(socketPath: string): Promise<void> {
         (entry) =>
           (entry.isFile() || entry.isSymbolicLink()) &&
           entry.name.startsWith(prefix) &&
-          (entry.name.endsWith('.reclaim') ||
-            CREDENTIAL_SOCKET_LOCK_ARTIFACT_RE.test(entry.name.slice(prefix.length))),
+          CREDENTIAL_SOCKET_LOCK_ARTIFACT_RE.test(entry.name.slice(prefix.length)),
       )
       .map(async (entry) => {
         const artifactPath = join(dirname(socketPath), entry.name);
-        if (entry.name.endsWith('.reclaim')) {
-          if (await isStaleSocketLockReclaimer(artifactPath)) {
-            await rm(artifactPath, {force: true});
-          }
-          return;
-        }
         const record = await readSocketLock(artifactPath);
         if (record !== undefined && (await socketLockRecordOwnerIsAlive(socketPath, record)))
           return;
