@@ -11,30 +11,3 @@ ALTER TABLE "workflows_job_listener_events" ADD CONSTRAINT "workflows_job_listen
 CREATE INDEX "workflows_job_listener_events_pending_order_idx" ON "workflows_job_listener_events" USING btree ("job_id","received_at","id") WHERE "workflows_job_listener_events"."consumed_by_execution_id" IS NULL AND "workflows_job_listener_events"."outcome" = 'pending';--> statement-breakpoint
 CREATE INDEX "workflows_job_listener_events_consumed_order_idx" ON "workflows_job_listener_events" USING btree ("consumed_by_execution_id","received_at","id") WHERE "workflows_job_listener_events"."consumed_by_execution_id" IS NOT NULL;--> statement-breakpoint
 ALTER TABLE "workflows_job_listener_events" ADD CONSTRAINT "workflows_job_listener_events_byte_counts_ck" CHECK ("workflows_job_listener_events"."stored_payload_bytes" >= 0 AND "workflows_job_listener_events"."normalized_event_bytes" >= 0);--> statement-breakpoint
-ALTER TABLE "workflows_job_listener_events" ADD CONSTRAINT "workflows_job_listener_events_outcome_consistency_ck" CHECK (COALESCE((
-        ("workflows_job_listener_events"."outcome" = 'pending'
-          AND "workflows_job_listener_events"."disposition" IN ('fire', 'resolve')
-          AND "workflows_job_listener_events"."consumed_by_execution_id" IS NULL
-          AND "workflows_job_listener_events"."payload" IS NOT NULL
-          AND "workflows_job_listener_events"."outcome_reason" IS NULL)
-        OR ("workflows_job_listener_events"."outcome" = 'consumed'
-          AND "workflows_job_listener_events"."disposition" = 'fire'
-          AND "workflows_job_listener_events"."consumed_by_execution_id" IS NOT NULL
-          AND "workflows_job_listener_events"."payload" IS NOT NULL
-          AND "workflows_job_listener_events"."outcome_reason" IS NULL)
-        OR ("workflows_job_listener_events"."outcome" = 'honored'
-          AND "workflows_job_listener_events"."disposition" = 'resolve'
-          AND "workflows_job_listener_events"."consumed_by_execution_id" IS NULL
-          AND "workflows_job_listener_events"."payload" IS NOT NULL
-          AND "workflows_job_listener_events"."outcome_reason" IS NULL)
-        OR ("workflows_job_listener_events"."outcome" = 'rejected'
-          AND "workflows_job_listener_events"."disposition" = 'fire'
-          AND "workflows_job_listener_events"."consumed_by_execution_id" IS NULL
-          AND "workflows_job_listener_events"."payload" IS NULL
-          AND "workflows_job_listener_events"."outcome_reason" = 'payload_too_large')
-        OR ("workflows_job_listener_events"."outcome" = 'abandoned'
-          AND "workflows_job_listener_events"."disposition" IN ('fire', 'resolve')
-          AND "workflows_job_listener_events"."consumed_by_execution_id" IS NULL
-          AND "workflows_job_listener_events"."payload" IS NOT NULL
-          AND "workflows_job_listener_events"."outcome_reason" IN ('until', 'timeout', 'max_executions', 'cancelled'))
-      ), false)) NOT VALID;
