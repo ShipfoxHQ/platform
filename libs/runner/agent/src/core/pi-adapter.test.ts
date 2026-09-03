@@ -1255,6 +1255,8 @@ describe('piHarnessAdapter', () => {
           abort: abortMock,
           bindExtensions: bindExtensionsMock,
           getLastAssistantText: getLastAssistantTextMock,
+          getActiveToolNames: getActiveToolNamesMock,
+          setActiveToolsByName: setActiveToolsByNameMock,
           messages: [],
         },
       });
@@ -1310,6 +1312,8 @@ describe('piHarnessAdapter', () => {
           abort: abortMock,
           bindExtensions: bindExtensionsMock,
           getLastAssistantText: getLastAssistantTextMock,
+          getActiveToolNames: getActiveToolNamesMock,
+          setActiveToolsByName: setActiveToolsByNameMock,
           messages: [],
         },
       });
