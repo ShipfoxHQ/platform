@@ -1,4 +1,9 @@
-import {RUNNER_JOB_CLAIMED, RUNNER_JOB_LEASE_EXPIRED} from '@shipfox/api-runners-dto';
+import {
+  RUNNER_JOB_CLAIMED,
+  RUNNER_JOB_LEASE_EXPIRED,
+  runnerJobClaimedEventSchema,
+  runnerJobLeaseExpiredEventSchema,
+} from '@shipfox/api-runners-dto';
 import {pgClient} from '@shipfox/node-postgres';
 import {eq, inArray, sql} from 'drizzle-orm';
 import {EmptyRequiredLabelsError, RunnerSessionExhaustedError} from '#core/errors.js';
@@ -9,6 +14,7 @@ import {
   getLeaseTokenClaims,
   pendingJobFactory,
   providerRunnerFactory,
+  provisionerTokenFactory,
   runnerSessionFactory,
   runnersTestAuthClient,
 } from '#test/index.js';
@@ -166,10 +172,29 @@ describe('claimPendingJobExecution', () => {
     runnerSessionId = runnerSession.id;
   });
 
-  it('emits runners.job.claimed carrying the claim instant on a real claim', async () => {
-    const created = await pendingJobFactory.create({workspaceId});
+  it('emits runners.job.claimed with the claimed row and runner identity', async () => {
+    const provisioner = await provisionerTokenFactory.create({scope: 'installation'});
+    const provisionerWorkspaceId = workspaceId;
+    const providerRunner = await providerRunnerFactory.create({
+      workspaceId: provisionerWorkspaceId,
+      provisionerId: provisioner.id,
+      providerKind: 'ec2',
+      launchKind: 'demand',
+      templateKey: 'standard',
+      labels: ['linux', 'x64', 'shipfox-managed'],
+    });
+    await db()
+      .update(runnerSessions)
+      .set({
+        registrationTokenKind: 'ephemeral',
+        maxClaims: 1,
+        provisionerId: provisioner.id,
+        providerRunnerId: providerRunner.providerRunnerId,
+      })
+      .where(eq(runnerSessions.id, runnerSessionId));
+    const created = await pendingJobFactory.create({workspaceId, projectId: crypto.randomUUID()});
 
-    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: 1});
 
     const [running] = await db()
       .select()
@@ -177,16 +202,46 @@ describe('claimPendingJobExecution', () => {
       .where(eq(runningJobExecutions.jobId, claimed?.jobId as string));
     const outbox = await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId);
     expect(outbox).toHaveLength(1);
-    const payload = outbox[0]?.payload as {
-      jobId: string;
-      workflowRunId: string;
-      workflowRunAttemptId: string;
-      claimedAt: string;
-    };
-    expect(payload.jobId).toBe(created.jobId);
-    expect(payload.workflowRunId).toBe(created.workflowRunId);
-    expect(payload.workflowRunAttemptId).toBe(created.workflowRunAttemptId);
+    const payload = runnerJobClaimedEventSchema.strict().parse(outbox[0]?.payload);
+    expect(payload).toMatchObject({
+      jobId: created.jobId,
+      workflowRunId: created.workflowRunId,
+      workflowRunAttemptId: created.workflowRunAttemptId,
+      jobExecutionId: created.jobExecutionId,
+      workspaceId,
+      projectId: created.projectId,
+      runnerLabels: running?.runnerLabels,
+      templateKey: providerRunner.templateKey,
+      provisionerId: provisioner.id,
+      provisionerScope: 'installation',
+      providerRunnerId: providerRunner.providerRunnerId,
+      providerKind: providerRunner.providerKind,
+      launchKind: providerRunner.launchKind,
+    });
     expect(new Date(payload.claimedAt).getTime()).toBe(running?.startedAt.getTime());
+  });
+
+  it('schema-validates a manual claim with nullable runner identity fields', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+    expect(claimed?.jobId).toBe(created.jobId);
+    const outbox = await outboxEventsForJob(RUNNER_JOB_CLAIMED, created.jobId);
+    expect(outbox).toHaveLength(1);
+    const payload = runnerJobClaimedEventSchema.strict().parse(outbox[0]?.payload);
+    expect(payload).toMatchObject({
+      jobId: created.jobId,
+      workspaceId,
+      projectId: created.projectId,
+      runnerLabels: sessionLabels,
+      templateKey: null,
+      provisionerId: null,
+      provisionerScope: null,
+      providerRunnerId: null,
+      providerKind: null,
+      launchKind: 'manual',
+    });
   });
 
   it('records queue time from the pending row creation to the runner claim', async () => {
@@ -1573,7 +1628,9 @@ describe('detectAndExpireStuckJobs', () => {
   it('expires a stuck job and writes a runners.job.lease_expired event', async () => {
     const {jobId, workflowRunId, workflowRunAttemptId} = await makeStaleJob(600);
 
+    const beforeExpiry = Date.now();
     const result = await detectAndExpireStuckJobs({thresholdSeconds: 180});
+    const afterExpiry = Date.now();
 
     expect(result.expired).toBeGreaterThanOrEqual(1);
     expect(await runningJobsForTest()).toHaveLength(0);
@@ -1581,13 +1638,20 @@ describe('detectAndExpireStuckJobs', () => {
     const outbox = await outboxForJobs([jobId]);
     expect(outbox).toHaveLength(1);
     expect(outbox[0]?.eventType).toBe(RUNNER_JOB_LEASE_EXPIRED);
-    const payload = outbox[0]?.payload as Record<string, unknown>;
+    const payload = runnerJobLeaseExpiredEventSchema.strict().parse(outbox[0]?.payload);
     expect(payload.jobId).toBe(jobId);
     expect(payload.workflowRunId).toBe(workflowRunId);
     expect(payload.workflowRunAttemptId).toBe(workflowRunAttemptId);
-    // The lease-expired event carries only the assignment identifiers.
-    expect(payload.status).toBeUndefined();
-    expect(payload.steps).toBeUndefined();
+    expect(payload.expiredAt).toEqual(expect.any(String));
+    expect(new Date(payload.expiredAt as string).getTime()).toBeGreaterThanOrEqual(
+      beforeExpiry - 1_000,
+    );
+    expect(new Date(payload.expiredAt as string).getTime()).toBeLessThanOrEqual(
+      afterExpiry + 1_000,
+    );
+    // The lease-expired event carries only the assignment identifiers and expiry timestamp.
+    expect(outbox[0]?.payload).not.toHaveProperty('status');
+    expect(outbox[0]?.payload).not.toHaveProperty('steps');
   });
 
   it('defers a correlated stale batch and recovers it with the operator override', async () => {
@@ -2062,6 +2126,10 @@ describe('detectAndExpireStuckJobs', () => {
     const outbox = await outboxForJobs([stuck1.jobId, stuck2.jobId]);
     expect(outbox).toHaveLength(2);
     expect(outbox.every((row) => row.eventType === RUNNER_JOB_LEASE_EXPIRED)).toBe(true);
+    const payloads = outbox.map((row) =>
+      runnerJobLeaseExpiredEventSchema.strict().parse(row.payload),
+    );
+    expect(payloads.every((payload) => payload.expiredAt !== undefined)).toBe(true);
   });
 
   it('two concurrent ticks reap each stuck job exactly once (no double-emit)', async () => {
