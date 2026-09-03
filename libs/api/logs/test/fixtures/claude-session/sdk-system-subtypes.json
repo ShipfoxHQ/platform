@@ -1,10 +1,12 @@
 {
   "package": "@anthropic-ai/claude-agent-sdk",
-  "version": "0.3.200",
+  "version": "0.3.246",
   "subtypes": [
     "api_retry",
+    "background_tasks_changed",
     "commands_changed",
     "compact_boundary",
+    "control_request_progress",
     "elicitation_complete",
     "files_persisted",
     "hook_progress",

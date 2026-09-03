@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {assertBundledClaudeCodeVersion} from '@shipfox/runner-agent/claude-code';
 import {assertPiHarnessExtensionsAvailable} from '@shipfox/runner-agent/pi-extensions';
 import {assertPiImageRasterizerAvailable} from '@shipfox/runner-agent/pi-image-rasterizer';
 
@@ -24,5 +25,6 @@ for (const specifier of RUNNER_RUNTIME_EXPORTS) {
 // than the pnpm development tree. Imports the leaf module, not a package barrel: the runner barrels
 // validate the runtime environment at module load, which no image build can satisfy. A throw prints
 // the offending package and exits nonzero, which is the whole contract here.
+assertBundledClaudeCodeVersion();
 assertPiHarnessExtensionsAvailable();
 await assertPiImageRasterizerAvailable();

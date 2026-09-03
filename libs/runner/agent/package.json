@@ -49,6 +49,16 @@
         "default": "./dist/core/pi-extensions.js"
       }
     },
+    "./claude-code": {
+      "workspace-source": {
+        "types": "./src/claude-code.ts",
+        "default": "./src/claude-code.ts"
+      },
+      "default": {
+        "types": "./dist/claude-code.d.ts",
+        "default": "./dist/claude-code.js"
+      }
+    },
     "./tool-capabilities": {
       "workspace-source": {
         "types": "./src/core/tool-capabilities.ts",
