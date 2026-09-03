@@ -76,7 +76,7 @@ interface WorkflowDiagnosticResource {
   queryKey: QueryKey;
 }
 
-/** Invalidate lazy diagnostics once when their compact parent transitions to a terminal status. */
+/** Invalidate lazy diagnostics once when their compact parent becomes terminal. */
 export function useWorkflowJobDiagnosticInvalidation({
   execution,
   steps,
@@ -109,7 +109,12 @@ export function useWorkflowJobDiagnosticInvalidation({
 
     const previous = previousResourceStatesRef.current;
     for (const resource of resources) {
-      if (previous.get(resource.key) === false && resource.isTerminal) {
+      if (
+        resource.isTerminal &&
+        (previous.get(resource.key) === false ||
+          (previous.get(resource.key) === undefined &&
+            queryClient.getQueryData(resource.queryKey) !== undefined))
+      ) {
         void queryClient.invalidateQueries({queryKey: resource.queryKey});
       }
     }

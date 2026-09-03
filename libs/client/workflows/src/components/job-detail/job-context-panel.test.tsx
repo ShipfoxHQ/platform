@@ -143,6 +143,51 @@ describe('JobContextPanel', () => {
     expect(screen.getByRole('button', {name: 'Inspect job details'})).toBeInTheDocument();
   });
 
+  test('renders a job-level status reason when lazy context is unavailable', async () => {
+    const user = userEvent.setup();
+    const job = workflowJob({
+      name: 'build',
+      status: 'failed',
+      status_reason: 'condition_false',
+      job_executions: [workflowJobExecutionDto({status: 'failed'})],
+    });
+    const execution = job.jobExecutions[0];
+    if (!execution) throw new Error('Test fixture is missing a job execution.');
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse({
+          ...workflowJobExecutionContextResponseDto(job.id, execution.id),
+          job_runner: null,
+          execution_runner: null,
+          job_outputs: null,
+          execution_outputs: null,
+          trigger_events: [],
+          job_evaluation_trace: null,
+          execution_evaluation_trace: null,
+          condition: null,
+        }),
+      ),
+    });
+
+    renderWithQueryClient(
+      <JobContextPanel
+        job={job}
+        execution={execution}
+        selectedExecution={{
+          ...selectedExecutionDetail(execution.id, job.id),
+          status: 'failed',
+          statusReason: null,
+          hasContext: false,
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Inspect job details'}));
+    const dialog = await screen.findByRole('dialog', {name: 'build'});
+    expect(within(dialog).getByText('Status reason')).toBeInTheDocument();
+    expect(within(dialog).getByText('Condition False')).toBeInTheDocument();
+  });
+
   test('keeps loaded context visible when a refresh fails', async () => {
     const user = userEvent.setup();
     const job = workflowJob({

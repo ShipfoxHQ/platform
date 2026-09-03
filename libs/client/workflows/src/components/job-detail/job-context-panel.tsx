@@ -40,7 +40,8 @@ export function JobContextPanel({
   selectedExecution?: WorkflowJobExecutionDetail | undefined;
 }) {
   if (selectedExecution !== undefined) {
-    if (!selectedExecution.hasContext && !hasJobExecutionSummaryContext(execution)) return null;
+    if (!selectedExecution.hasContext && !hasJobExecutionSummaryContext(job, execution))
+      return null;
     return (
       <LazyJobContextSheet job={job} execution={execution} selectedExecution={selectedExecution} />
     );
@@ -124,7 +125,9 @@ function LazyJobContextSheet({
           {contextQuery.isError && context !== undefined ? (
             <JobContextStaleError query={contextQuery} />
           ) : null}
-          {context ? <LazyJobContextContent context={context} execution={execution} /> : null}
+          {context ? (
+            <LazyJobContextContent context={context} job={job} execution={execution} />
+          ) : null}
         </SheetBody>
       </SheetContent>
     </Sheet>
@@ -133,9 +136,11 @@ function LazyJobContextSheet({
 
 function LazyJobContextContent({
   context,
+  job,
   execution,
 }: {
   context: WorkflowJobExecutionContext;
+  job: Job;
   execution: JobExecution;
 }) {
   const trace = [
@@ -150,14 +155,14 @@ function LazyJobContextContent({
       <ContextRunner label="Execution runner" runner={context.executionRunner} />
       <ContextTiming execution={execution} />
       <ContextOutputs context={context} />
-      <ContextStatus context={context} execution={execution} />
+      <ContextStatus context={context} job={job} execution={execution} />
       <ContextTraceAndEvents
         context={context}
         conditionTrace={conditionTrace}
         executionNameTrace={executionNameTrace}
       />
       <ContextUnavailableFields fields={context.oversizedFields} />
-      {!hasLazyJobContextValues(context, execution, trace) ? (
+      {!hasLazyJobContextValues(context, job, execution, trace) ? (
         <Text size="xs" className="text-foreground-neutral-muted">
           No additional execution context was recorded.
         </Text>
@@ -211,17 +216,19 @@ function ContextOutputs({context}: {context: WorkflowJobExecutionContext}) {
 
 function ContextStatus({
   context,
+  job,
   execution,
 }: {
   context: WorkflowJobExecutionContext;
+  job: Job;
   execution: JobExecution;
 }) {
+  const statusReason = execution.statusReason ?? job.statusReason;
+
   return (
     <>
       {context.condition ? <ContextValue label="Condition" value={context.condition} mono /> : null}
-      {execution.statusReason ? (
-        <ContextValue label="Status reason" value={humanize(execution.statusReason)} />
-      ) : null}
+      {statusReason ? <ContextValue label="Status reason" value={humanize(statusReason)} /> : null}
       {execution.statusReasonMessage ? (
         <ContextValue label="Failure details" value={execution.statusReasonMessage} />
       ) : null}
@@ -285,6 +292,7 @@ function ContextUnavailableFields({
 
 function hasLazyJobContextValues(
   context: WorkflowJobExecutionContext,
+  job: Job,
   execution: JobExecution,
   trace: readonly EvaluationTraceEntry[],
 ): boolean {
@@ -300,13 +308,15 @@ function hasLazyJobContextValues(
       execution.queueTime ||
       execution.runTime ||
       execution.statusReason ||
+      job.statusReason ||
       execution.statusReasonMessage,
   );
 }
 
-function hasJobExecutionSummaryContext(execution: JobExecution): boolean {
+function hasJobExecutionSummaryContext(job: Job, execution: JobExecution): boolean {
   return Boolean(
-    execution.queueTime ||
+    job.statusReason ||
+      execution.queueTime ||
       execution.runTime ||
       execution.statusReason ||
       execution.statusReasonMessage,

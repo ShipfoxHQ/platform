@@ -34,6 +34,28 @@ describe('presentStepAttemptDiagnostics', () => {
     expect(result.invocations).toEqual(attempt.invocations);
   });
 
+  test('uses explicit null detail fields instead of stale compact values', () => {
+    const attempt = compactAttempt();
+    const result = presentStepAttemptDiagnostics(
+      attempt,
+      attemptDetail({
+        output: null,
+        outputs: null,
+        response: null,
+        error: null,
+        gateResult: null,
+        restartFeedback: null,
+      }),
+    );
+
+    expect(result.output).toBeNull();
+    expect(result.outputs).toBeNull();
+    expect(result.response).toBeNull();
+    expect(result.error).toBeNull();
+    expect(result.gateResult).toBeNull();
+    expect(result.restartFeedback).toBeNull();
+  });
+
   test('suppresses oversized fields while preserving available detail fields', () => {
     const result = presentStepAttemptDiagnostics(
       compactAttempt(),

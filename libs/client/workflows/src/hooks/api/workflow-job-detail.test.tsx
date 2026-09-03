@@ -174,6 +174,7 @@ describe('selected-job API hooks', () => {
         state: {data: {}, error: new Error('failed')},
       } as never),
     ).toBe(false);
+    expect(stepOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(4_000);
   });
 
   test('invalidates lazy diagnostics once when compact resources become terminal', async () => {
@@ -205,6 +206,33 @@ describe('selected-job API hooks', () => {
     const terminalAgain = withAttemptStatus(selectedExecution, 'succeeded');
     rerender({execution: terminalAgain, steps: terminalAgain.steps.items});
     expect(invalidateQueries).toHaveBeenCalledTimes(2);
+  });
+
+  test('invalidates cached diagnostics first observed after terminal transition', async () => {
+    const selectedExecution = toWorkflowJobDetail(selectedJobDetailResponseDto()).selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const terminal = withAttemptStatus(selectedExecution, 'succeeded');
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['workflow-executions', 'context', EXECUTION_ID], {});
+    queryClient.setQueryData(['workflow-step-attempt-details', STEP_ID, 1], {});
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    renderHook(
+      ({execution, steps}: {execution: typeof terminal; steps: typeof terminal.steps.items}) =>
+        useWorkflowJobDiagnosticInvalidation({execution, steps}),
+      {wrapper, initialProps: {execution: terminal, steps: terminal.steps.items}},
+    );
+
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
+    expect(invalidateQueries).toHaveBeenNthCalledWith(1, {
+      queryKey: ['workflow-executions', 'context', EXECUTION_ID],
+    });
+    expect(invalidateQueries).toHaveBeenNthCalledWith(2, {
+      queryKey: ['workflow-step-attempt-details', STEP_ID, 1],
+    });
   });
 
   test('fetches and maps context only through its bounded route', async () => {

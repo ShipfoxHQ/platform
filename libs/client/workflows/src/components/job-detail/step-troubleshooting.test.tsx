@@ -945,13 +945,6 @@ function stepDetailResponse(
     config: null,
     session: null,
     evaluation_trace: null,
-    output: null,
-    outputs: null,
-    response: null,
-    error: null,
-    gate_result: null,
-    invocations: [],
-    restart_feedback: null,
     oversized_fields: [],
     ...overrides,
   };

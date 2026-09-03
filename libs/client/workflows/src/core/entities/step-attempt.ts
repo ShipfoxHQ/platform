@@ -120,7 +120,7 @@ export function isTerminalStepAttemptStatus(status: string): boolean {
   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
 }
 
-/** Apply the lazy detail response while preserving compact values and bounded unavailable fields. */
+/** Apply the lazy detail response while preserving omitted compact values and bounded unavailable fields. */
 export function presentStepAttemptDiagnostics(
   attempt: StepAttempt,
   detail: StepAttemptDetail,
@@ -129,23 +129,51 @@ export function presentStepAttemptDiagnostics(
   return {
     ...attempt,
     displayDuration: attempt.displayDuration,
-    output: unavailableFields.has('output') ? null : (detail.output ?? attempt.output),
-    outputs: unavailableFields.has('outputs')
-      ? null
-      : (detail.outputs ?? detail.output ?? attempt.outputs),
-    response: unavailableFields.has('response') ? null : (detail.response ?? attempt.response),
-    error: unavailableFields.has('error') ? null : (detail.error ?? attempt.error),
-    gateResult: unavailableFields.has('gate_result')
-      ? null
-      : (detail.gateResult ?? attempt.gateResult),
-    restartFeedback: unavailableFields.has('restart_feedback')
-      ? null
-      : (detail.restartFeedback ?? attempt.restartFeedback),
+    output: presentDiagnosticValue(unavailableFields.has('output'), detail.output, attempt.output),
+    outputs: presentDiagnosticValue(
+      unavailableFields.has('outputs'),
+      outputDiagnosticValue(detail),
+      attempt.outputs,
+    ),
+    response: presentDiagnosticValue(
+      unavailableFields.has('response'),
+      detail.response,
+      attempt.response,
+    ),
+    error: presentDiagnosticValue(unavailableFields.has('error'), detail.error, attempt.error),
+    gateResult: presentDiagnosticValue(
+      unavailableFields.has('gate_result'),
+      detail.gateResult,
+      attempt.gateResult,
+    ),
+    restartFeedback: presentDiagnosticValue(
+      unavailableFields.has('restart_feedback'),
+      detail.restartFeedback,
+      attempt.restartFeedback,
+    ),
     invocations:
       detail.invocations && detail.invocations.length > 0
         ? detail.invocations
         : attempt.invocations,
   };
+}
+
+function presentDiagnosticValue<T>(
+  unavailable: boolean,
+  detailValue: T | null | undefined,
+  compactValue: T | null,
+): T | null {
+  if (unavailable) return null;
+  if (detailValue !== undefined) return detailValue;
+  return compactValue;
+}
+
+function outputDiagnosticValue(
+  detail: StepAttemptDetail,
+): Record<string, unknown> | null | undefined {
+  if (detail.outputs !== undefined) return detail.outputs;
+  if (detail.output !== undefined) return detail.output;
+  return undefined;
 }
 
 export function stepAttemptDisplayDurationFromTimestamps({
