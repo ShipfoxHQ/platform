@@ -8,7 +8,7 @@ import {
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm';
+import {and, asc, count, eq, gt, inArray, isNull, notInArray, or, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {
   type AgentToolMaterializationContext,
@@ -25,9 +25,9 @@ import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import {InterpolationUnresolvableError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
+  createListenerEventBatchPacker,
   type ListenerBatchPartitionReason,
   MAX_LISTENER_TRIGGER_EVENTS_BYTES,
-  packListenerEventBatch,
 } from '#core/listener-event-batching.js';
 import {
   type MaterializedListenerExecution,
@@ -265,6 +265,17 @@ interface DrainedListenerEvents {
   readonly partitionReason?: ListenerBatchPartitionReason;
 }
 
+interface LockedListenerEventBatch {
+  readonly bufferedEvents: readonly JobListenerEventDb[];
+  readonly triggerEvents: readonly WorkflowExecutionEvent[];
+  readonly partitionReason?: ListenerBatchPartitionReason;
+}
+
+interface ListenerEventCursor {
+  readonly receivedAt: Date;
+  readonly id: string;
+}
+
 interface ListenerDrainTransactionParams {
   readonly drain: DrainListenerEventsParams;
   readonly model: WorkflowModel | null;
@@ -370,18 +381,16 @@ async function drainListenerEventsInTransaction(
   const resolveRequested = await hasPendingResolveEvent(params.drain.jobId, tx);
   if (resolveRequested) return {result: {kind: 'resolve-requested'}};
 
-  const bufferedEvents = await lockBufferedFireEvents(params.drain, tx);
-  if (bufferedEvents.length === 0) return {result: {kind: 'empty'}};
-
-  const batch = packListenerEventBatch(listenerTriggerEvents(bufferedEvents), {
-    countLimitReached:
-      params.drain.maxSize !== undefined && bufferedEvents.length >= params.drain.maxSize,
-  });
-  if (batch.kind === 'empty') {
-    return {result: {kind: 'empty'}, partitionReason: batch.reason};
+  const bufferedEventBatch = await lockBufferedFireEventBatch(params.drain, tx);
+  if (bufferedEventBatch.bufferedEvents.length === 0) {
+    return {
+      result: {kind: 'empty'},
+      ...(bufferedEventBatch.partitionReason === undefined
+        ? {}
+        : {partitionReason: bufferedEventBatch.partitionReason}),
+    };
   }
 
-  const selectedBufferedEvents = bufferedEvents.slice(0, batch.events.length);
   const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
   const priorExecutions = await loadListenerPriorExecutions(
     params.drain.jobId,
@@ -396,7 +405,7 @@ async function drainListenerEventsInTransaction(
     vars: params.vars,
     variableResolutionError: params.variableResolutionError,
     sequence: params.drain.expectedSequence,
-    triggerEvents: batch.events,
+    triggerEvents: bufferedEventBatch.triggerEvents,
     priorExecutions,
     resolveAgentDefaults:
       params.drain.resolveAgentDefaults ??
@@ -409,7 +418,7 @@ async function drainListenerEventsInTransaction(
   const execution = await persistMaterializedListenerExecution(tx, {
     jobId: params.drain.jobId,
     sequence: params.drain.expectedSequence,
-    bufferedEventIds: selectedBufferedEvents.map((event) => event.id),
+    bufferedEventIds: bufferedEventBatch.bufferedEvents.map((event) => event.id),
     materialized,
   });
 
@@ -419,8 +428,10 @@ async function drainListenerEventsInTransaction(
 
   return {
     result: drainExecutionResult(execution),
-    batchSize: selectedBufferedEvents.length,
-    ...(batch.partitionReason === undefined ? {} : {partitionReason: batch.partitionReason}),
+    batchSize: bufferedEventBatch.bufferedEvents.length,
+    ...(bufferedEventBatch.partitionReason === undefined
+      ? {}
+      : {partitionReason: bufferedEventBatch.partitionReason}),
   };
 }
 
@@ -678,43 +689,72 @@ async function hasBufferedFireEvent(jobId: string, tx: Tx): Promise<boolean> {
   return fireEvent !== undefined;
 }
 
-async function lockBufferedFireEvents(
+async function lockBufferedFireEventBatch(
   params: DrainListenerEventsParams,
   tx: Tx,
-): Promise<JobListenerEventDb[]> {
-  const bufferedQuery = tx
-    .select()
-    .from(jobListenerEvents)
-    .where(
-      and(
-        eq(jobListenerEvents.jobId, params.jobId),
-        eq(jobListenerEvents.disposition, 'fire'),
-        isNull(jobListenerEvents.consumedByExecutionId),
-      ),
-    )
-    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
-  return await (params.maxSize === undefined
-    ? bufferedQuery
-    : bufferedQuery.limit(params.maxSize)
-  ).for('update');
+): Promise<LockedListenerEventBatch> {
+  const packer = createListenerEventBatchPacker();
+  const bufferedEvents: JobListenerEventDb[] = [];
+  let cursor: ListenerEventCursor | undefined;
+
+  while (params.maxSize === undefined || bufferedEvents.length < params.maxSize) {
+    const [event] = await tx
+      .select()
+      .from(jobListenerEvents)
+      .where(
+        and(
+          eq(jobListenerEvents.jobId, params.jobId),
+          eq(jobListenerEvents.disposition, 'fire'),
+          isNull(jobListenerEvents.consumedByExecutionId),
+          cursor === undefined
+            ? undefined
+            : or(
+                gt(jobListenerEvents.receivedAt, cursor.receivedAt),
+                and(
+                  eq(jobListenerEvents.receivedAt, cursor.receivedAt),
+                  gt(jobListenerEvents.id, cursor.id),
+                ),
+              ),
+        ),
+      )
+      .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
+      .limit(1)
+      .for('update');
+    if (event === undefined) break;
+
+    const triggerEvent = listenerTriggerEvent(event);
+    if (!packer.add(triggerEvent)) break;
+
+    bufferedEvents.push(event);
+    cursor = {receivedAt: event.receivedAt, id: event.id};
+  }
+
+  const batch = packer.finish({
+    countLimitReached:
+      params.maxSize !== undefined &&
+      bufferedEvents.length > 0 &&
+      bufferedEvents.length >= params.maxSize,
+  });
+  const partitionReason = batch.kind === 'empty' ? batch.reason : batch.partitionReason;
+  return {
+    bufferedEvents,
+    triggerEvents: batch.kind === 'empty' ? [] : batch.events,
+    ...(partitionReason === undefined ? {} : {partitionReason}),
+  };
 }
 
-function listenerTriggerEvents(
-  bufferedEvents: readonly JobListenerEventDb[],
-): WorkflowExecutionEvent[] {
-  return bufferedEvents.map((event) =>
-    normalizeWorkflowExecutionEvent({
-      source: event.source,
-      event: event.event,
-      delivery_id: event.deliveryId,
-      received_at: event.receivedAt.toISOString(),
-      project: event.triggerReference?.project ?? null,
-      repository: event.triggerReference?.repository ?? null,
-      ref: event.triggerReference?.ref ?? null,
-      commit: event.triggerReference?.commit ?? null,
-      data: event.payload,
-    }),
-  );
+function listenerTriggerEvent(event: JobListenerEventDb): WorkflowExecutionEvent {
+  return normalizeWorkflowExecutionEvent({
+    source: event.source,
+    event: event.event,
+    delivery_id: event.deliveryId,
+    received_at: event.receivedAt.toISOString(),
+    project: event.triggerReference?.project ?? null,
+    repository: event.triggerReference?.repository ?? null,
+    ref: event.triggerReference?.ref ?? null,
+    commit: event.triggerReference?.commit ?? null,
+    data: event.payload,
+  });
 }
 
 async function persistMaterializedListenerExecution(

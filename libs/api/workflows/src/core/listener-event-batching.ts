@@ -14,28 +14,71 @@ export type ListenerEventBatch =
       readonly partitionReason?: ListenerBatchPartitionReason;
     };
 
+export interface ListenerEventBatchPacker {
+  readonly events: readonly WorkflowExecutionEvent[];
+  add(event: WorkflowExecutionEvent): boolean;
+  finish(params: {readonly countLimitReached: boolean}): ListenerEventBatch;
+}
+
+export function createListenerEventBatchPacker(params?: {
+  readonly maxBytes?: number;
+}): ListenerEventBatchPacker {
+  const selected: WorkflowExecutionEvent[] = [];
+  const maxBytes = params?.maxBytes ?? MAX_LISTENER_TRIGGER_EVENTS_BYTES;
+  let serializedBytes = Buffer.byteLength('[]', 'utf8');
+  let partitionReason: ListenerBatchPartitionReason | undefined;
+
+  return {
+    get events() {
+      return selected;
+    },
+    add(event) {
+      if (partitionReason !== undefined) return false;
+
+      const serialized = JSON.stringify(event);
+      const eventBytes =
+        serialized === undefined ? Number.POSITIVE_INFINITY : Buffer.byteLength(serialized, 'utf8');
+      const candidateBytes =
+        serializedBytes + eventBytes + (selected.length === 0 ? 0 : Buffer.byteLength(',', 'utf8'));
+      if (candidateBytes > maxBytes) {
+        partitionReason = 'byte_limit';
+        return false;
+      }
+
+      selected.push(event);
+      serializedBytes = candidateBytes;
+      return true;
+    },
+    finish(finishParams) {
+      if (selected.length === 0 && partitionReason === 'byte_limit') {
+        return {kind: 'empty', reason: 'byte_limit'};
+      }
+
+      const resultPartitionReason =
+        partitionReason ?? (finishParams.countLimitReached ? 'count_limit' : undefined);
+      return {
+        kind: 'selected',
+        events: selected,
+        ...(resultPartitionReason === undefined ? {} : {partitionReason: resultPartitionReason}),
+      };
+    },
+  };
+}
+
 export function packListenerEventBatch(
   events: readonly WorkflowExecutionEvent[],
   params: {readonly countLimitReached: boolean; readonly maxBytes?: number},
 ): ListenerEventBatch {
-  const selected: WorkflowExecutionEvent[] = [];
-  const maxBytes = params.maxBytes ?? MAX_LISTENER_TRIGGER_EVENTS_BYTES;
+  const packer =
+    params.maxBytes === undefined
+      ? createListenerEventBatchPacker()
+      : createListenerEventBatchPacker({maxBytes: params.maxBytes});
 
   for (const event of events) {
-    const candidate = [...selected, event];
-    if (serializedListenerEventsByteLength(candidate) > maxBytes) {
-      return selected.length === 0
-        ? {kind: 'empty', reason: 'byte_limit'}
-        : {kind: 'selected', events: selected, partitionReason: 'byte_limit'};
-    }
-    selected.push(event);
+    if (!packer.add(event)) break;
   }
 
-  return {
-    kind: 'selected',
-    events: selected,
-    ...(params.countLimitReached ? {partitionReason: 'count_limit' as const} : {}),
-  };
+  return packer.finish({countLimitReached: params.countLimitReached});
 }
 
 export function serializedListenerEventsByteLength(

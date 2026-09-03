@@ -2,4 +2,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Partitions listener batches by serialized execution bytes and preserves pending tails.
+Accepts listener executions that fit the bounded execution payload limit and keeps overflow trigger events pending.
