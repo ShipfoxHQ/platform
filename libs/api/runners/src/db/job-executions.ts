@@ -25,11 +25,13 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
+import {config} from '#config.js';
 import {
   EmptyRequiredLabelsError,
   RunnerSessionExhaustedError,
   RunningJobExecutionNotFoundError,
 } from '#core/errors.js';
+import {effectiveRunnerToolCapabilities} from '#core/runner-tool-capabilities.js';
 import {
   type JobExecutionQueueTimeObservation,
   jobExecutionEnqueuedCount,
@@ -625,6 +627,7 @@ async function loadClaimRunnerContextTx(
       provisionerId: runnerSessions.provisionerId,
       providerRunnerId: runnerSessions.providerRunnerId,
       toolCapabilities: runnerSessions.toolCapabilities,
+      toolCapabilitiesReportedAt: runnerSessions.toolCapabilitiesReportedAt,
     })
     .from(runnerSessions)
     .where(eq(runnerSessions.id, params.runnerSessionId))
@@ -638,9 +641,16 @@ async function loadClaimRunnerContextTx(
     provisionerId = session.provisionerId;
     providerRunnerId = session.providerRunnerId;
   }
-  // The execution owns this claim-time value. Do not derive it from report freshness.
-  if (session)
-    renewableInference = session.toolCapabilities?.features?.renewable_inference === true;
+  // Snapshot only the freshness-aware state at claim time. Later heartbeat reports must not
+  // change the execution's eligibility.
+  if (session) {
+    const effectiveCapabilities = effectiveRunnerToolCapabilities({
+      toolCapabilities: session.toolCapabilities,
+      reportedAt: session.toolCapabilitiesReportedAt,
+      staleAfterSeconds: config.RUNNER_TOOL_CAPABILITIES_STALE_AFTER_SECONDS,
+    });
+    renewableInference = effectiveCapabilities.features?.renewable_inference === true;
+  }
   const runnerInstanceCondition = claimRunnerInstanceCondition(
     runnerInstanceId,
     provisionerId,
