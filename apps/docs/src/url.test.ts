@@ -14,6 +14,16 @@ describe('resolveDocsOrigin', () => {
     );
   });
 
+  it('uses the public docs origin when the production host is a Vercel deployment', () => {
+    assert.equal(
+      resolveDocsOrigin({
+        VERCEL_ENV: 'production',
+        NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: 'shipfox-docs-git-main.vercel.app',
+      }),
+      PUBLIC_DOCS_ORIGIN,
+    );
+  });
+
   it('uses the configured Vercel production host when available', () => {
     assert.equal(
       resolveDocsOrigin({
