@@ -22,6 +22,8 @@ import {
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
+import {createOnWorkflowRunAttemptCreated} from '#presentation/subscribers/on-workflow-run-attempt-created.js';
+import {runAttemptCreatedEvents} from '#test/helpers/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {rerunRunRoute} from './rerun-run.js';
 
@@ -140,6 +142,47 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       id: source.id,
       current_attempt: 2,
       latest_attempt: 2,
+      status: 'pending',
+    });
+  });
+
+  test('keeps a failed rerun pending when session carry-over fails', async () => {
+    const source = await createFailedRunWithFailedJob();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'failed'},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: source.id,
+      current_attempt: 2,
+      latest_attempt: 2,
+      status: 'pending',
+    });
+
+    const sourceAttempt = (await listRunAttempts({workflowRunId: source.id, projectId})).find(
+      (attempt) => attempt.attempt === 1,
+    );
+    if (!sourceAttempt) throw new Error('Expected source attempt');
+    const event = (await runAttemptCreatedEvents(source.id)).find(
+      (candidate) => candidate.attempt === 2,
+    );
+    if (!event) throw new Error('Expected attempt-created event');
+    const carryOverSessions = vi.fn().mockRejectedValue(new Error('carry-over-conflict'));
+
+    await expect(createOnWorkflowRunAttemptCreated({carryOverSessions})(event)).rejects.toThrow(
+      'carry-over-conflict',
+    );
+
+    expect(carryOverSessions).toHaveBeenCalledWith({
+      fromWorkflowRunAttemptId: sourceAttempt.id,
+      toWorkflowRunAttemptId: event.workflowRunAttemptId,
+    });
+    await expect(getWorkflowRunById(source.id)).resolves.toMatchObject({
+      currentAttempt: 2,
       status: 'pending',
     });
   });
