@@ -4,7 +4,7 @@ import type {
   ResolvedFieldSegment,
   WorkflowExpression,
 } from '@shipfox/expression';
-import type {Harness} from '@shipfox/workflow-document';
+import type {AgentToolSurface, Harness} from '@shipfox/workflow-document';
 import {z} from 'zod';
 
 export const DEFAULT_RUN_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
@@ -175,6 +175,7 @@ export interface WorkflowModelAgentStep extends WorkflowModelStepBase {
   /** An authored level, or a template source resolved when the step dispatches. */
   readonly thinking?: string;
   readonly tools?: readonly string[];
+  readonly toolSurface?: AgentToolSurface;
   readonly integrations?: readonly WorkflowModelStepIntegration[];
   readonly prompt: string;
   readonly session?: WorkflowModelAgentStepSession;

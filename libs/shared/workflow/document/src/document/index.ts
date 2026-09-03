@@ -4,8 +4,10 @@ export {
 } from './checkout-target-validation.js';
 export {
   type AgentThinking,
+  type AgentToolSurface,
   agentThinkingByHarness,
   agentThinkingSchema,
+  agentToolSurfaceSchema,
   claudeAgentThinkingSchema,
   DEFAULT_AGENT_THINKING,
   DEFAULT_HARNESS,

@@ -103,6 +103,7 @@ export interface StepConfigDispatchPlan {
       mode: 'resume' | 'fork';
     };
     tools?: readonly string[];
+    toolSurface?: 'strict-direct' | 'discovery';
     integrations?: readonly MaterializedAgentIntegrationConfigDto[];
     mcpServers?: readonly AgentIntegrationMcpServerConfigDto[];
   };

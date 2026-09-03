@@ -14,6 +14,7 @@ import {
 
 type ModelStep = WorkflowModel['jobs'][number]['steps'][number];
 type AgentThinking = Extract<ModelStep, {kind: 'agent'}>['thinking'];
+type AgentToolSurface = Extract<ModelStep, {kind: 'agent'}>['toolSurface'];
 type Harness = Extract<ModelStep, {kind: 'agent'}>['harness'];
 type Checkout = Extract<ModelStep, {kind: 'checkout'}>['checkout'];
 type WorkflowEnvTemplates = NonNullable<NonNullable<WorkflowModel['templates']>['env']>;
@@ -39,6 +40,7 @@ interface TestAgentStep extends TestWorkflowStepBase {
   readonly prompt: string;
   readonly thinking?: AgentThinking | undefined;
   readonly tools?: readonly string[] | undefined;
+  readonly toolSurface?: AgentToolSurface | undefined;
   readonly integrations?: Extract<ModelStep, {kind: 'agent'}>['integrations'] | undefined;
   readonly session?: string | {key: string; mode?: 'resume' | 'fork'} | undefined;
 }
@@ -190,6 +192,7 @@ function normalizeAgentStep(step: TestAgentStep, base: ReturnType<typeof stepBas
     ...(step.provider === undefined ? {} : {provider: step.provider}),
     ...(step.thinking === undefined ? {} : {thinking: step.thinking}),
     ...(step.tools === undefined ? {} : {tools: step.tools}),
+    ...(step.toolSurface === undefined ? {} : {toolSurface: step.toolSurface}),
     ...(step.integrations === undefined ? {} : {integrations: step.integrations}),
     ...(step.session === undefined ? {} : {session: testAgentStepSession(step.session)}),
     prompt: step.prompt,

@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {checkoutTargetValidationIssues} from './checkout-target-validation.js';
-import {agentThinkingSchema, harnessSchema} from './step-enums.js';
+import {agentThinkingSchema, agentToolSurfaceSchema, harnessSchema} from './step-enums.js';
 
 const stringOrStringArraySchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
 const nonEmptyRecordSchema = <ValueSchema extends z.ZodType>(valueSchema: ValueSchema) =>
@@ -860,6 +860,7 @@ export const workflowDocumentAgentStepFields = [
   'thinking',
   'provider',
   'tools',
+  'tool_surface',
   'integrations',
   'session',
 ] as const;
@@ -916,6 +917,7 @@ const workflowDocumentStepBaseSchema = z.strictObject({
     description:
       'Built-in tool IDs for an agent step. It requires `prompt` and is not valid on a run step.',
   }),
+  tool_surface: agentToolSurfaceSchema.optional(),
   integrations: z.array(workflowDocumentStepIntegrationSchema).min(1).optional().meta({
     description:
       'Integration tools available to an agent step. It requires `prompt` and is not valid on a run step. See [integration tools](/how-to/author-workflows/use-integration-tools).',

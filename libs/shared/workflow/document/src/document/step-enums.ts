@@ -7,6 +7,12 @@ export const harnessSchema = z.enum(['pi', 'claude']).meta({
 export type Harness = z.infer<typeof harnessSchema>;
 export const DEFAULT_HARNESS = 'pi' as const satisfies Harness;
 
+export const agentToolSurfaceSchema = z.enum(['strict-direct', 'discovery']).meta({
+  description:
+    'Integration tool surface for an agent step. Strict direct tools are the default; discovery retains the generic mcp proxy.',
+});
+export type AgentToolSurface = z.infer<typeof agentToolSurfaceSchema>;
+
 export const piAgentThinkingSchema = z.enum([
   'off',
   'minimal',

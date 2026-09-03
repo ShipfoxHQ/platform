@@ -60,6 +60,7 @@ export class AgentHarnessUnavailableError extends Error {
 export type AgentInvocationFailurePhase =
   | 'requested_tool_omitted'
   | 'advertised_tool_not_invoked'
+  | 'integration_tool_catalog_unavailable'
   | 'integration_tool_invocation_failed'
   | 'output_gate_failed';
 

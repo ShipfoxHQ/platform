@@ -18,6 +18,8 @@ const {
   abortMock,
   bindExtensionsMock,
   getLastAssistantTextMock,
+  getActiveToolNamesMock,
+  setActiveToolsByNameMock,
   disposeMock,
   extensionShutdownMock,
 } = vi.hoisted(() => ({
@@ -38,6 +40,8 @@ const {
   abortMock: vi.fn(),
   bindExtensionsMock: vi.fn(),
   getLastAssistantTextMock: vi.fn(),
+  getActiveToolNamesMock: vi.fn(),
+  setActiveToolsByNameMock: vi.fn(),
   disposeMock: vi.fn(),
   extensionShutdownMock: vi.fn(),
   modelRuntimeCreateMock: vi.fn(),
@@ -109,6 +113,7 @@ import {
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {basename, isAbsolute, join} from 'node:path';
+import type {ToolDefinition} from '@earendil-works/pi-coding-agent';
 import {
   type CustomModelProviderRuntimeConfigDto,
   DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW,
@@ -120,12 +125,14 @@ import {logger} from '@shipfox/node-opentelemetry';
 import {
   AgentConfigError,
   AgentHarnessUnavailableError,
+  AgentInvocationError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
 import type {HarnessInvocation} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
 import {piExtensionDirectories} from '#core/pi-extensions.js';
+import {PI_TOOL_ERROR_NORMALIZER_EXTENSION_NAME} from '#core/pi-tool-error-normalizer.js';
 import {PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME} from '#core/pi-tool-svg-normalizer.js';
 
 function extensionDirectory(packageName: string): string {
@@ -244,6 +251,8 @@ describe('piHarnessAdapter', () => {
     abortMock.mockReset();
     bindExtensionsMock.mockReset();
     getLastAssistantTextMock.mockReset();
+    getActiveToolNamesMock.mockReset();
+    setActiveToolsByNameMock.mockReset();
     disposeMock.mockReset();
     extensionShutdownMock.mockReset();
     modelRuntimeCreateMock.mockReset();
@@ -262,6 +271,7 @@ describe('piHarnessAdapter', () => {
     });
     promptMock.mockResolvedValue(undefined);
     getLastAssistantTextMock.mockReturnValue(undefined);
+    getActiveToolNamesMock.mockReturnValue(['read', 'bash', 'edit', 'write']);
     createAgentSessionServicesMock.mockResolvedValue(piServices());
     createAgentSessionMock.mockResolvedValue({
       session: {
@@ -271,6 +281,8 @@ describe('piHarnessAdapter', () => {
         dispose: disposeMock,
         extensionRunner: {emit: extensionShutdownMock},
         getLastAssistantText: getLastAssistantTextMock,
+        getActiveToolNames: getActiveToolNamesMock,
+        setActiveToolsByName: setActiveToolsByNameMock,
         messages: [],
       },
     });
@@ -387,7 +399,12 @@ describe('piHarnessAdapter', () => {
 
     try {
       await piHarnessAdapter.run(
-        invocation({cwd: sessionDir, agentStateDir, mcpServers: [bridge]}),
+        invocation({
+          cwd: sessionDir,
+          agentStateDir,
+          mcpServers: [bridge],
+          toolSurface: 'discovery',
+        }),
       );
     } finally {
       process.argv.splice(0, process.argv.length, ...originalArgv);
@@ -432,6 +449,9 @@ describe('piHarnessAdapter', () => {
       createAgentSessionServicesMock.mock.calls[0]?.[0].resourceLoaderOptions.extensionFactories,
     ).toEqual([
       expect.objectContaining({
+        name: PI_TOOL_ERROR_NORMALIZER_EXTENSION_NAME,
+      }),
+      expect.objectContaining({
         name: PI_TOOL_SVG_NORMALIZER_EXTENSION_NAME,
       }),
     ]);
@@ -470,6 +490,7 @@ describe('piHarnessAdapter', () => {
       invocation({
         agentStateDir: firstAgentStateDir,
         mcpServers: [mcpBridge()],
+        toolSurface: 'discovery',
       }),
     );
     await firstServiceStarted;
@@ -478,6 +499,7 @@ describe('piHarnessAdapter', () => {
       invocation({
         agentStateDir: secondAgentStateDir,
         mcpServers: [mcpBridge()],
+        toolSurface: 'discovery',
       }),
     );
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -493,7 +515,7 @@ describe('piHarnessAdapter', () => {
     expect(process.argv).toEqual(originalArgv);
   });
 
-  it('keeps healthy direct-tool metadata when another server preflight fails', async () => {
+  it('fails closed before session creation when direct-tool metadata is unavailable', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
     const failingBridge = mcpBridge({
       name: 'unavailable_server',
@@ -505,15 +527,7 @@ describe('piHarnessAdapter', () => {
         tools: [{name: 'healthy_tool', inputSchema: {type: 'object'}}],
       }),
     });
-    let config: {mcpServers: Record<string, {directTools: boolean}>} | undefined;
-    createAgentSessionServicesMock.mockImplementation((options) => {
-      config = JSON.parse(readFileSync(options.extensionFlagValues.get('mcp-config'), 'utf8')) as {
-        mcpServers: Record<string, {directTools: boolean}>;
-      };
-      return piServices(sessionDir);
-    });
-
-    await piHarnessAdapter.run(
+    const result = piHarnessAdapter.run(
       invocation({
         cwd: sessionDir,
         agentStateDir: join(sessionDir, 'runner-agent'),
@@ -522,13 +536,17 @@ describe('piHarnessAdapter', () => {
       }),
     );
 
-    expect(config?.mcpServers).toEqual({
-      unavailable_server: expect.objectContaining({directTools: true}),
-      healthy_server: expect.objectContaining({directTools: true}),
+    const error = await result.catch((caught) => caught);
+    expect(error).toBeInstanceOf(AgentInvocationError);
+    expect(error).toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'integration_tool_catalog_unavailable',
+      message:
+        'Pi integration tool catalog unavailable for "unavailable_server": gateway unavailable',
     });
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
-      expect.objectContaining({tools: ['read', 'mcp', 'healthy_tool']}),
-    );
+    expect(healthyBridge.listTools).toHaveBeenCalledTimes(1);
+    expect(createAgentSessionServicesMock).not.toHaveBeenCalled();
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
   });
 
   it('propagates aborts that occur during direct-tool metadata discovery', async () => {
@@ -576,6 +594,7 @@ describe('piHarnessAdapter', () => {
         agentStateDir: join(sessionDir, 'runner-agent'),
         signal: abortController.signal,
         mcpServers: [mcpBridge()],
+        toolSurface: 'discovery',
       }),
     );
     await vi.waitFor(() => expect(bindExtensionsMock).toHaveBeenCalledTimes(1));
@@ -666,6 +685,7 @@ describe('piHarnessAdapter', () => {
           cwd: sessionDir,
           agentStateDir: join(sessionDir, 'runner-agent'),
           mcpServers: [mcpBridge()],
+          toolSurface: 'discovery',
         }),
       )
       .catch((caught) => caught);
@@ -688,6 +708,7 @@ describe('piHarnessAdapter', () => {
           cwd: sessionDir,
           agentStateDir: join(sessionDir, 'runner-agent'),
           mcpServers: [mcpBridge()],
+          toolSurface: 'discovery',
         }),
       )
       .catch((caught) => caught);
@@ -713,7 +734,7 @@ describe('piHarnessAdapter', () => {
           expect.objectContaining({
             name: 'set_output',
             promptGuidelines: [
-              'Call set_output for each required workflow output; the exact key, value encoding, and JSON Schema for each are in the task prompt.',
+              'Call set_output({key: "<output-key>", value: "<value>"}) directly for each required workflow output; do not call it through mcp. The exact key, value encoding, and JSON Schema for each are in the task prompt.',
             ],
           }),
         ],
@@ -740,7 +761,7 @@ describe('piHarnessAdapter', () => {
     await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
     expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
-        tools: ['read', 'mcp', 'set_output'],
+        tools: ['read', 'set_output'],
         customTools: [expect.objectContaining({name: 'set_output'})],
       }),
     );
@@ -761,6 +782,7 @@ describe('piHarnessAdapter', () => {
         cwd: sessionDir,
         agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [mcpBridge()],
+        toolSurface: 'discovery',
         tools: ['read', 'mcp', 'web_search'],
       }),
     );
@@ -778,6 +800,7 @@ describe('piHarnessAdapter', () => {
         agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [mcpBridge()],
         tools: ['read', 'web_search'],
+        toolSurface: 'discovery',
       }),
     );
 
@@ -795,6 +818,7 @@ describe('piHarnessAdapter', () => {
           {name: 'linear_main__save_comment', inputSchema: {type: 'object'}},
         ],
       }),
+      callTool: vi.fn().mockResolvedValue({content: [{type: 'text', text: 'issue'}]}),
     });
 
     await piHarnessAdapter.run(
@@ -803,17 +827,271 @@ describe('piHarnessAdapter', () => {
         agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [bridge],
         tools: ['read'],
+        requestedIntegrationTools: [{connectionSlug: 'linear-main', toolId: 'get_issue'}],
       }),
     );
 
-    expect(createAgentSessionMock).toHaveBeenCalledWith(
+    const options = createAgentSessionMock.mock.calls[0]?.[0];
+    expect(options).toEqual(
       expect.objectContaining({
-        tools: ['read', 'mcp', 'linear_main__get_issue', 'linear_main__save_comment'],
+        tools: ['read', 'linear_main__get_issue'],
+        customTools: [
+          expect.objectContaining({
+            name: 'linear_main__get_issue',
+            parameters: {
+              type: 'object',
+            },
+          }),
+        ],
+      }),
+    );
+    const directTool = options.customTools[0];
+    expect(directTool).toBeDefined();
+    if (directTool === undefined) return;
+
+    await directTool.execute(
+      'call-1',
+      {id: 'ENG-878'},
+      new AbortController().signal,
+      undefined,
+      {} as never,
+    );
+    expect(bridge.callTool).toHaveBeenCalledWith('linear_main__get_issue', {id: 'ENG-878'});
+  });
+
+  it('keeps strict direct tool definitions stable across cold and warm sessions', async () => {
+    const schema = {
+      type: 'object',
+      properties: {id: {type: 'string'}},
+      required: ['id'],
+    };
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [
+          {name: 'linear_main__get_issue', description: 'Read an issue.', inputSchema: schema},
+        ],
+      }),
+    });
+
+    await piHarnessAdapter.run(invocation({mcpServers: [bridge]}));
+    await piHarnessAdapter.run(invocation({mcpServers: [bridge]}));
+
+    const first = createAgentSessionMock.mock.calls[0]?.[0];
+    const second = createAgentSessionMock.mock.calls[1]?.[0];
+    expect(first).toEqual(
+      expect.objectContaining({
+        customTools: [
+          expect.objectContaining({name: 'linear_main__get_issue', parameters: schema}),
+        ],
+      }),
+    );
+    expect(second).toEqual(
+      expect.objectContaining({
+        customTools: [
+          expect.objectContaining({name: 'linear_main__get_issue', parameters: schema}),
+        ],
+      }),
+    );
+    expect(setActiveToolsByNameMock).toHaveBeenNthCalledWith(1, [
+      'linear_main__get_issue',
+      'read',
+      'bash',
+      'edit',
+      'write',
+    ]);
+    expect(setActiveToolsByNameMock).toHaveBeenNthCalledWith(2, [
+      'linear_main__get_issue',
+      'read',
+      'bash',
+      'edit',
+      'write',
+    ]);
+  });
+
+  it('places set_output before direct integration tools in the provider surface', async () => {
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'linear_main__get_issue', inputSchema: {type: 'object'}}],
+      }),
+    });
+
+    const result = piHarnessAdapter.run(
+      invocation({
+        mcpServers: [bridge],
+        tools: ['read'],
+        outputs: {summary: {type: 'string'}},
+      }),
+    );
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+
+    expect(createAgentSessionMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        tools: ['read', 'set_output', 'linear_main__get_issue'],
+        customTools: [
+          expect.objectContaining({name: 'set_output'}),
+          expect.objectContaining({name: 'linear_main__get_issue'}),
+        ],
       }),
     );
   });
 
-  it('keeps the MCP proxy available when direct tool metadata is unavailable', async () => {
+  it('places SDK output tools before discovery extension tools', async () => {
+    sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
+    getActiveToolNamesMock.mockReturnValue([
+      'read',
+      'bash',
+      'edit',
+      'write',
+      'mcp',
+      'linear_main__get_issue',
+    ]);
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'linear_main__get_issue', inputSchema: {type: 'object'}}],
+      }),
+    });
+
+    const result = piHarnessAdapter.run(
+      invocation({
+        cwd: sessionDir,
+        agentStateDir: join(sessionDir, 'runner-agent'),
+        mcpServers: [bridge],
+        toolSurface: 'discovery',
+        outputs: {summary: {type: 'string'}},
+      }),
+    );
+    await expect(result).rejects.toThrow('Agent step finished without required outputs: summary');
+
+    expect(setActiveToolsByNameMock).toHaveBeenCalledWith([
+      'set_output',
+      'read',
+      'bash',
+      'edit',
+      'write',
+      'mcp',
+      'linear_main__get_issue',
+    ]);
+  });
+
+  it('completes mixed direct integration and required-output turns', async () => {
+    let customTools: ToolDefinition[] = [];
+    createAgentSessionMock.mockImplementation((options) => {
+      customTools = options.customTools;
+      return Promise.resolve({
+        session: {
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          dispose: disposeMock,
+          extensionRunner: {emit: extensionShutdownMock},
+          getLastAssistantText: getLastAssistantTextMock,
+          getActiveToolNames: getActiveToolNamesMock,
+          setActiveToolsByName: setActiveToolsByNameMock,
+          messages: [],
+        },
+      });
+    });
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'linear_main__get_issue', inputSchema: {type: 'object'}}],
+      }),
+      callTool: vi.fn().mockResolvedValue({content: [{type: 'text', text: 'issue'}]}),
+    });
+    promptMock.mockImplementationOnce(async () => {
+      const directTool = customTools.find((tool) => tool.name === 'linear_main__get_issue');
+      const outputTool = customTools.find((tool) => tool.name === 'set_output');
+      if (directTool === undefined || outputTool === undefined) {
+        throw new Error('Expected direct integration and output tools');
+      }
+      await directTool.execute(
+        'call-1',
+        {id: 'ENG-878'},
+        new AbortController().signal,
+        undefined,
+        {} as never,
+      );
+      await outputTool.execute(
+        'call-2',
+        {key: 'summary', value: 'done'},
+        new AbortController().signal,
+        undefined,
+        {} as never,
+      );
+    });
+    getLastAssistantTextMock.mockReturnValue('done');
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({mcpServers: [bridge], outputs: {summary: {type: 'string'}}}),
+      ),
+    ).resolves.toEqual({response: 'done', outputs: {summary: 'done'}});
+    expect(bridge.callTool).toHaveBeenCalledWith('linear_main__get_issue', {id: 'ENG-878'});
+  });
+
+  it('fails closed when a direct integration tool collides with set_output', async () => {
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'set_output', inputSchema: {type: 'object'}}],
+      }),
+    });
+
+    const error = await piHarnessAdapter
+      .run(invocation({mcpServers: [bridge], outputs: {summary: {type: 'string'}}}))
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'integration_tool_catalog_unavailable',
+      message:
+        'Pi integration tool catalog unavailable for "shipfox_integration_tools": Integration tool name collides with SDK custom tool "set_output".',
+    });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a direct integration tool collides with a Pi built-in', async () => {
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'mcp', inputSchema: {type: 'object'}}],
+      }),
+    });
+
+    const error = await piHarnessAdapter
+      .run(invocation({mcpServers: [bridge]}))
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'integration_tool_catalog_unavailable',
+      message:
+        'Pi integration tool catalog unavailable for "shipfox_integration_tools": Integration tool name collides with Pi built-in tool "mcp".',
+    });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reports direct tool registration failures as catalog failures', async () => {
+    defineToolMock.mockImplementationOnce(() => {
+      throw new Error('invalid direct tool definition');
+    });
+    const bridge = mcpBridge({
+      listTools: vi.fn().mockResolvedValue({
+        tools: [{name: 'linear_main__get_issue', inputSchema: {type: 'object'}}],
+      }),
+    });
+
+    const error = await piHarnessAdapter
+      .run(invocation({mcpServers: [bridge]}))
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      name: 'AgentInvocationError',
+      failurePhase: 'integration_tool_catalog_unavailable',
+      message:
+        'Pi integration tool catalog unavailable for "shipfox_integration_tools": invalid direct tool definition',
+    });
+    expect(createAgentSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the MCP proxy available when discovery metadata is unavailable', async () => {
     sessionDir = mkdtempSync(join(tmpdir(), 'shipfox-pi-mcp-'));
     const bridge = mcpBridge({
       listTools: vi.fn().mockRejectedValue(new Error('gateway unavailable')),
@@ -825,6 +1103,7 @@ describe('piHarnessAdapter', () => {
         agentStateDir: join(sessionDir, 'runner-agent'),
         mcpServers: [bridge],
         tools: ['read'],
+        toolSurface: 'discovery',
       }),
     );
 
@@ -902,7 +1181,13 @@ describe('piHarnessAdapter', () => {
         customTools: [expect.objectContaining({name: 'set_output'})],
       }),
     );
-    expect(options).not.toHaveProperty('tools');
+    expect(setActiveToolsByNameMock).toHaveBeenCalledWith([
+      'set_output',
+      'read',
+      'bash',
+      'edit',
+      'write',
+    ]);
     expect(options).not.toHaveProperty('noTools');
   });
 
@@ -960,6 +1245,8 @@ describe('piHarnessAdapter', () => {
           abort: abortMock,
           bindExtensions: bindExtensionsMock,
           getLastAssistantText: getLastAssistantTextMock,
+          getActiveToolNames: getActiveToolNamesMock,
+          setActiveToolsByName: setActiveToolsByNameMock,
           messages: [],
         },
       });
@@ -1533,6 +1820,8 @@ describe('piHarnessAdapter', () => {
         abort: abortMock,
         bindExtensions: bindExtensionsMock,
         getLastAssistantText: getLastAssistantTextMock,
+        getActiveToolNames: getActiveToolNamesMock,
+        setActiveToolsByName: setActiveToolsByNameMock,
         messages: [],
         sessionFile,
         sessionId: 'pi-session-1',
