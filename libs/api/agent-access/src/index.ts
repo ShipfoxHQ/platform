@@ -8,6 +8,10 @@ export {
   AGENT_ACCESS_TOOL_CALL_WINDOW_MS,
 } from '#constants.js';
 export {
+  type AgentAccessDiagnosticToolsOptions,
+  createAgentAccessDiagnosticTools,
+} from '#core/diagnostic-tools.js';
+export {
   agentAccessError,
   agentAccessSuccess,
   parseAgentAccessEnvelope,

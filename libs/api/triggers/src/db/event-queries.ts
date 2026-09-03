@@ -9,7 +9,7 @@ import type {
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
-import {db} from './db.js';
+import {db, type Executor} from './db.js';
 import {toTriggerDecision, triggersDecisions} from './schema/decisions.js';
 import {
   toTriggerReceivedEvent,
@@ -147,7 +147,100 @@ export async function listReplaysOfTriggerEvent(
   eventId: string,
   workspaceId: string,
 ): Promise<TriggerEventReplay[]> {
+  const rows = await selectReplayRows(db(), {eventId, workspaceId});
+
+  return rows.map((row) => ({
+    id: row.id,
+    receivedAt: row.receivedAt,
+    outcome: row.outcome,
+    runId: row.runId,
+  }));
+}
+
+export interface TriggerEventReadPage<T> {
+  items: T[];
+  totalCount: number;
+}
+
+/** Reads only the newest replay rows while counting the full workspace-scoped history. */
+export function listReplaysOfTriggerEventPage(params: {
+  eventId: string;
+  workspaceId: string;
+  limit: number;
+}): Promise<TriggerEventReadPage<TriggerEventReplay>> {
+  return db().transaction(
+    async (tx) => {
+      const rows = await selectReplayRows(tx, params);
+      const [countRow] = await tx
+        .select({value: count()})
+        .from(triggersReceivedEvents)
+        .where(replayConditions(params.eventId, params.workspaceId));
+      return {
+        items: rows.map((row) => ({
+          id: row.id,
+          receivedAt: row.receivedAt,
+          outcome: row.outcome,
+          runId: row.runId,
+        })),
+        totalCount: Number(countRow?.value ?? 0),
+      };
+    },
+    {isolationLevel: 'repeatable read', accessMode: 'read only'},
+  );
+}
+
+// `received_event_id` is a globally-unique uuid, so the parent-event lookup is the
+// workspace gate; the decision query needs no separate workspace predicate.
+export async function listDecisionsByReceivedEventId(
+  receivedEventId: string,
+): Promise<TriggerDecision[]> {
   const rows = await db()
+    .select()
+    .from(triggersDecisions)
+    .where(eq(triggersDecisions.receivedEventId, receivedEventId))
+    .orderBy(asc(triggersDecisions.createdAt), asc(triggersDecisions.id));
+  return rows.map(toTriggerDecision);
+}
+
+/** Reads only the newest decision rows while counting the complete event history. */
+export function listDecisionsByReceivedEventIdPage(params: {
+  receivedEventId: string;
+  limit: number;
+}): Promise<TriggerEventReadPage<TriggerDecision>> {
+  return db().transaction(
+    async (tx) => {
+      const rows = await tx
+        .select()
+        .from(triggersDecisions)
+        .where(eq(triggersDecisions.receivedEventId, params.receivedEventId))
+        .orderBy(desc(triggersDecisions.createdAt), desc(triggersDecisions.id))
+        .limit(params.limit);
+      const [countRow] = await tx
+        .select({value: count()})
+        .from(triggersDecisions)
+        .where(eq(triggersDecisions.receivedEventId, params.receivedEventId));
+      return {
+        items: rows.map(toTriggerDecision),
+        totalCount: Number(countRow?.value ?? 0),
+      };
+    },
+    {isolationLevel: 'repeatable read', accessMode: 'read only'},
+  );
+}
+
+function replayConditions(eventId: string, workspaceId: string) {
+  return and(
+    eq(triggersReceivedEvents.replayOfEventId, eventId),
+    eq(triggersReceivedEvents.workspaceId, workspaceId),
+    eq(triggersReceivedEvents.origin, 'dev'),
+  );
+}
+
+function selectReplayRows(
+  tx: Executor,
+  params: {eventId: string; workspaceId: string; limit?: number},
+) {
+  const query = tx
     .select({
       id: triggersReceivedEvents.id,
       receivedAt: triggersReceivedEvents.receivedAt,
@@ -162,32 +255,7 @@ export async function listReplaysOfTriggerEvent(
         eq(triggersDecisions.subscriptionKind, 'dev'),
       ),
     )
-    .where(
-      and(
-        eq(triggersReceivedEvents.replayOfEventId, eventId),
-        eq(triggersReceivedEvents.workspaceId, workspaceId),
-        eq(triggersReceivedEvents.origin, 'dev'),
-      ),
-    )
+    .where(replayConditions(params.eventId, params.workspaceId))
     .orderBy(desc(triggersReceivedEvents.receivedAt), desc(triggersReceivedEvents.id));
-
-  return rows.map((row) => ({
-    id: row.id,
-    receivedAt: row.receivedAt,
-    outcome: row.outcome,
-    runId: row.runId,
-  }));
-}
-
-// `received_event_id` is a globally-unique uuid, so the parent-event lookup is the
-// workspace gate; the decision query needs no separate workspace predicate.
-export async function listDecisionsByReceivedEventId(
-  receivedEventId: string,
-): Promise<TriggerDecision[]> {
-  const rows = await db()
-    .select()
-    .from(triggersDecisions)
-    .where(eq(triggersDecisions.receivedEventId, receivedEventId))
-    .orderBy(asc(triggersDecisions.createdAt), asc(triggersDecisions.id));
-  return rows.map(toTriggerDecision);
+  return params.limit === undefined ? query : query.limit(params.limit);
 }
