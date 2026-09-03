@@ -30,7 +30,8 @@ export type GithubAgentToolPermission =
   | 'checks'
   | 'contents'
   | 'issues'
-  | 'pull_requests';
+  | 'pull_requests'
+  | 'statuses';
 export type GithubAgentToolPermissionAccess = 'read' | 'write';
 export type GithubAgentToolSensitivity = 'read' | 'write';
 
@@ -75,6 +76,7 @@ const scopes = {
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
   checksRead: [{permission: 'checks', access: 'read'}],
+  statusesRead: [{permission: 'statuses', access: 'read'}],
   contentsWrite: [{permission: 'contents', access: 'write'}],
   mergePullRequest: [
     {permission: 'pull_requests', access: 'write'},
@@ -241,7 +243,7 @@ const pullRequestReadMethods = [
     'Get status information for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.statusesRead,
   ),
   method(
     'get_files',
@@ -283,7 +285,7 @@ const pullRequestReadMethods = [
     'Get conversation comments for a specific pull request.',
     'read',
     false,
-    scopes.issuesRead,
+    scopes.pullRequestsRead,
   ),
   method(
     'get_check_runs',
@@ -413,22 +415,16 @@ export const githubAgentToolCatalog = [
     id: 'list_issue_types',
     category: 'issues',
     description:
-      'List supported issue types for a repository or its owner organization. When repo is omitted, returns org-level issue types directly.',
+      'List the issue types available to a GitHub repository. Issue types are defined by the owning organization, so the result also describes the organization.',
     sensitivity: 'read',
     sensitive: false,
+    // The repository endpoint needs only the implicit metadata grant. Issues read is the
+    // narrowest catalog permission that every installation using issue tools already holds.
     requiredScope: scopes.issuesRead,
-    inputSchema: objectSchema(
-      {
-        owner: stringSchema('The account owner of the repository or organization'),
-        repo: stringSchema('The name of the repository'),
-      },
-      ['owner'],
-    ),
+    inputSchema: repositoryInputSchema(),
     outputSchema: objectSchema({issue_types: arraySchema(openObjectSchema('Issue type'))}, [
       'issue_types',
     ]),
-    repositoryScope: (arguments_) =>
-      arguments_.repo === undefined ? {kind: 'connection'} : githubRepositoryScope(arguments_),
   }),
   tool({
     id: 'list_issues',
@@ -700,7 +696,7 @@ export const githubAgentToolCatalog = [
     id: 'create_commit',
     category: 'repository',
     description:
-      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are validated server-side and limited to a total of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head. When issuing several dependent commits, derive each expected_head_oid from the returned oid of the previous commit so the commits land in order. Branch protection rules are the only barrier to writing the default branch.',
+      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are validated server-side and limited to a total of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head. When issuing several dependent commits, derive each expected_head_oid from the returned oid of the previous commit so the commits land in order. Branch protection rules are the only barrier to writing the default branch. Files under .github/workflows need the workflows permission, which the installation token may not carry; such changes are rejected with access-denied when it is missing.',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.contentsWrite,

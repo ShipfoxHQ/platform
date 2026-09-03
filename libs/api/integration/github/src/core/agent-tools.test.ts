@@ -16,6 +16,7 @@ import {
   githubRepositoryScope,
   projectGithubOperationParameters,
 } from '#core/agent-tools.js';
+import {GithubIntegrationProviderError} from '#core/errors.js';
 import {createGithubIntegrationProvider} from '#index.js';
 
 const githubAppReviewUser = {login: 'shipfox-test[bot]'};
@@ -83,7 +84,7 @@ const expectedCatalogRows = [
     sensitive: false,
     requiredScope: [
       {permission: 'pull_requests', access: 'read'},
-      {permission: 'issues', access: 'read'},
+      {permission: 'statuses', access: 'read'},
       {permission: 'checks', access: 'read'},
     ],
     methods: [
@@ -283,11 +284,6 @@ const githubOperationRouteCases = [
   },
   {
     toolId: 'list_issue_types',
-    args: {owner: 'shipfox'},
-    expectedRoute: 'GET /orgs/{owner}/issue-types',
-  },
-  {
-    toolId: 'list_issue_types',
     args: {owner: 'shipfox', repo: 'platform'},
     expectedRoute: 'GET /repos/{owner}/{repo}/issue-types',
   },
@@ -343,7 +339,7 @@ const githubOperationRouteCases = [
     toolId: 'sub_issue_write',
     method: 'remove',
     args: {issue_number: 1, sub_issue_id: 2},
-    expectedRoute: 'DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/{sub_issue_id}',
+    expectedRoute: 'DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issue',
   },
   {
     toolId: 'sub_issue_write',
@@ -804,7 +800,7 @@ describe('github agent tool catalog', () => {
     const searchIssuesSchema = inputSchemaFor('search_issues');
     const searchPullRequestsSchema = inputSchemaFor('search_pull_requests');
 
-    expect(listIssueTypesSchema.required).toEqual(['owner']);
+    expect(listIssueTypesSchema.required).toEqual(['owner', 'repo']);
     const repositoryProperties = {
       owner: {description: 'Repository owner', type: 'string'},
       repo: {description: 'Repository name', type: 'string'},
@@ -1384,6 +1380,296 @@ describe('github agent tool catalog', () => {
     ).resolves.toMatchObject({structuredContent: {total_count: 1}});
 
     expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {checks: 'read'});
+  });
+
+  it('requests commit statuses read for combined status reads', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {state: 'success'}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {statuses: 'read' as const},
+      }),
+    );
+    const pullRequestRead = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_read',
+    );
+    const statusMethod = pullRequestRead?.methods?.find((method) => method.id === 'get_status');
+    if (!pullRequestRead || !statusMethod) throw new Error('Missing combined-status catalog entry');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [{...pullRequestRead, methods: [statusMethod]}],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'pull_request_read',
+        arguments: {
+          method: 'get_status',
+          owner: 'shipfox',
+          repo: 'platform',
+          pull_number: 1,
+          ref: 'abc123',
+        },
+      }),
+    ).resolves.toMatchObject({structuredContent: {state: 'success'}});
+
+    expect(request).toHaveBeenCalledWith('GET /repos/{owner}/{repo}/commits/{ref}/status', {
+      owner: 'shipfox',
+      repo: 'platform',
+      pull_number: 1,
+      ref: 'abc123',
+    });
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {statuses: 'read'});
+  });
+
+  it('removes a sub-issue through the singular endpoint with the child id in the body', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {number: 1}}));
+    const provider = createAgentToolsProvider({request});
+    const subIssueWrite = githubAgentToolCatalog.find((entry) => entry.id === 'sub_issue_write');
+    if (!subIssueWrite) throw new Error('Missing sub_issue_write tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [subIssueWrite],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'sub_issue_write',
+        arguments: {
+          method: 'remove',
+          owner: 'shipfox',
+          repo: 'platform',
+          issue_number: 1,
+          sub_issue_id: 2,
+        },
+      }),
+    ).resolves.toMatchObject({structuredContent: {number: 1}});
+
+    expect(request).toHaveBeenCalledWith(
+      'DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issue',
+      {owner: 'shipfox', repo: 'platform', issue_number: 1, sub_issue_id: 2},
+    );
+  });
+
+  it.each([
+    {
+      toolId: 'create_pull_request' as const,
+      callArguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        title: 'Title',
+        head: 'feature',
+        base: 'main',
+        reviewers: ['octocat', 'shipfox/reviewers'],
+      },
+      route: 'POST /repos/{owner}/{repo}/pulls',
+      parameters: {
+        owner: 'shipfox',
+        repo: 'platform',
+        title: 'Title',
+        head: 'feature',
+        base: 'main',
+      },
+    },
+    {
+      toolId: 'update_pull_request' as const,
+      callArguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 7,
+        reviewers: ['octocat', 'shipfox/reviewers'],
+      },
+      route: 'PATCH /repos/{owner}/{repo}/pulls/{pull_number}',
+      parameters: {owner: 'shipfox', repo: 'platform', pull_number: 7},
+    },
+  ])('requests reviewers after $toolId saves the pull request', async ({
+    toolId,
+    callArguments,
+    route,
+    parameters,
+  }) => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({data: {number: 7}})
+      .mockResolvedValueOnce({data: {number: 7, requested_reviewers: [{login: 'octocat'}]}});
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === toolId);
+    if (!tool) throw new Error(`Missing ${toolId} tool`);
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({toolId, arguments: callArguments});
+
+    expect(request).toHaveBeenNthCalledWith(1, route, parameters);
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      'POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 7,
+        reviewers: ['octocat'],
+        team_reviewers: ['reviewers'],
+      },
+    );
+    expect(result).toMatchObject({
+      structuredContent: {pull_request: {number: 7, requested_reviewers: [{login: 'octocat'}]}},
+    });
+  });
+
+  it('saves a pull request without a reviewer request when none are given', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {number: 7}}));
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'update_pull_request');
+    if (!tool) throw new Error('Missing update_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'update_pull_request',
+        arguments: {owner: 'shipfox', repo: 'platform', pull_number: 7, title: 'Updated'},
+      }),
+    ).resolves.toMatchObject({structuredContent: {pull_request: {number: 7}}});
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith('PATCH /repos/{owner}/{repo}/pulls/{pull_number}', {
+      owner: 'shipfox',
+      repo: 'platform',
+      pull_number: 7,
+      title: 'Updated',
+    });
+  });
+
+  it('reports a failed reviewer request without hiding the saved pull request', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({data: {number: 7}})
+      .mockRejectedValueOnce(
+        new GithubIntegrationProviderError(
+          'provider-rejected',
+          'Reviews may only be requested from collaborators.',
+          undefined,
+          422,
+        ),
+      );
+    const provider = createAgentToolsProvider({request});
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'create_pull_request');
+    if (!tool) throw new Error('Missing create_pull_request tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_pull_request',
+        arguments: {
+          owner: 'shipfox',
+          repo: 'platform',
+          title: 'Title',
+          head: 'feature',
+          base: 'main',
+          reviewers: ['stranger'],
+        },
+      }),
+    ).rejects.toMatchObject({
+      reason: 'provider-rejected',
+      status: 422,
+      message:
+        'Pull request #7 was saved but requesting reviewers failed: Reviews may only be requested from collaborators.',
+    });
+  });
+
+  it('rejects workflow file changes when the token lacks workflows write', async () => {
+    const graphql = vi.fn();
+    const provider = createAgentToolsProvider({request: vi.fn(), graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'create_commit',
+      arguments: {
+        repository: 'shipfox/platform',
+        branch: 'feature',
+        expected_head_oid: 'a'.repeat(40),
+        message: {headline: 'Add CI'},
+        additions: [{path: '.github/workflows/ci.yml', contents: 'name: ci\n'}],
+      },
+    });
+
+    expect(graphql).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: create_commit requires workflows: write to change .github/workflows/ci.yml',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
+  });
+
+  it('commits workflow file changes when the token carries workflows write', async () => {
+    const oid = '0'.repeat(40);
+    const graphql = vi.fn().mockResolvedValueOnce({
+      createCommitOnBranch: {
+        commit: {oid, url: `https://github.com/shipfox/platform/commit/${oid}`},
+      },
+    });
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {contents: 'write' as const, workflows: 'write' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request: vi.fn(), graphql})),
+    });
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [createCommitTool()],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'create_commit',
+        arguments: {
+          repository: 'shipfox/platform',
+          branch: 'feature',
+          expected_head_oid: 'a'.repeat(40),
+          message: {headline: 'Remove CI'},
+          deletions: [{path: '.github/workflows/old.yml'}],
+        },
+      }),
+    ).resolves.toMatchObject({structuredContent: {commit: {oid}}});
+
+    expect(graphql).toHaveBeenCalledOnce();
   });
 
   it('returns artifact download metadata without buffering archive bytes', async () => {
@@ -3448,7 +3734,7 @@ describe('github agent tool catalog', () => {
   it.each([
     {
       toolId: 'list_issue_types',
-      arguments: {owner: 'shipfox'},
+      arguments: {owner: 'shipfox', repo: 'platform'},
       data: [{id: 1}],
       expected: {issue_types: [{id: 1}]},
     },

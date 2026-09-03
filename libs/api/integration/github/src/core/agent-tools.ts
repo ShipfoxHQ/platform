@@ -226,9 +226,9 @@ export class GithubAgentToolsProvider
           permissionProfile.permissions,
         );
         const token = await tokenPromise;
-        if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
-          return githubToolError(githubPermissionDeniedMessage(tool, call), 'access-denied');
-        }
+        const permissionDenial = githubPermissionDenial(token.permissions ?? {}, tool, call);
+        if (permissionDenial !== undefined)
+          return githubToolError(permissionDenial, 'access-denied');
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
         const method =
           typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
@@ -453,9 +453,7 @@ export function githubOperationRoute(
     case 'issue_read.get_labels':
       return `GET ${repoPath}/issues/${issue}/labels`;
     case 'list_issue_types.':
-      return args.repo === undefined
-        ? 'GET /orgs/{owner}/issue-types'
-        : `GET ${repoPath}/issue-types`;
+      return `GET ${repoPath}/issue-types`;
     case 'list_issues.':
       return `GET ${repoPath}/issues`;
     case 'search_issues.':
@@ -473,7 +471,8 @@ export function githubOperationRoute(
     case 'sub_issue_write.add':
       return `POST ${repoPath}/issues/${issue}/sub_issues`;
     case 'sub_issue_write.remove':
-      return `DELETE ${repoPath}/issues/${issue}/sub_issues/{sub_issue_id}`;
+      // GitHub's removal endpoint is singular and takes sub_issue_id in the request body.
+      return `DELETE ${repoPath}/issues/${issue}/sub_issue`;
     case 'sub_issue_write.reprioritize':
       return `PATCH ${repoPath}/issues/${issue}/sub_issues/priority`;
     case 'pull_request_read.get':
@@ -849,7 +848,64 @@ async function executeGithubRestOperation(
   toolId: GithubAgentToolId,
 ): Promise<GithubToolResponse> {
   if (toolId === 'create_branch') return await createGitBranch(client, parameters);
+  if (toolId === 'create_pull_request' || toolId === 'update_pull_request') {
+    return await savePullRequestWithReviewers(client, route, parameters);
+  }
   return await client.request(route, parameters);
+}
+
+const REQUESTED_REVIEWERS_ROUTE =
+  'POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers';
+
+async function savePullRequestWithReviewers(
+  client: GithubToolClient,
+  route: string,
+  parameters: Record<string, unknown>,
+): Promise<GithubToolResponse> {
+  const {reviewers, ...pullRequestParameters} = parameters;
+  const response = await client.request(route, pullRequestParameters);
+  const requested = splitRequestedReviewers(reviewers);
+  if (requested === undefined) return response;
+
+  const pullNumber =
+    isRecord(response.data) && typeof response.data.number === 'number'
+      ? response.data.number
+      : pullRequestParameters.pull_number;
+  try {
+    return await mapGithubError(() =>
+      client.request(REQUESTED_REVIEWERS_ROUTE, {
+        owner: pullRequestParameters.owner,
+        repo: pullRequestParameters.repo,
+        pull_number: pullNumber,
+        ...requested,
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof GithubIntegrationProviderError)) throw error;
+    throw new GithubIntegrationProviderError(
+      error.reason,
+      `Pull request #${String(pullNumber)} was saved but requesting reviewers failed: ${error.message}`,
+      undefined,
+      error.status,
+    );
+  }
+}
+
+/** Splits `login` and `org/team-slug` entries into GitHub's user and team reviewer lists. */
+function splitRequestedReviewers(
+  reviewers: unknown,
+): {reviewers: string[]; team_reviewers: string[]} | undefined {
+  if (!Array.isArray(reviewers)) return undefined;
+  const users: string[] = [];
+  const teams: string[] = [];
+  for (const reviewer of reviewers) {
+    if (typeof reviewer !== 'string' || reviewer.length === 0) continue;
+    const slashIndex = reviewer.indexOf('/');
+    if (slashIndex === -1) users.push(reviewer);
+    else teams.push(reviewer.slice(slashIndex + 1));
+  }
+  if (users.length === 0 && teams.length === 0) return undefined;
+  return {reviewers: users, team_reviewers: teams};
 }
 
 async function resolveCreateBranchParameters(
@@ -1611,6 +1667,45 @@ function githubPermissionDeniedMessage(
     tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
   const scope = required.map(({permission, access}) => `${permission}: ${access}`).join(', ');
   return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${scope}`;
+}
+
+const GITHUB_WORKFLOWS_DIRECTORY = '.github/workflows/';
+const LEADING_SLASHES_PATTERN = /^\/+/u;
+
+function githubPermissionDenial(
+  granted: Record<string, 'read' | 'write' | 'admin'>,
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  call: AgentToolCallInput,
+): string | undefined {
+  if (!hasGrantedPermissions(granted, tool, call)) return githubPermissionDeniedMessage(tool, call);
+  return githubWorkflowsPermissionDenial(tool, call, granted);
+}
+
+// GitHub refuses any commit that adds or changes an Actions workflow file unless the token
+// carries the workflows permission, which no catalog scope requests. Deny locally so the
+// agent gets a deterministic access-denied instead of an opaque provider rejection.
+function githubWorkflowsPermissionDenial(
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  call: AgentToolCallInput,
+  granted: Record<string, 'read' | 'write' | 'admin'>,
+): string | undefined {
+  if (tool.id !== 'create_commit') return undefined;
+  if (granted.workflows === 'write' || granted.workflows === 'admin') return undefined;
+  const workflowPath = [
+    ...fileChangePaths(call.arguments.additions),
+    ...fileChangePaths(call.arguments.deletions),
+  ].find((path) =>
+    path.replace(LEADING_SLASHES_PATTERN, '').startsWith(GITHUB_WORKFLOWS_DIRECTORY),
+  );
+  if (workflowPath === undefined) return undefined;
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires workflows: write to change ${workflowPath}`;
+}
+
+function fileChangePaths(changes: unknown): string[] {
+  if (!Array.isArray(changes)) return [];
+  return changes.flatMap((change) =>
+    isRecord(change) && typeof change.path === 'string' ? [change.path] : [],
+  );
 }
 
 function hasGrantedPermissions(
