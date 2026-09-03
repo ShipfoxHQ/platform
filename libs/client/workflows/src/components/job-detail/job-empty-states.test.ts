@@ -93,6 +93,18 @@ describe('toSelectedAttemptError', () => {
 
     expect(error).toMatchObject({reason: 'config_unresolvable', category});
   });
+
+  test.each([
+    'execution_payload_too_large',
+    'step_result_too_large',
+  ] as const)('preserves bounded failure reason %s', (reason) => {
+    const error = toSelectedAttemptError({type: 'run'} as Step, {
+      message: 'Bounded workflow value exceeded its limit',
+      reason,
+    });
+
+    expect(error).toMatchObject({reason, category: 'user'});
+  });
 });
 
 describe('skippedJobDescription', () => {
