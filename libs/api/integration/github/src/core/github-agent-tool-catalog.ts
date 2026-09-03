@@ -66,6 +66,10 @@ interface GithubAgentToolCatalogInput {
 const scopes = {
   issuesRead: [{permission: 'issues', access: 'read'}],
   issuesWrite: [{permission: 'issues', access: 'write'}],
+  issueAndPullRequestCommentsWrite: [
+    {permission: 'issues', access: 'write'},
+    {permission: 'pull_requests', access: 'write'},
+  ],
   pullRequestsRead: [{permission: 'pull_requests', access: 'read'}],
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
@@ -496,7 +500,7 @@ export const githubAgentToolCatalog = [
       'Add a comment and/or reaction to a specific issue or issue comment in a GitHub repository. Use this tool with pull requests as well, but only if the user is not asking specifically to add or react to review comments. At least one of body or reaction is required.',
     sensitivity: 'write',
     sensitive: false,
-    requiredScope: scopes.issuesWrite,
+    requiredScope: scopes.issueAndPullRequestCommentsWrite,
     inputSchema: repositoryInputSchema(
       {
         issue_number: integerSchema('Issue or pull request number to comment on or react to'),
