@@ -24,7 +24,12 @@ import {
   AgentPermissionModeError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
-import type {HarnessAdapter, HarnessToolSurface, RequestedIntegrationTool} from '#core/harness.js';
+import type {
+  HarnessAdapter,
+  HarnessToolSurface,
+  InferenceCredentialSource,
+  RequestedIntegrationTool,
+} from '#core/harness.js';
 import {
   createIntegrationToolsBridge,
   type IntegrationToolsBridge,
@@ -60,6 +65,7 @@ export async function executeAgentStep(
     };
     gitConfigGlobal?: string | undefined;
     onSessionEntry?: (line: string) => void;
+    credentialSource?: InferenceCredentialSource | undefined;
     leaseToken?: LeaseTokenSource | undefined;
     integrationToolsGatewayUrl?: URL | undefined;
     prerequisites?: AgentPrerequisiteContract | undefined;
@@ -131,6 +137,7 @@ export async function executeAgentStep(
       tools,
       mcpServers: integrationToolsBridges,
       requestedIntegrationTools: requestedIntegrationToolsFromConfig(mcpServers),
+      credentialSource: options.credentialSource,
       ...(toolSurface === undefined ? {} : {toolSurface}),
       prerequisites: options.prerequisites,
       thinking: options.runtime.thinking,
@@ -161,6 +168,7 @@ async function runSelectedHarness(params: {
   tools: readonly string[] | undefined;
   mcpServers: readonly IntegrationToolsBridge[] | undefined;
   requestedIntegrationTools: readonly RequestedIntegrationTool[] | undefined;
+  credentialSource: InferenceCredentialSource | undefined;
   toolSurface?: HarnessToolSurface | undefined;
   prerequisites: AgentPrerequisiteContract | undefined;
   thinking: string;
@@ -186,6 +194,7 @@ async function runSelectedHarness(params: {
     tools,
     mcpServers,
     requestedIntegrationTools,
+    credentialSource,
     toolSurface,
     prerequisites,
     thinking,
@@ -215,6 +224,7 @@ async function runSelectedHarness(params: {
         ...(tools === undefined ? {} : {tools}),
         ...(mcpServers === undefined ? {} : {mcpServers}),
         ...(requestedIntegrationTools === undefined ? {} : {requestedIntegrationTools}),
+        ...(credentialSource === undefined ? {} : {credentialSource}),
         ...(toolSurface === undefined ? {} : {toolSurface}),
         ...(prerequisites === undefined ? {} : {prerequisites}),
         outputs,

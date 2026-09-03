@@ -16,6 +16,7 @@ import {
 } from '@shipfox/api-runners-dto';
 import {STEP_ERROR_MESSAGE_MAX_LENGTH, STEP_RESPONSE_MAX_LENGTH} from '@shipfox/api-workflows-dto';
 import {
+  AGENT_RUNTIME_CONFIG_RENEWAL_HEADER,
   AgentRuntimeConfigRequestError,
   appendStepLogs,
   classifyCheckoutTokenFailure,
@@ -26,12 +27,14 @@ import {
   HTTPError,
   heartbeat,
   heartbeatRunnerControlSession,
+  isTransientAgentRuntimeConfigError,
   isTransientCheckoutTokenError,
   pollRunnerAssignment,
   RunnerSessionExhaustedError,
   registerRunnerSession,
   reportStep,
   requestAgentRuntimeConfig,
+  requestAgentRuntimeConfigWithTiming,
   requestCheckoutToken,
   requestJob,
   requestNextStep,
@@ -483,6 +486,46 @@ describe('api-client auth contexts', () => {
     expect(calls[0]?.url).toContain(`step_id=${STEP_ID}`);
     expect(calls[0]?.url).toContain('attempt=2');
     expect(calls[0]?.authorization).toBe('Bearer lease-runtime');
+  });
+
+  it('requestAgentRuntimeConfigWithTiming captures Date and marks renewal requests', async () => {
+    const serverDate = 'Thu, 03 Sep 2026 12:00:00 GMT';
+    stubFetch(() =>
+      jsonResponse(
+        {
+          harness: 'pi',
+          provider_id: 'anthropic',
+          model: 'claude-opus-4-8',
+          thinking: 'high',
+          credentials: {api_key: 'sk-runtime'},
+        },
+        200,
+        {date: serverDate},
+      ),
+    );
+    const leaseClient = createLeaseClient('lease-runtime');
+
+    const response = await requestAgentRuntimeConfigWithTiming(leaseClient, {
+      stepId: STEP_ID,
+      attempt: 2,
+      renewal: true,
+    });
+
+    expect(response.config.credentials.api_key).toBe('sk-runtime');
+    expect(response.timing.serverDate).toBe(serverDate);
+    expect(response.timing.responseReceivedAt).toBeGreaterThanOrEqual(
+      response.timing.requestStartedAt,
+    );
+    expect(response.timing.wallClockAtReceipt).toBeTypeOf('number');
+    expect(calls[0]?.headers[AGENT_RUNTIME_CONFIG_RENEWAL_HEADER]).toBe('true');
+  });
+
+  it.each([
+    408, 429, 500, 502, 503, 504,
+  ])('classifies runtime config HTTP %s as transient', (status) => {
+    expect(
+      isTransientAgentRuntimeConfigError(new AgentRuntimeConfigRequestError(status, 'x')),
+    ).toBe(true);
   });
 
   it('requestStepSecrets sends the lease token and parses returned secret values', async () => {
@@ -1358,10 +1401,10 @@ function checkoutTokenHttpError(status: number, data?: unknown): HTTPError {
   return error;
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: {'content-type': 'application/json'},
+    headers: {'content-type': 'application/json', ...headers},
   });
 }
 

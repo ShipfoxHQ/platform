@@ -45,7 +45,7 @@ import {
   type LeaseTokenSource,
   type LogAppendFn,
   reportStep,
-  requestAgentRuntimeConfig,
+  requestAgentRuntimeConfigWithTiming,
   requestNextStep,
   requestSessionTranscript,
   requestStepSecrets,
@@ -64,6 +64,7 @@ import {
 } from '@shipfox/runner-workspace';
 import {isTimeoutError, type KyInstance} from 'ky';
 import {config} from '#config.js';
+import {createInferenceCredentialSource} from '#core/inference-credential-source.js';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -659,17 +660,16 @@ export async function executeStep(params: {
     crashSecrets: [...secrets],
     inferenceSecrets: [] as string[],
   };
-  const replaceInferenceSecrets = params.replaceInferenceSecrets
-    ? (replacement: string[]) => {
-        params.replaceInferenceSecrets?.(replacement);
-        const currentJobSecrets = [...params.secrets];
-        secretState.subscribedSecrets = currentJobSecrets;
-        secretState.crashSecrets = currentJobSecrets;
-        secretState.inferenceSecrets = [
-          ...new Set(replacement.filter((secret) => secret.length > 0)),
-        ];
-      }
-    : undefined;
+  const replaceInferenceSecrets = (replacement: string[]) => {
+    params.replaceInferenceSecrets?.(replacement);
+    // Source shutdown clears the job registry before executeStep's outer catch can mask a
+    // late harness failure. Keep the last local snapshot for that final crash redaction.
+    if (replacement.length === 0) return;
+    const currentJobSecrets = [...params.secrets];
+    secretState.subscribedSecrets = currentJobSecrets;
+    secretState.crashSecrets = currentJobSecrets;
+    secretState.inferenceSecrets = [...new Set(replacement.filter((secret) => secret.length > 0))];
+  };
   const stepParams = withInferenceSecretReplacer(params, replaceInferenceSecrets);
   const registerStreamSecrets = createStreamSecretRegistrar({
     subscribeSecrets,
@@ -1005,9 +1005,9 @@ async function executeAgentStepBranch(params: {
   checkoutRef?: string | undefined;
 }): Promise<StepExecution> {
   const input = params.params;
-  let runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>;
+  let runtimeConfigResponse: Awaited<ReturnType<typeof requestAgentRuntimeConfigWithTiming>>;
   try {
-    runtimeConfig = await requestAgentRuntimeConfig(input.leaseClient, {
+    runtimeConfigResponse = await requestAgentRuntimeConfigWithTiming(input.leaseClient, {
       stepId: input.step.id,
       attempt: input.attempt,
       signal: input.signal,
@@ -1019,6 +1019,7 @@ async function executeAgentStepBranch(params: {
       preparedWorkspace: false,
     };
   }
+  const runtimeConfig = runtimeConfigResponse.config;
   let session: AgentSessionState;
   try {
     session = await prepareAgentSession(input, runtimeConfig);
@@ -1033,63 +1034,74 @@ async function executeAgentStepBranch(params: {
     ...Object.values(runtimeConfig.credentials),
     ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
   ];
-  input.replaceInferenceSecrets?.(runtimeSecretValues);
-  const agentSecrets = [...input.secrets, ...runtimeSecretValues];
-  params.secretState.crashSecrets = [...input.secrets];
-  params.secretState.inferenceSecrets = [...new Set(runtimeSecretValues)];
-  const sessionStream = createAgentSessionLogStream(input, agentSecrets, params.append);
-  params.onStream(sessionStream);
-  params.registerStreamSecrets(sessionStream);
-  const {executeAgentStep} = await loadRunnerAgentStep();
-  consumeCheckoutRefIfUsed({
-    consume: input.consumeCheckoutRef,
-    checkoutRef: params.checkoutRef,
-    session,
-  });
-  const resumePrompt = buildResumePrompt(session, params.checkoutRef, input.step.config.prompt);
-  const result = await executeAgentStep(input.step, {
-    signal: input.signal,
-    cwd: params.stepCwd,
-    agentStateDir: input.agentStateDir,
-    ...(session.invocation === undefined ? {} : {session: session.invocation}),
-    ...(resumePrompt === undefined ? {} : {prompt: resumePrompt}),
-    ...(input.ambientGitConfigPath ? {gitConfigGlobal: input.ambientGitConfigPath} : {}),
-    runtime: {
-      harness: runtimeConfig.harness,
-      provider: runtimeConfig.provider_id,
-      model: runtimeConfig.model,
-      thinking: runtimeConfig.thinking,
-      credentials: runtimeConfig.credentials,
-      ...(runtimeConfig.custom_provider ? {custom_provider: runtimeConfig.custom_provider} : {}),
-      ...(runtimeConfig.claude !== undefined ? {claude: runtimeConfig.claude} : {}),
-    },
-    leaseToken: input.leaseToken,
-    integrationToolsGatewayUrl: integrationToolsGatewayUrl(),
-    ...(sessionStream ? {onSessionEntry: (line: string) => sessionStream.writeEntry(line)} : {}),
-  });
-  return {
-    sessionCommit:
-      session.mode === 'resume' && session.baseSegment !== undefined
-        ? {
-            baseSegment: session.baseSegment,
-            harness: runtimeConfig.harness,
-            model: runtimeConfig.model,
-            provider: runtimeConfig.provider_id,
-          }
-        : undefined,
-    result: maskAgentResult(
-      result,
-      buildSecretVariants([
-        ...params.secretState.crashSecrets,
-        ...params.secretState.inferenceSecrets,
-        ...params.secretState.subscribedSecrets,
-        ...input.secrets,
-      ]),
-    ),
-    stream: sessionStream,
-    logOutcome: sessionStream ? undefined : 'abandoned',
-    preparedWorkspace: false,
-  };
+  let inferenceCredentialSource: ReturnType<typeof createInferenceCredentialSource>;
+  try {
+    inferenceCredentialSource = createStepInferenceCredentialSource(input, runtimeConfigResponse);
+    if (inferenceCredentialSource === undefined) {
+      input.replaceInferenceSecrets?.(runtimeSecretValues);
+    }
+    const agentSecrets = [...input.secrets, ...runtimeSecretValues];
+    params.secretState.crashSecrets = [...input.secrets];
+    params.secretState.inferenceSecrets = [...new Set(runtimeSecretValues)];
+    const sessionStream = createAgentSessionLogStream(input, agentSecrets, params.append);
+    params.onStream(sessionStream);
+    params.registerStreamSecrets(sessionStream);
+    const {executeAgentStep} = await loadRunnerAgentStep();
+    consumeCheckoutRefIfUsed({
+      consume: input.consumeCheckoutRef,
+      checkoutRef: params.checkoutRef,
+      session,
+    });
+    const resumePrompt = buildResumePrompt(session, params.checkoutRef, input.step.config.prompt);
+    const result = await executeAgentStep(input.step, {
+      signal: input.signal,
+      cwd: params.stepCwd,
+      agentStateDir: input.agentStateDir,
+      ...(session.invocation === undefined ? {} : {session: session.invocation}),
+      ...(resumePrompt === undefined ? {} : {prompt: resumePrompt}),
+      ...(input.ambientGitConfigPath ? {gitConfigGlobal: input.ambientGitConfigPath} : {}),
+      runtime: {
+        harness: runtimeConfig.harness,
+        provider: runtimeConfig.provider_id,
+        model: runtimeConfig.model,
+        thinking: runtimeConfig.thinking,
+        credentials: runtimeConfig.credentials,
+        ...(runtimeConfig.custom_provider ? {custom_provider: runtimeConfig.custom_provider} : {}),
+        ...(runtimeConfig.claude !== undefined ? {claude: runtimeConfig.claude} : {}),
+      },
+      ...(inferenceCredentialSource === undefined
+        ? {}
+        : {credentialSource: inferenceCredentialSource}),
+      leaseToken: input.leaseToken,
+      integrationToolsGatewayUrl: integrationToolsGatewayUrl(),
+      ...(sessionStream ? {onSessionEntry: (line: string) => sessionStream.writeEntry(line)} : {}),
+    });
+    return {
+      sessionCommit:
+        session.mode === 'resume' && session.baseSegment !== undefined
+          ? {
+              baseSegment: session.baseSegment,
+              harness: runtimeConfig.harness,
+              model: runtimeConfig.model,
+              provider: runtimeConfig.provider_id,
+            }
+          : undefined,
+      result: maskAgentResult(
+        result,
+        buildSecretVariants([
+          ...params.secretState.crashSecrets,
+          ...params.secretState.inferenceSecrets,
+          ...params.secretState.subscribedSecrets,
+          ...input.secrets,
+        ]),
+      ),
+      stream: sessionStream,
+      logOutcome: sessionStream ? undefined : 'abandoned',
+      preparedWorkspace: false,
+    };
+  } finally {
+    inferenceCredentialSource?.close();
+  }
 }
 
 interface AgentSessionState {
@@ -1102,6 +1114,26 @@ interface AgentSessionState {
     harnessSessionId?: string;
   };
   preamble: boolean;
+}
+
+function createStepInferenceCredentialSource(
+  input: Parameters<typeof executeStep>[0],
+  initial: Awaited<ReturnType<typeof requestAgentRuntimeConfigWithTiming>>,
+) {
+  return createInferenceCredentialSource({
+    initial,
+    signal: input.signal,
+    fetchRuntimeConfig: ({signal}) =>
+      requestAgentRuntimeConfigWithTiming(input.leaseClient, {
+        stepId: input.step.id,
+        attempt: input.attempt,
+        signal,
+        renewal: true,
+      }),
+    ...(input.replaceInferenceSecrets === undefined
+      ? {}
+      : {replaceInferenceSecrets: input.replaceInferenceSecrets}),
+  });
 }
 
 class AgentSessionHarnessMismatchError extends Error {
@@ -1124,7 +1156,7 @@ interface AgentSessionCommitContext {
 
 async function prepareAgentSession(
   input: Parameters<typeof executeStep>[0],
-  runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfig>>,
+  runtimeConfig: Awaited<ReturnType<typeof requestAgentRuntimeConfigWithTiming>>['config'],
 ): Promise<AgentSessionState> {
   const descriptor = input.step.session === undefined ? runtimeConfig.session : input.step.session;
   if (descriptor === undefined || descriptor === null) {
