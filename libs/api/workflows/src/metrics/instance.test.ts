@@ -125,6 +125,20 @@ describe('workflow tool invocation metrics', () => {
   });
 });
 
+describe('listener batch metrics', () => {
+  test('records bounded partition reasons', () => {
+    metrics.recordListenerBatchPartition('byte_limit');
+    metrics.recordListenerBatchPartition('count_limit');
+
+    expect(counterAdd('workflows_listener_batch_partitions')).toHaveBeenNthCalledWith(1, 1, {
+      reason: 'byte_limit',
+    });
+    expect(counterAdd('workflows_listener_batch_partitions')).toHaveBeenNthCalledWith(2, 1, {
+      reason: 'count_limit',
+    });
+  });
+});
+
 describe('workflow-run detail measurement metrics', () => {
   test('records bounded labels and read measurements', () => {
     metrics.recordWorkflowRunDetailRead({

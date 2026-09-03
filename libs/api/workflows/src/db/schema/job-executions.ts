@@ -67,9 +67,13 @@ export const jobExecutions = pgTable(
 );
 
 export type JobExecutionDb = typeof jobExecutions.$inferSelect;
+export type JobExecutionDbWithoutTriggerEvents = Omit<JobExecutionDb, 'triggerEvents'>;
 export type JobExecutionCreateDb = typeof jobExecutions.$inferInsert;
 
-export function toJobExecution(row: JobExecutionDb, fallbackName: string): JobExecution {
+export function toJobExecution(
+  row: JobExecutionDb | JobExecutionDbWithoutTriggerEvents,
+  fallbackName: string,
+): JobExecution {
   return {
     id: row.id,
     jobId: row.jobId,
@@ -83,9 +87,10 @@ export function toJobExecution(row: JobExecutionDb, fallbackName: string): JobEx
     // Keep legacy/corrupt JSONB rows readable. The diagnostic context route
     // reports an invalid trigger-events shape as an empty collection rather
     // than allowing a mapper `.map` failure to abort the read.
-    triggerEvents: Array.isArray(row.triggerEvents)
-      ? row.triggerEvents.map(normalizeWorkflowExecutionEvent)
-      : [],
+    triggerEvents:
+      'triggerEvents' in row && Array.isArray(row.triggerEvents)
+        ? row.triggerEvents.map(normalizeWorkflowExecutionEvent)
+        : [],
     outputs: row.outputs,
     evaluationTrace: row.evaluationTrace ?? null,
     version: row.version,

@@ -123,6 +123,12 @@ const listenerEventsCoalesced = meter.createHistogram<Record<string, never>>(
   },
 );
 
+const listenerBatchPartitions = meter.createCounter<{
+  reason: 'byte_limit' | 'count_limit';
+}>('workflows_listener_batch_partitions', {
+  description: 'Listener firing batch partitions by bounded limit',
+});
+
 const toolInvocationDuration = meter.createHistogram<{
   provider: string;
   outcome: 'success' | 'error';
@@ -271,6 +277,10 @@ export function recordWorkflowListenerResolved(reason: ResolutionReason): void {
 
 export function recordListenerEventsCoalesced(batchSize: number): void {
   listenerEventsCoalesced.record(batchSize);
+}
+
+export function recordListenerBatchPartition(reason: 'byte_limit' | 'count_limit'): void {
+  listenerBatchPartitions.add(1, {reason});
 }
 
 export function recordWorkflowToolInvocationDuration(

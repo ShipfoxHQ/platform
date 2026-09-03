@@ -1,5 +1,5 @@
 import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
-import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
+import {readPersistedWorkflowModel, type WorkflowModel} from '@shipfox/api-definitions-dto';
 import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
@@ -7,9 +7,13 @@ import {
   WORKFLOWS_JOB_ACTIVATED,
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
-import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm';
+import {logger} from '@shipfox/node-opentelemetry';
+import {and, asc, count, eq, gt, inArray, isNull, notInArray, or, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
-import {loadAgentToolMaterializationContext} from '#core/agent-tools.js';
+import {
+  type AgentToolMaterializationContext,
+  loadAgentToolMaterializationContext,
+} from '#core/agent-tools.js';
 import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import {isJobTerminal, type JobStatus, type ResolutionReason} from '#core/entities/job.js';
 import type {
@@ -21,9 +25,15 @@ import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import {InterpolationUnresolvableError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
+  createListenerEventBatchPacker,
+  type ListenerBatchPartitionReason,
+  MAX_LISTENER_TRIGGER_EVENTS_BYTES,
+} from '#core/listener-event-batching.js';
+import {
   type MaterializedListenerExecution,
   materializeListenerExecution,
 } from '#core/listener-execution-materialization.js';
+import {listenerPriorExecutionEventsRequired} from '#core/listener-prior-execution-context.js';
 import {
   applyListenerFilterSnapshots,
   assembleListenerSnapshotContext,
@@ -32,13 +42,19 @@ import {
   planListenerFilterSnapshots,
 } from '#core/step-config/assemble-run-context.js';
 import {
+  recordListenerBatchPartition,
   recordListenerEventsCoalesced,
   recordWorkflowJobExecutionStatusChanged,
   recordWorkflowListenerResolved,
 } from '#metrics/instance.js';
 import {db, type Tx} from './db.js';
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
-import {type JobExecutionDb, jobExecutions, toJobExecution} from './schema/job-executions.js';
+import {
+  type JobExecutionDb,
+  type JobExecutionDbWithoutTriggerEvents,
+  jobExecutions,
+  toJobExecution,
+} from './schema/job-executions.js';
 import {type JobListenerEventDb, jobListenerEvents} from './schema/job-listener-events.js';
 import {jobs, toJob} from './schema/jobs.js';
 import {steps} from './schema/steps.js';
@@ -54,6 +70,26 @@ import {
 
 const TERMINAL_EXECUTION_STATUSES: JobExecutionStatus[] = ['succeeded', 'failed', 'cancelled'];
 const MAX_LISTENER_RESOLUTION_ATTEMPTS = 3;
+
+const listenerPriorExecutionSelection = {
+  id: jobExecutions.id,
+  jobId: jobExecutions.jobId,
+  sequence: jobExecutions.sequence,
+  name: jobExecutions.name,
+  runner: jobExecutions.runner,
+  status: jobExecutions.status,
+  statusReason: jobExecutions.statusReason,
+  statusReasonMessage: jobExecutions.statusReasonMessage,
+  outputs: jobExecutions.outputs,
+  evaluationTrace: jobExecutions.evaluationTrace,
+  version: jobExecutions.version,
+  createdAt: jobExecutions.createdAt,
+  updatedAt: jobExecutions.updatedAt,
+  queuedAt: jobExecutions.queuedAt,
+  startedAt: jobExecutions.startedAt,
+  finishedAt: jobExecutions.finishedAt,
+  timedOutAt: jobExecutions.timedOutAt,
+} satisfies Record<keyof JobExecutionDbWithoutTriggerEvents, unknown>;
 
 export interface ActivateJobListenerParams {
   jobId: string;
@@ -223,6 +259,32 @@ export interface DrainListenerEventsParams {
   secrets?: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'> | undefined;
 }
 
+interface DrainedListenerEvents {
+  readonly result: DrainListenerEventsResult;
+  readonly batchSize?: number;
+  readonly partitionReason?: ListenerBatchPartitionReason;
+}
+
+interface LockedListenerEventBatch {
+  readonly bufferedEvents: readonly JobListenerEventDb[];
+  readonly triggerEvents: readonly WorkflowExecutionEvent[];
+  readonly partitionReason?: ListenerBatchPartitionReason;
+}
+
+interface ListenerEventCursor {
+  readonly receivedAt: Date;
+  readonly id: string;
+}
+
+interface ListenerDrainTransactionParams {
+  readonly drain: DrainListenerEventsParams;
+  readonly model: WorkflowModel | null;
+  readonly includePriorExecutionTriggerEvents: boolean;
+  readonly vars: Record<string, string> | undefined;
+  readonly variableResolutionError: InterpolationUnresolvableError | undefined;
+  readonly agentToolContext: AgentToolMaterializationContext | undefined;
+}
+
 export async function drainListenerEventsIntoExecution(
   params: DrainListenerEventsParams,
 ): Promise<DrainListenerEventsResult> {
@@ -247,6 +309,10 @@ export async function drainListenerEventsIntoExecution(
       ? null
       : readPersistedWorkflowModel(materializationTarget.attempt.model);
   const modelJob = model?.jobs.find((job) => job.key === materializationTarget.job.key);
+  const includePriorExecutionTriggerEvents = listenerPriorExecutionEventsRequired({
+    model,
+    jobKey: materializationTarget.job.key,
+  });
   let vars: Record<string, string> | undefined;
   let variableResolutionError: InterpolationUnresolvableError | undefined;
   if (model !== null && modelJob !== undefined) {
@@ -275,61 +341,98 @@ export async function drainListenerEventsIntoExecution(
         })
       : undefined;
 
-  const drained = await db().transaction(async (tx) => {
-    const existing = await findExistingExecution(params, tx);
-    if (existing) return {result: existing};
-
-    const resolveRequested = await hasPendingResolveEvent(params.jobId, tx);
-    if (resolveRequested) return {result: {kind: 'resolve-requested' as const}};
-
-    const bufferedEvents = await lockBufferedFireEvents(params, tx);
-    if (bufferedEvents.length === 0) return {result: {kind: 'empty' as const}};
-
-    const target = await loadListenerMaterializationTarget(params.jobId, tx);
-    const priorExecutions = await loadListenerPriorExecutions(
-      params.jobId,
-      target.job.name ?? target.job.key,
+  const drained = await db().transaction((tx) =>
+    drainListenerEventsInTransaction(
+      {
+        drain: params,
+        model,
+        includePriorExecutionTriggerEvents,
+        vars,
+        variableResolutionError,
+        agentToolContext,
+      },
       tx,
+    ),
+  );
+
+  if (drained.partitionReason !== undefined) {
+    recordListenerBatchPartition(drained.partitionReason);
+  }
+  if (drained.result.kind === 'empty' && drained.partitionReason === 'byte_limit') {
+    logger().warn(
+      {jobId: params.jobId, limitBytes: MAX_LISTENER_TRIGGER_EVENTS_BYTES},
+      'Listener event batch head exceeds the execution byte limit; leaving it buffered',
     );
-    const materialized = await materializeListenerExecution({
-      model,
-      run: toWorkflowRun(target.run),
-      job: toJob(target.job),
-      vars,
-      variableResolutionError,
-      sequence: params.expectedSequence,
-      triggerEvents: listenerTriggerEvents(bufferedEvents),
-      priorExecutions,
-      resolveAgentDefaults:
-        params.resolveAgentDefaults ??
-        (params.agent
-          ? createAgentDefaultsResolver(params.agent, target.run.workspaceId)
-          : undefined),
-      agentToolContext,
-      agentToolSnapshot: target.attempt.agentToolMaterialization,
-    });
-    const execution = await persistMaterializedListenerExecution(tx, {
-      jobId: params.jobId,
-      sequence: params.expectedSequence,
-      bufferedEventIds: bufferedEvents.map((event) => event.id),
-      materialized,
-    });
-
-    if (materialized.status === 'failed' || execution.status === 'failed') {
-      recordWorkflowJobExecutionStatusChanged(execution.status);
-    }
-
-    return {
-      result: drainExecutionResult(execution),
-      batchSize: bufferedEvents.length,
-    };
-  });
-
+  }
   if (drained.result.kind === 'execution' && drained.batchSize !== undefined) {
     recordListenerEventsCoalesced(drained.batchSize);
   }
 
   return drained.result;
+}
+
+async function drainListenerEventsInTransaction(
+  params: ListenerDrainTransactionParams,
+  tx: Tx,
+): Promise<DrainedListenerEvents> {
+  const existing = await findExistingExecution(params.drain, tx);
+  if (existing) return {result: existing};
+
+  const resolveRequested = await hasPendingResolveEvent(params.drain.jobId, tx);
+  if (resolveRequested) return {result: {kind: 'resolve-requested'}};
+
+  const bufferedEventBatch = await lockBufferedFireEventBatch(params.drain, tx);
+  if (bufferedEventBatch.bufferedEvents.length === 0) {
+    return {
+      result: {kind: 'empty'},
+      ...(bufferedEventBatch.partitionReason === undefined
+        ? {}
+        : {partitionReason: bufferedEventBatch.partitionReason}),
+    };
+  }
+
+  const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
+  const priorExecutions = await loadListenerPriorExecutions(
+    params.drain.jobId,
+    target.job.name ?? target.job.key,
+    tx,
+    params.includePriorExecutionTriggerEvents,
+  );
+  const materialized = await materializeListenerExecution({
+    model: params.model,
+    run: toWorkflowRun(target.run),
+    job: toJob(target.job),
+    vars: params.vars,
+    variableResolutionError: params.variableResolutionError,
+    sequence: params.drain.expectedSequence,
+    triggerEvents: bufferedEventBatch.triggerEvents,
+    priorExecutions,
+    resolveAgentDefaults:
+      params.drain.resolveAgentDefaults ??
+      (params.drain.agent
+        ? createAgentDefaultsResolver(params.drain.agent, target.run.workspaceId)
+        : undefined),
+    agentToolContext: params.agentToolContext,
+    agentToolSnapshot: target.attempt.agentToolMaterialization,
+  });
+  const execution = await persistMaterializedListenerExecution(tx, {
+    jobId: params.drain.jobId,
+    sequence: params.drain.expectedSequence,
+    bufferedEventIds: bufferedEventBatch.bufferedEvents.map((event) => event.id),
+    materialized,
+  });
+
+  if (materialized.status === 'failed' || execution.status === 'failed') {
+    recordWorkflowJobExecutionStatusChanged(execution.status);
+  }
+
+  return {
+    result: drainExecutionResult(execution),
+    batchSize: bufferedEventBatch.bufferedEvents.length,
+    ...(bufferedEventBatch.partitionReason === undefined
+      ? {}
+      : {partitionReason: bufferedEventBatch.partitionReason}),
+  };
 }
 
 export interface ListenerBufferPeek {
@@ -407,10 +510,19 @@ async function deriveJobListenerResolutionDecision(
   const jobRow = target?.job;
   if (!jobRow) throw new Error(`Job not found: ${jobId}`);
 
+  const model =
+    target.attempt.model === null ? null : readPersistedWorkflowModel(target.attempt.model);
+  const includePriorExecutionTriggerEvents = listenerPriorExecutionEventsRequired({
+    model,
+    jobKey: jobRow.key,
+    success: jobRow.success,
+  });
+
   const [executionRows, dependencyJobs] = await Promise.all([
-    db()
-      .select()
-      .from(jobExecutions)
+    (includePriorExecutionTriggerEvents
+      ? db().select().from(jobExecutions)
+      : db().select(listenerPriorExecutionSelection).from(jobExecutions)
+    )
       .where(eq(jobExecutions.jobId, jobId))
       .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id)),
     getDirectDependencyJobContexts(jobId),
@@ -577,43 +689,72 @@ async function hasBufferedFireEvent(jobId: string, tx: Tx): Promise<boolean> {
   return fireEvent !== undefined;
 }
 
-async function lockBufferedFireEvents(
+async function lockBufferedFireEventBatch(
   params: DrainListenerEventsParams,
   tx: Tx,
-): Promise<JobListenerEventDb[]> {
-  const bufferedQuery = tx
-    .select()
-    .from(jobListenerEvents)
-    .where(
-      and(
-        eq(jobListenerEvents.jobId, params.jobId),
-        eq(jobListenerEvents.disposition, 'fire'),
-        isNull(jobListenerEvents.consumedByExecutionId),
-      ),
-    )
-    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
-  return await (params.maxSize === undefined
-    ? bufferedQuery
-    : bufferedQuery.limit(params.maxSize)
-  ).for('update');
+): Promise<LockedListenerEventBatch> {
+  const packer = createListenerEventBatchPacker();
+  const bufferedEvents: JobListenerEventDb[] = [];
+  let cursor: ListenerEventCursor | undefined;
+
+  while (params.maxSize === undefined || bufferedEvents.length < params.maxSize) {
+    const [event] = await tx
+      .select()
+      .from(jobListenerEvents)
+      .where(
+        and(
+          eq(jobListenerEvents.jobId, params.jobId),
+          eq(jobListenerEvents.disposition, 'fire'),
+          isNull(jobListenerEvents.consumedByExecutionId),
+          cursor === undefined
+            ? undefined
+            : or(
+                gt(jobListenerEvents.receivedAt, cursor.receivedAt),
+                and(
+                  eq(jobListenerEvents.receivedAt, cursor.receivedAt),
+                  gt(jobListenerEvents.id, cursor.id),
+                ),
+              ),
+        ),
+      )
+      .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
+      .limit(1)
+      .for('update');
+    if (event === undefined) break;
+
+    const triggerEvent = listenerTriggerEvent(event);
+    if (!packer.add(triggerEvent)) break;
+
+    bufferedEvents.push(event);
+    cursor = {receivedAt: event.receivedAt, id: event.id};
+  }
+
+  const batch = packer.finish({
+    countLimitReached:
+      params.maxSize !== undefined &&
+      bufferedEvents.length > 0 &&
+      bufferedEvents.length >= params.maxSize,
+  });
+  const partitionReason = batch.kind === 'empty' ? batch.reason : batch.partitionReason;
+  return {
+    bufferedEvents,
+    triggerEvents: batch.kind === 'empty' ? [] : batch.events,
+    ...(partitionReason === undefined ? {} : {partitionReason}),
+  };
 }
 
-function listenerTriggerEvents(
-  bufferedEvents: readonly JobListenerEventDb[],
-): WorkflowExecutionEvent[] {
-  return bufferedEvents.map((event) =>
-    normalizeWorkflowExecutionEvent({
-      source: event.source,
-      event: event.event,
-      delivery_id: event.deliveryId,
-      received_at: event.receivedAt.toISOString(),
-      project: event.triggerReference?.project ?? null,
-      repository: event.triggerReference?.repository ?? null,
-      ref: event.triggerReference?.ref ?? null,
-      commit: event.triggerReference?.commit ?? null,
-      data: event.payload,
-    }),
-  );
+function listenerTriggerEvent(event: JobListenerEventDb): WorkflowExecutionEvent {
+  return normalizeWorkflowExecutionEvent({
+    source: event.source,
+    event: event.event,
+    delivery_id: event.deliveryId,
+    received_at: event.receivedAt.toISOString(),
+    project: event.triggerReference?.project ?? null,
+    repository: event.triggerReference?.repository ?? null,
+    ref: event.triggerReference?.ref ?? null,
+    commit: event.triggerReference?.commit ?? null,
+    data: event.payload,
+  });
 }
 
 async function persistMaterializedListenerExecution(
@@ -626,7 +767,6 @@ async function persistMaterializedListenerExecution(
   },
 ): Promise<JobExecutionDb> {
   try {
-    assertWorkflowDiagnosticSize('trigger_events', params.materialized.triggerEvents);
     assertWorkflowDiagnosticSize('execution_evaluation_trace', params.materialized.evaluationTrace);
     for (const step of params.materialized.steps) {
       assertWorkflowDiagnosticSize('config', step.config);
@@ -771,10 +911,12 @@ async function loadListenerPriorExecutions(
   jobId: string,
   fallbackName: string,
   tx: Tx,
+  includeTriggerEvents: boolean,
 ): Promise<JobExecution[]> {
-  const priorExecutions = await tx
-    .select()
-    .from(jobExecutions)
+  const priorExecutions = await (includeTriggerEvents
+    ? tx.select().from(jobExecutions)
+    : tx.select(listenerPriorExecutionSelection).from(jobExecutions)
+  )
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
   return priorExecutions.map((execution) => toJobExecution(execution, fallbackName));
