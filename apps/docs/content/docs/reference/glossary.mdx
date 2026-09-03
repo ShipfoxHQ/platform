@@ -6,7 +6,7 @@ description: "Definitions for every Shipfox term: workspace, project, workflow, 
 
 This glossary defines the core terms used in Shipfox documentation and in the product UI. When a concept is introduced elsewhere in the docs, it links back here.
 
-## Agent session in Shipfox
+## Agent session
 
 The structured record an agent step produces: every model message, thinking
 block, tool call, and tool result, plus token usage and cost. The dashboard
@@ -15,120 +15,120 @@ See [Agents](/understand/agents). A step can also name its session with the
 `session` field. Later agent steps in the same run then continue that
 conversation. See [Agent sessions](/understand/agent-sessions).
 
-## Agent step in Shipfox
+## Agent step
 
 A workflow step that invokes an AI model. Defined with `prompt` (required), plus optional `model`, `harness`, `thinking`, `provider`, and `session` fields. The model reads the repository context and executes the prompt. Agent steps cannot carry `env`; use a run step for environment-dependent shell work. See [Agent step fields](/reference/workflow-schema#agent-step-fields).
 
-## CEL expressions in Shipfox
+## CEL expressions
 
 Common Expression Language, the expression language Shipfox uses for `${{ }}` templates and for predicate fields such as `filter`, `if`, `gate.success`, and job `success`. See [Expressions](/reference/expressions) for the syntax and [Contexts](/reference/contexts) for the data each field can read.
 
-## Job execution in Shipfox
+## Job execution
 
 One firing of a job. A regular job has exactly one execution per run attempt; a
 [listening job](/understand/listening-jobs) fires one execution per event batch.
 Job status is derived over all executions. See
 [Jobs and steps](/understand/jobs-and-steps).
 
-## Feedback loop in Shipfox
+## Feedback loop
 
 The pattern a gate enables: an agent acts, a check judges the result, and on
 failure the job restarts from the agent with feedback, within bounded attempts.
 See [Feedback loops](/understand/feedback-loops).
 
-## Event filter in Shipfox
+## Event filter
 
 An optional CEL expression on a trigger (or on a listening job's `on`/`until` entries) that narrows which events fire it. For example, `event.ref == "refs/heads/main"` on a GitHub push trigger restricts to pushes on `main`. The filter is evaluated when the event arrives: a false result skips the event, and an expression error fails closed. See [Expressions](/reference/expressions) and the [trigger fields](/reference/workflow-schema#trigger-fields).
 
-## Gate in Shipfox
+## Gate
 
 A condition block attached to a step that controls success evaluation and failure recovery. The `success` field accepts a CEL expression over `step.exit_code`, `step.status`, and `step.outputs`. The `on_failure.restart_from` field names an earlier keyed step in the same job to restart from when the gate fails, and `on_failure.feedback` is an optional message the restarted step can read. A gate must contain at least one of `success` or `on_failure`. See [Feedback loops](/understand/feedback-loops) and [Gate fields](/reference/workflow-schema#gate-fields).
 
-## Agent harness in Shipfox
+## Agent harness
 
 The agent runtime that executes an agent step. Set with the `harness` field: `pi` (the default) or `claude` (the Claude Agent SDK). The harness determines which `thinking` values the step accepts. See [Agent step fields](/reference/workflow-schema#agent-step-fields).
 
-## Job in Shipfox
+## Job
 
 A group of steps that runs on a single runner. Jobs within a workflow run in parallel by default; use `needs` to declare dependencies and sequence them. Each job execution gets a fresh repository checkout. A job must have at least one step. See [Job fields](/reference/workflow-schema#job-fields).
 
-## Step key in Shipfox
+## Step key
 
 A stable identifier on a step, set with the `key` field. Unlike `name` (a display label), `key` is what other parts of the workflow reference: `gate.on_failure.restart_from` restarts a job from the step carrying that key, and `steps.<key>.outputs` reads its outputs. Must be at least one character. Valid on both run steps and agent steps.
 
-## Listening job in Shipfox
+## Listening job
 
 A job with a `listening:` block. After its `needs` are met it activates and fires
 one execution per matching event batch (new review comments, new issue events)
 until a resolution condition is met: an `until` event, a `timeout`, or
 `max_executions`. See [Listening jobs](/understand/listening-jobs).
 
-## AI model in Shipfox
+## AI model
 
 `model` selects an agent model, such as `gpt-5.6-luna`. The [workspace
 provider](/reference/model-providers) supplies a default. Shipfox validates the
 model at runtime.
 
-## Pipeline terminology in Shipfox
+## Pipeline terminology
 
 An informal synonym for [workflow](/reference/workflow-schema) sometimes used in product copy. The schema, the API, and these docs use **workflow**.
 
-## Project in Shipfox
+## Project
 
 Connects one Git repository to a Shipfox workspace. A project holds all workflow definitions and run history for that repository. Workflow YAML files live at `.shipfox/workflows/*.yml` inside the connected repository.
 
-## Model provider in Shipfox
+## Model provider
 
 An AI model provider configured in workspace settings with an API key. Workflows reference providers by their ID string in the `provider` field of an agent step. See the full catalog in the [Model Providers reference](/reference/model-providers).
 
-## Step and job outputs in Shipfox
+## Step and job outputs
 
 Typed values a step declares and produces (`outputs:` on a step), readable by
 later steps as `steps.<key>.outputs` and lifted to downstream jobs through job
 `outputs`. See [Step outputs](/reference/workflow-schema#step-outputs).
 
-## Run in Shipfox
+## Run
 
 The record created when a workflow starts for one event or manual action. A run contains one or more attempts, jobs, job executions, and step attempts. It keeps their inputs, logs, outputs, and outcomes.
 
-## Runner in Shipfox
+## Runner
 
 A process you deploy on your own infrastructure that polls Shipfox for jobs. Jobs are dispatched to runners whose labels match the job's `runner:` field. Runners execute both run steps and agent steps. Multiple runners can be registered in a workspace. See [Runners and execution environments](/understand/runners-and-execution-environments).
 
-## Run step in Shipfox
+## Run step
 
 A workflow step that executes a shell command using the `run` field. Has access to `env` variables from the workflow, job, and step scopes. Cannot be combined with agent step fields (`prompt`, `model`, `harness`, `thinking`, `provider`, `session`) on the same step. See [Run step fields](/reference/workflow-schema#run-step-fields).
 
-## Secret in Shipfox
+## Secret
 
 A sensitive value stored write-only in workspace settings and bound into a run
 step's command or env with `${{ secrets.KEY }}`. The value resolves on the runner
 at execution time and is masked in logs; it never appears in prompts or
 predicates. See [Secrets and variables](/reference/secrets-variables).
 
-## Workflow step in Shipfox
+## Workflow step
 
 The smallest unit of work in a Shipfox workflow. A step is either a run step (executes a shell command) or an agent step (invokes an AI model). Steps within a job run sequentially. Each step can optionally carry a `gate` block for success evaluation and failure recovery.
 
-## Thinking level in Shipfox
+## Thinking level
 
 Controls reasoning depth for agent steps. Set with the `thinking` field on an agent step. Higher levels cause the model to spend more tokens on internal reasoning before producing a response, which can improve quality for complex tasks. The accepted values depend on the step's harness, and the default is `xhigh`; see [Agent step fields](/reference/workflow-schema#agent-step-fields).
 
-## Workflow trigger in Shipfox
+## Workflow trigger
 
 Defines when a workflow run starts. Configured in the `triggers:` section of a workflow YAML. Each trigger has a `source` (an integration connection slug or built-in source) and an optional `event` from that source. An optional `filter` CEL expression narrows which events fire the trigger, evaluated when the event arrives. See the [trigger fields](/reference/workflow-schema#trigger-fields) and [integration event catalogs](/integrations).
 
-## Variable in Shipfox
+## Variable
 
 A readable configuration value stored in workspace settings and injected into
 workflows with `${{ vars.KEY }}`, resolved when the run is created. Use variables
 for non-sensitive config; use secrets for credentials. See
 [Secrets and variables](/reference/secrets-variables).
 
-## Workflow in Shipfox
+## Workflow
 
 A YAML file under `.shipfox/workflows/` that defines automation for a project: jobs, steps, triggers, and runner requirements. Versioned in your repository alongside your code. The schema is strict: unknown keys are rejected at parse time. See the [Workflow Schema reference](/reference/workflow-schema).
 
-## Workspace in Shipfox
+## Workspace
 
 The top-level organisational unit in Shipfox. Contains projects, integration connections, runners, secrets, variables, AI provider configurations, and members. Provider credentials and default model selections are configured at this level and resolved at run time when a workflow step omits them.
