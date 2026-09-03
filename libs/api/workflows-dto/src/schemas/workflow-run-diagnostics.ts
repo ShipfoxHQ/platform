@@ -22,6 +22,9 @@ export const WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES = 64 * 1024;
 /** Reads retain headroom for legacy invocation histories. */
 export const WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX = 10;
 
+/** Maximum failed step-attempt coordinates returned to a run-level log read. */
+export const WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT = 10;
+
 const STEP_DIAGNOSTIC_FIELDS = [
   'authored_config',
   'config',

@@ -1,3 +1,4 @@
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {
   agentSessionDescriptorSchema,
   materializedAgentStepConfigSchema,
@@ -8,7 +9,14 @@ import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/i
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
-import {workflowDiagnosticFieldSchema} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_JOB_EXECUTION_SEQUENCE_MAX,
+  WORKFLOW_RUN_ATTEMPT_MAX,
+  WORKFLOW_RUN_JOB_POSITION_MAX,
+  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
+  WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
+  workflowDiagnosticFieldSchema,
+} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import {
@@ -17,7 +25,14 @@ import {
   type InterModuleKnownErrorFor,
   type InterModulePresentation,
 } from '@shipfox/inter-module';
+import {
+  decodeNumberIdCursor,
+  decodeStringIdCursor,
+  encodeNumberIdCursor,
+  encodeStringIdCursor,
+} from '@shipfox/node-drizzle';
 import {DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
+import {z} from 'zod';
 import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
@@ -46,24 +61,55 @@ import {
   getStepAttemptDetail,
   getStepById,
   getStepByIdForJobExecution,
+  getWorkflowJobDetail,
+  getWorkflowJobExecutionContext,
+  getWorkflowJobReadScope,
+  getWorkflowRunAccessScopeById,
+  getWorkflowRunAnnotationOrigins,
+  getWorkflowRunAttemptIdForScope,
   getWorkflowRunDetail,
+  getWorkflowRunOverview,
+  getWorkflowRunSource,
+  getWorkflowStepReadScope,
+  listFailedStepAttempts,
+  listRunAttemptsPage,
   listStepAttemptIdsByJobId,
+  listWorkflowExecutionSteps,
+  listWorkflowJobExecutionSummaries,
+  listWorkflowRunJobExplanationsPage,
   listWorkflowRunJobSummaries,
+  listWorkflowRunJobsPage,
   listWorkflowRuns,
+  listWorkflowStepAttemptSummaries,
+  workflowRunAnnotationOriginKey,
 } from '#db/index.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
 import {
+  toRunAttemptDto,
   toRunDetailDto,
   toRunListItemDto,
+  toRunOverviewDto,
+  toRunOverviewJobsPageDto,
   toStepAttemptDetailResponseDto,
+  toWorkflowExecutionStepsResponseDto,
+  toWorkflowJobDetailDto,
+  toWorkflowJobExecutionContextResponseDto,
+  toWorkflowJobExecutionSummariesResponseDto,
+  toWorkflowRunAnnotationItemDto,
+  toWorkflowRunJobExplanationDto,
+  toWorkflowRunSourceResponseDto,
+  toWorkflowStepAttemptSummariesResponseDto,
 } from '#presentation/dto/index.js';
 
 type WorkspaceAdmissionKnownError = InterModuleKnownErrorFor<
   typeof workflowsInterModuleContract.methods.deliverEventToJobListener
 >;
 
+const DECIMAL_CURSOR_VALUE = /^\d+$/;
+
 export function createWorkflowsInterModulePresentation(params: {
   agent: AgentInterModuleClient;
+  annotations?: AnnotationsInterModuleClient;
   definitions: DefinitionsInterModuleClient;
   workspaces: WorkspacesInterModuleClient;
   secrets: Pick<SecretsInterModuleClient, 'getVariablesByNamespace'>;
@@ -270,6 +316,271 @@ export function createWorkflowsInterModulePresentation(params: {
         filteredTotalCount: result.filteredTotalCount,
       };
     },
+    getWorkflowRunOverview: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+
+      const overview = await getWorkflowRunOverview({
+        workflowRunId: scope.id,
+        projectId: scope.projectId,
+        attempt,
+      });
+      return overview ? toBoundedRunOverview(overview) : null;
+    },
+    listWorkflowRunAttempts: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const page = await listRunAttemptsPage({
+        workflowRunId: scope.id,
+        projectId: scope.projectId,
+        limit: input.limit,
+        cursor: decodeNumberCursor(input.cursor),
+      });
+      if (!page) return null;
+
+      return {
+        items: page.attempts.map(toRunAttemptDto),
+        nextCursor: page.nextCursor ? encodeNumberIdCursor(page.nextCursor) : null,
+      };
+    },
+    listWorkflowRunJobs: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+
+      const page = await listWorkflowRunJobsPage({
+        workflowRunId: scope.id,
+        projectId: scope.projectId,
+        attempt,
+        limit: input.limit,
+        cursor: decodePositionCursor(input.cursor),
+      });
+      if (!page) return null;
+
+      const response = toRunOverviewJobsPageDto(page);
+      return {
+        items: response.items,
+        nextCursor: response.next_cursor,
+        ...(response.total === undefined ? {} : {total: response.total}),
+      };
+    },
+    getWorkflowJobDetail: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const detail = await getWorkflowJobDetail({
+        jobId: input.jobId,
+        executionId: input.executionId,
+        scope,
+      });
+      return detail ? toWorkflowJobDetailDto(detail) : null;
+    },
+    listWorkflowJobExecutions: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const page = await listWorkflowJobExecutionSummaries({
+        jobId: input.jobId,
+        limit: input.limit,
+        cursor: toExecutionCursor(
+          decodeNumberCursor(input.cursor, WORKFLOW_JOB_EXECUTION_SEQUENCE_MAX),
+        ),
+        scope,
+      });
+      if (!page) return null;
+
+      const response = toWorkflowJobExecutionSummariesResponseDto(page);
+      return {
+        items: response.items,
+        nextCursor: response.next_cursor,
+        ...(response.total === undefined ? {} : {total: response.total}),
+      };
+    },
+    listWorkflowExecutionSteps: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const page = await listWorkflowExecutionSteps({
+        jobId: input.jobId,
+        executionId: input.executionId,
+        limit: input.limit,
+        cursor: decodePositionCursor(input.cursor),
+        scope,
+      });
+      if (!page) return null;
+
+      const response = toWorkflowExecutionStepsResponseDto(page);
+      return {
+        items: response.items,
+        nextCursor: response.next_cursor,
+        ...(response.total === undefined ? {} : {total: response.total}),
+      };
+    },
+    listWorkflowStepAttempts: async (input) => {
+      const scope = await getAccessibleStepScope(input.workspaceId, input.stepId);
+      if (!scope) return null;
+
+      const page = await listWorkflowStepAttemptSummaries({
+        stepId: input.stepId,
+        limit: input.limit,
+        cursor: toStepAttemptCursor(decodeNumberCursor(input.cursor)),
+        scope,
+      });
+      if (!page) return null;
+
+      const response = toWorkflowStepAttemptSummariesResponseDto(page);
+      return {
+        items: response.items,
+        nextCursor: response.next_cursor,
+        ...(response.total === undefined ? {} : {total: response.total}),
+      };
+    },
+    getWorkflowRunSource: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+
+      const source = await getWorkflowRunSource({workflowRunId: scope.id, attempt});
+      return source ? toWorkflowRunSourceResponseDto(source) : null;
+    },
+    getWorkflowJobExecutionContext: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const context = await getWorkflowJobExecutionContext({
+        jobId: input.jobId,
+        executionId: input.executionId,
+        scope,
+      });
+      return context ? toWorkflowJobExecutionContextResponseDto(context) : null;
+    },
+    getWorkflowStepAttemptDetail: async (input) => {
+      const scope = await getAccessibleStepScope(input.workspaceId, input.stepId);
+      if (!scope) return null;
+
+      const attempt =
+        input.attempt ??
+        (await getLatestStepAttempt({stepId: input.stepId, workspaceId: input.workspaceId}));
+      if (attempt === undefined) return null;
+
+      const detail = await getStepAttemptDetail({
+        stepId: input.stepId,
+        attempt,
+        workspaceId: input.workspaceId,
+      });
+      if (!detail || detail.workflowRunId !== scope.workflowRunId) return null;
+
+      return toStepAttemptDetailResponseDto(
+        detail.step,
+        detail.attempt,
+        {
+          workflowRunId: detail.workflowRunId,
+          workflowRunAttempt: detail.workflowRunAttempt,
+          jobId: detail.jobId,
+          jobExecutionId: detail.jobExecutionId,
+        },
+        detail.diagnosticBytes,
+      );
+    },
+    listWorkflowRunAnnotations: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope || !params.annotations) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+      const attemptId = await getWorkflowRunAttemptIdForScope({
+        workflowRunId: scope.id,
+        projectId: scope.projectId,
+        workspaceId: input.workspaceId,
+        attempt,
+      });
+      if (!attemptId) return null;
+
+      const page = await params.annotations.listAnnotationsForRunAttempt({
+        workspaceId: input.workspaceId,
+        workflowRunId: scope.id,
+        workflowRunAttempt: attempt,
+        cursor: decodeNumberCursor(input.cursor),
+        limit: input.limit,
+      });
+      const origins = await getWorkflowRunAnnotationOrigins({
+        workspaceId: input.workspaceId,
+        projectId: scope.projectId,
+        workflowRunId: scope.id,
+        attempt,
+        origins: page.annotations.map((annotation) => ({
+          jobId: annotation.job_id,
+          jobExecutionId: annotation.job_execution_id,
+          stepId: annotation.origin_step_id,
+          stepAttempt: annotation.origin_step_attempt,
+        })),
+      });
+      const originByKey = new Map(
+        origins.map((origin) => [workflowRunAnnotationOriginKey(origin), origin]),
+      );
+
+      return {
+        items: page.annotations.flatMap((annotation) => {
+          const origin = originByKey.get(
+            workflowRunAnnotationOriginKey({
+              jobId: annotation.job_id,
+              jobExecutionId: annotation.job_execution_id,
+              stepId: annotation.origin_step_id,
+              stepAttempt: annotation.origin_step_attempt,
+            }),
+          );
+          return origin ? [toWorkflowRunAnnotationItemDto(annotation, origin)] : [];
+        }),
+        nextCursor: page.nextCursor ? encodeNumberIdCursor(page.nextCursor) : null,
+      };
+    },
+    listWorkflowRunJobExplanations: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+      const page = await listWorkflowRunJobExplanationsPage({
+        workspaceId: input.workspaceId,
+        projectId: scope.projectId,
+        workflowRunId: scope.id,
+        attempt,
+        limit: input.limit,
+        cursor: decodePositionCursor(input.cursor),
+      });
+      if (!page) return null;
+
+      return {
+        items: page.items.map(toWorkflowRunJobExplanationDto),
+        nextCursor: page.nextCursor
+          ? encodeStringIdCursor({value: String(page.nextCursor.position), id: page.nextCursor.id})
+          : null,
+      };
+    },
+    listFailedStepAttempts: async (input) => {
+      const scope = await getAccessibleRunScope(input.workspaceId, input.workflowRunId);
+      if (!scope) return null;
+
+      const attempt = await resolveRunAttempt(scope, input.workspaceId, input.attempt);
+      if (attempt === undefined) return null;
+      const page = await listFailedStepAttempts({
+        workspaceId: input.workspaceId,
+        projectId: scope.projectId,
+        workflowRunId: scope.id,
+        attempt,
+        limit: input.limit,
+      });
+      if (!page) return null;
+      return {items: page.map(toFailedStepAttemptCoordinate)};
+    },
     getWorkflowRunDetail: async (input) => {
       const detail = await getWorkflowRunDetail(
         input.workflowRunId,
@@ -355,6 +666,146 @@ export function createWorkflowsInterModulePresentation(params: {
       };
     },
   });
+}
+
+type WorkflowRunAccessScope = NonNullable<
+  Awaited<ReturnType<typeof getWorkflowRunAccessScopeById>>
+>;
+type WorkflowJobReadScope = NonNullable<Awaited<ReturnType<typeof getWorkflowJobReadScope>>>;
+type WorkflowStepReadScope = NonNullable<Awaited<ReturnType<typeof getWorkflowStepReadScope>>>;
+
+async function getAccessibleRunScope(
+  workspaceId: string,
+  workflowRunId: string,
+): Promise<WorkflowRunAccessScope | undefined> {
+  const scope = await getWorkflowRunAccessScopeById(workflowRunId);
+  return scope?.workspaceId === workspaceId ? scope : undefined;
+}
+
+async function getAccessibleJobScope(
+  workspaceId: string,
+  jobId: string,
+): Promise<WorkflowJobReadScope | undefined> {
+  const scope = await getWorkflowJobReadScope(jobId);
+  if (!scope) return undefined;
+
+  const run = await getWorkflowRunAccessScopeById(scope.workflowRunId);
+  if (!run || run.workspaceId !== workspaceId || run.projectId !== scope.projectId)
+    return undefined;
+  return scope;
+}
+
+async function getAccessibleStepScope(
+  workspaceId: string,
+  stepId: string,
+): Promise<WorkflowStepReadScope | undefined> {
+  const scope = await getWorkflowStepReadScope(stepId);
+  if (!scope) return undefined;
+
+  const run = await getWorkflowRunAccessScopeById(scope.workflowRunId);
+  if (!run || run.workspaceId !== workspaceId || run.projectId !== scope.projectId)
+    return undefined;
+  return scope;
+}
+
+async function resolveRunAttempt(
+  scope: WorkflowRunAccessScope,
+  workspaceId: string,
+  attempt: number | undefined,
+): Promise<number | undefined> {
+  if (attempt !== undefined) return attempt;
+  return await getLatestRunAttempt({workflowRunId: scope.id, workspaceId});
+}
+
+function toBoundedRunOverview(
+  overview: Parameters<typeof toRunOverviewDto>[0],
+): ReturnType<typeof toRunOverviewDto> {
+  const initialResponse = toRunOverviewDto(overview);
+  if (serializedByteLength(initialResponse) <= WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT) {
+    return initialResponse;
+  }
+
+  let pageSize = WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT;
+  while (true) {
+    const response = toRunOverviewDto(overview, {forceLarge: true, largePageSize: pageSize});
+    if (serializedByteLength(response) <= WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT)
+      return response;
+    if (pageSize === 1) throw new Error('Workflow run overview exceeds the response byte limit');
+    pageSize = Math.max(1, Math.floor(pageSize / 2));
+  }
+}
+
+function serializedByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function decodeNumberCursor(
+  cursor: string | undefined,
+  maxValue = WORKFLOW_RUN_ATTEMPT_MAX,
+): {value: number; id: string} | undefined {
+  if (cursor === undefined) return undefined;
+  const decoded = decodeNumberIdCursor(cursor);
+  if (
+    !decoded ||
+    !isUuid(decoded.id) ||
+    !Number.isSafeInteger(decoded.value) ||
+    decoded.value < 1 ||
+    decoded.value > maxValue
+  ) {
+    throw new Error('Invalid workflow read cursor');
+  }
+  return decoded;
+}
+
+function decodePositionCursor(
+  cursor: string | undefined,
+): {position: number; id: string} | undefined {
+  if (cursor === undefined) return undefined;
+  const decoded = decodeStringIdCursor(cursor);
+  if (!decoded || !isUuid(decoded.id) || !DECIMAL_CURSOR_VALUE.test(decoded.value)) {
+    throw new Error('Invalid workflow read cursor');
+  }
+  const position = Number(decoded.value);
+  if (!Number.isSafeInteger(position) || position < 0 || position > WORKFLOW_RUN_JOB_POSITION_MAX) {
+    throw new Error('Invalid workflow read cursor');
+  }
+  return {position, id: decoded.id};
+}
+
+function toExecutionCursor(
+  cursor: {value: number; id: string} | undefined,
+): {sequence: number; id: string} | undefined {
+  return cursor ? {sequence: cursor.value, id: cursor.id} : undefined;
+}
+
+function toStepAttemptCursor(
+  cursor: {value: number; id: string} | undefined,
+): {attempt: number; id: string} | undefined {
+  return cursor ? {attempt: cursor.value, id: cursor.id} : undefined;
+}
+
+function isUuid(value: string): boolean {
+  return z.string().uuid().safeParse(value).success;
+}
+
+function toFailedStepAttemptCoordinate(coordinate: {
+  workflowRunId: string;
+  workflowRunAttempt: number;
+  jobId: string;
+  jobExecutionId: string;
+  stepId: string;
+  stepAttemptId: string;
+  stepAttempt: number;
+}) {
+  return {
+    workflow_run_id: coordinate.workflowRunId,
+    workflow_run_attempt: coordinate.workflowRunAttempt,
+    job_id: coordinate.jobId,
+    job_execution_id: coordinate.jobExecutionId,
+    step_id: coordinate.stepId,
+    step_attempt_id: coordinate.stepAttemptId,
+    step_attempt: coordinate.stepAttempt,
+  };
 }
 
 export function toStartRunKnownError(error: unknown, definitionId: string): unknown {

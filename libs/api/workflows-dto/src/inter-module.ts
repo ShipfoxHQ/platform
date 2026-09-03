@@ -7,17 +7,45 @@ import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
 import {
+  WORKFLOW_JOB_EXECUTION_PAGE_LIMIT,
+  WORKFLOW_JOB_EXECUTION_PAGE_MAX,
+  WORKFLOW_JOB_STEP_PAGE_LIMIT,
+  WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT,
+  WORKFLOW_STEP_ATTEMPT_PAGE_MAX,
+  workflowExecutionStepsResponseSchema,
+  workflowJobDetailResponseSchema,
+  workflowJobExecutionSummariesResponseSchema,
+  workflowStepAttemptSummariesResponseSchema,
+} from './schemas/workflow-job-detail.js';
+import {
   validateDateWindow,
   WORKFLOW_RUN_ATTEMPT_MAX,
+  workflowRunAttemptDtoSchema,
   workflowRunListItemSchema,
   workflowRunOriginSchema,
   workflowRunStatusSchema,
 } from './schemas/workflow-run.js';
 import {
+  WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
+  WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT,
+  workflowRunAnnotationItemSchema,
+  workflowRunJobExplanationDtoSchema,
+} from './schemas/workflow-run-annotations.js';
+import {
   stepAttemptDetailResponseSchema,
   workflowRunDetailResponseSchema,
 } from './schemas/workflow-run-detail.js';
-import {workflowDiagnosticFieldSchema} from './schemas/workflow-run-diagnostics.js';
+import {
+  WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT,
+  workflowDiagnosticFieldSchema,
+  workflowJobExecutionContextResponseSchema,
+  workflowRunSourceResponseSchema,
+} from './schemas/workflow-run-diagnostics.js';
+import {
+  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
+  workflowRunJobListSummaryDtoSchema,
+  workflowRunOverviewResponseSchema,
+} from './schemas/workflow-run-overview.js';
 
 const idSchema = z.string().uuid();
 const workflowRunTriggerReferenceSchema = z.object({
@@ -79,6 +107,49 @@ const interpolationFieldSchema = z.enum([
 ]);
 
 const attemptSchema = z.number().int().min(1).max(WORKFLOW_RUN_ATTEMPT_MAX);
+const WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT = 25;
+
+const workflowRunAttemptsInterModulePageSchema = z.object({
+  items: z.array(workflowRunAttemptDtoSchema).max(100),
+  nextCursor: z.string().nullable(),
+});
+const workflowRunJobsInterModulePageSchema = z.object({
+  items: z.array(workflowRunJobListSummaryDtoSchema).max(100),
+  nextCursor: z.string().nullable(),
+  total: z.number().int().nonnegative().optional(),
+});
+const workflowJobExecutionsInterModulePageSchema = z.object({
+  items: workflowJobExecutionSummariesResponseSchema.shape.items,
+  nextCursor: z.string().nullable(),
+  total: workflowJobExecutionSummariesResponseSchema.shape.total,
+});
+const workflowExecutionStepsInterModulePageSchema = z.object({
+  items: workflowExecutionStepsResponseSchema.shape.items,
+  nextCursor: z.string().nullable(),
+  total: workflowExecutionStepsResponseSchema.shape.total,
+});
+const workflowStepAttemptsInterModulePageSchema = z.object({
+  items: workflowStepAttemptSummariesResponseSchema.shape.items,
+  nextCursor: z.string().nullable(),
+  total: workflowStepAttemptSummariesResponseSchema.shape.total,
+});
+const workflowRunAnnotationsInterModulePageSchema = z.object({
+  items: z.array(workflowRunAnnotationItemSchema).max(WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT),
+  nextCursor: z.string().nullable(),
+});
+const workflowRunJobExplanationsInterModulePageSchema = z.object({
+  items: z.array(workflowRunJobExplanationDtoSchema).max(WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT),
+  nextCursor: z.string().nullable(),
+});
+const failedStepAttemptCoordinateSchema = z.object({
+  workflow_run_id: idSchema,
+  workflow_run_attempt: attemptSchema,
+  job_id: idSchema,
+  job_execution_id: idSchema,
+  step_id: idSchema,
+  step_attempt_id: idSchema,
+  step_attempt: attemptSchema,
+});
 const workflowRunCursorSchema = z.object({
   createdAt: z.string().datetime(),
   id: idSchema,
@@ -301,6 +372,164 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         nextCursor: workflowRunCursorSchema.nullable(),
         filteredTotalCount: z.number().int().nonnegative().nullable(),
       }),
+    },
+    /**
+     * Bounded read models for synchronous consumers. These operations are
+     * intentionally separate from the legacy complete-tree read above: the
+     * producer owns resource ancestry, page limits, cursor encoding, and
+     * diagnostic truncation before a result crosses this boundary.
+     */
+    getWorkflowRunOverview: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+      }),
+      output: workflowRunOverviewResponseSchema.nullable(),
+    },
+    listWorkflowRunAttempts: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        limit: z.number().int().min(1).max(100).default(WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowRunAttemptsInterModulePageSchema.nullable(),
+    },
+    listWorkflowRunJobs: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT)
+          .default(WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowRunJobsInterModulePageSchema.nullable(),
+    },
+    getWorkflowJobDetail: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        executionId: idSchema.optional(),
+      }),
+      output: workflowJobDetailResponseSchema.nullable(),
+    },
+    listWorkflowJobExecutions: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_JOB_EXECUTION_PAGE_MAX)
+          .default(WORKFLOW_JOB_EXECUTION_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowJobExecutionsInterModulePageSchema.nullable(),
+    },
+    listWorkflowExecutionSteps: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        executionId: idSchema,
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_JOB_STEP_PAGE_LIMIT)
+          .default(WORKFLOW_JOB_STEP_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowExecutionStepsInterModulePageSchema.nullable(),
+    },
+    listWorkflowStepAttempts: {
+      input: z.object({
+        workspaceId: idSchema,
+        stepId: idSchema,
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_STEP_ATTEMPT_PAGE_MAX)
+          .default(WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowStepAttemptsInterModulePageSchema.nullable(),
+    },
+    getWorkflowRunSource: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+      }),
+      output: workflowRunSourceResponseSchema.nullable(),
+    },
+    getWorkflowJobExecutionContext: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        executionId: idSchema,
+      }),
+      output: workflowJobExecutionContextResponseSchema.nullable(),
+    },
+    getWorkflowStepAttemptDetail: {
+      input: z.object({
+        workspaceId: idSchema,
+        stepId: idSchema,
+        attempt: attemptSchema.optional(),
+      }),
+      output: stepAttemptDetailResponseSchema.nullable(),
+    },
+    listWorkflowRunAnnotations: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+        limit: z.number().int().min(1).max(WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT).default(100),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowRunAnnotationsInterModulePageSchema.nullable(),
+    },
+    listWorkflowRunJobExplanations: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT)
+          .default(WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowRunJobExplanationsInterModulePageSchema.nullable(),
+    },
+    listFailedStepAttempts: {
+      input: z.object({
+        workspaceId: idSchema,
+        workflowRunId: idSchema,
+        attempt: attemptSchema.optional(),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT)
+          .default(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT),
+      }),
+      output: z
+        .object({
+          items: z
+            .array(failedStepAttemptCoordinateSchema)
+            .max(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT),
+        })
+        .nullable(),
     },
     getWorkflowRunDetail: {
       input: z.object({

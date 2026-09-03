@@ -13,10 +13,16 @@ export interface WorkflowRunSourceRead {
   sourceSnapshotBytes: number | null;
 }
 
-/** Loads only the immutable source projection for the run's current attempt. */
+/**
+ * Loads only the immutable source projection for a run attempt. The legacy
+ * string form keeps the HTTP route pinned to the run's current attempt; the
+ * object form lets bounded inter-module callers select a concrete attempt.
+ */
 export async function getWorkflowRunSource(
-  workflowRunId: string,
+  params: string | {workflowRunId: string; attempt?: number | undefined},
 ): Promise<WorkflowRunSourceRead | undefined> {
+  const workflowRunId = typeof params === 'string' ? params : params.workflowRunId;
+  const attempt = typeof params === 'string' ? undefined : params.attempt;
   const [row] = await db()
     .select({
       workflowRunId: workflowRuns.id,
@@ -44,7 +50,9 @@ export async function getWorkflowRunSource(
       workflowRunAttempts,
       and(
         eq(workflowRunAttempts.workflowRunId, workflowRuns.id),
-        eq(workflowRunAttempts.attempt, workflowRuns.currentAttempt),
+        attempt === undefined
+          ? eq(workflowRunAttempts.attempt, workflowRuns.currentAttempt)
+          : eq(workflowRunAttempts.attempt, attempt),
       ),
     )
     .where(eq(workflowRuns.id, workflowRunId))
