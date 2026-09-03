@@ -191,6 +191,7 @@ export type {
   MarkStepSkippedParams,
   RewindStepsToPendingParams,
   StepAttemptDetail,
+  StepAttemptDetailStep,
 } from './workflow-runs/steps.js';
 export {
   applyStepResult,

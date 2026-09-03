@@ -10,9 +10,11 @@ import {
   type StepGateResultDto,
   stepErrorReasonSchema,
   WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
+import type {StepAttemptDetailStep} from '#db/workflow-runs/steps.js';
 import {toEvaluationTraceDto} from './evaluation-trace.js';
 import {inlineDiagnostic} from './workflow-run-diagnostics.js';
 
@@ -236,7 +238,7 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
 }
 
 export function toStepAttemptDetailResponseDto(
-  step: Step,
+  step: StepAttemptDetailStep,
   attempt: StepAttempt,
   ancestry: {
     workflowRunId: string;
@@ -245,12 +247,27 @@ export function toStepAttemptDetailResponseDto(
     jobExecutionId: string;
   },
   diagnosticBytes?: {
+    authoredConfig?: number | null;
     config?: number | null;
     evaluationTrace?: number | null;
   },
 ): StepAttemptDetailResponseDto {
-  const authoredConfig = inlineDiagnostic('authored_config', step.authoredConfig);
-  const config = inlineDiagnostic('config', attempt.config, diagnosticBytes?.config);
+  const stepConfigDiagnosticOptions = {
+    limitBytes: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
+    reason: 'value_exceeds_inline_limit' as const,
+  };
+  const authoredConfig = inlineDiagnostic(
+    'authored_config',
+    step.authoredConfig,
+    diagnosticBytes?.authoredConfig,
+    stepConfigDiagnosticOptions,
+  );
+  const config = inlineDiagnostic(
+    'config',
+    attempt.config,
+    diagnosticBytes?.config,
+    stepConfigDiagnosticOptions,
+  );
   const evaluationTrace = inlineDiagnostic(
     'evaluation_trace',
     attempt.evaluationTrace,

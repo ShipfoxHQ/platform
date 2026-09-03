@@ -237,6 +237,7 @@ export {
   WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT,
   WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
   type WorkflowDiagnosticFieldDto,
   type WorkflowJobExecutionContextResponseDto,
   type WorkflowRunSourceResponseDto,

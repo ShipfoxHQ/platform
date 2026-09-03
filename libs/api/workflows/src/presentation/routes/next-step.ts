@@ -3,12 +3,28 @@ import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {requireLeasedJobContext} from '@shipfox/api-auth-context';
 import type {AuthInterModuleClient} from '@shipfox/api-auth-dto/inter-module';
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
-import {nextStepResponseSchema} from '@shipfox/api-workflows-dto';
+import {
+  nextStepResponseSchema,
+  RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES,
+} from '@shipfox/api-workflows-dto';
+import {captureException} from '@shipfox/node-error-monitoring';
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
+import {logger} from '@shipfox/node-opentelemetry';
 import {warnAgentToolCapabilityMismatchOnDispatch} from '#core/agent-tool-capability-warning.js';
 import {JobNotFoundError} from '#core/errors.js';
 import {nextStepForLeasedJobExecution} from '#core/job-execution.js';
+import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
+import {
+  recordWorkflowNextStepResponseOverflow,
+  recordWorkflowNextStepResponseSize,
+} from '#metrics/instance.js';
 import {toStepDto} from '#presentation/dto/step.js';
+import {serializedResponseByteLength} from './serialized-response-byte-length.js';
+
+type NextStepRouteResponse =
+  | {kind: 'step'; step: ReturnType<typeof toStepDto>; attempt: number; lease_token: string}
+  | {kind: 'wait'; retry_after_ms: number}
+  | {kind: 'done'; status: RuntimeCompletionStatus};
 
 export function createNextStepRoute(params: {
   agent: AgentInterModuleClient;
@@ -33,7 +49,7 @@ export function createNextStepRoute(params: {
       }
       throw error;
     },
-    handler: async (request) => {
+    handler: async (request, reply) => {
       const leasedJob = requireLeasedJobContext(request);
       const {active: leaseIsActive} = await params.runners.getLeaseState({
         jobId: leasedJob.jobId,
@@ -49,6 +65,7 @@ export function createNextStepRoute(params: {
         agent: params.agent,
       });
 
+      let response: NextStepRouteResponse;
       if (next.kind === 'step') {
         const {token: leaseToken} = await params.auth.mintJobLeaseToken({
           workflowRunId: leasedJob.workflowRunId,
@@ -74,18 +91,37 @@ export function createNextStepRoute(params: {
         }
         // The runner echoes this back on report so a stale report from a superseded
         // attempt is ignored.
-        return {
+        response = {
           kind: 'step' as const,
           step: toStepDto(next.step),
           attempt: next.step.currentAttempt,
           lease_token: leaseToken,
         };
-      }
-      if (next.kind === 'wait') {
+      } else if (next.kind === 'wait') {
         params.toolStepExecutor?.nudge();
-        return {kind: 'wait' as const, retry_after_ms: next.retryAfterMs};
+        response = {kind: 'wait' as const, retry_after_ms: next.retryAfterMs};
+      } else {
+        response = {kind: 'done' as const, status: next.status};
       }
-      return {kind: 'done' as const, status: next.status};
+
+      const serializedResponse = reply.serialize(response);
+      const responseBytes = serializedResponseByteLength(serializedResponse);
+      recordWorkflowNextStepResponseSize(response.kind, responseBytes);
+      if (responseBytes > RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES) {
+        recordWorkflowNextStepResponseOverflow(response.kind);
+        const error = new Error('Workflow next-step response exceeded its byte budget');
+        logger().error(
+          {
+            error,
+            kind: response.kind,
+            responseBytes,
+            limitBytes: RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES,
+          },
+          'Workflow next-step response exceeded its byte budget; serving the step',
+        );
+        captureException(error);
+      }
+      return reply.type('application/json').send(serializedResponse);
     },
   });
 }

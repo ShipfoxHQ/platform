@@ -50,6 +50,7 @@ export type {
   RetryToolInvocationParams,
   SettleToolInvocationParams,
   StepAttemptDetail,
+  StepAttemptDetailStep,
   ToolInvocationClaim,
   ToolInvocationDepth,
   ToolStepWorkflowContext,

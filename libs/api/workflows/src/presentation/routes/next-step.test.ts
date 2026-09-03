@@ -1,5 +1,9 @@
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import type {RunnerToolCapabilitiesDto} from '@shipfox/api-runners-dto';
+import {
+  MAX_RESOLVED_STEP_CONFIG_BYTES,
+  RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES,
+} from '@shipfox/api-workflows-dto';
 import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {eq} from 'drizzle-orm';
 import {JobNotFoundError} from '#core/errors.js';
@@ -29,6 +33,7 @@ import {
 } from '#test/fixtures/runners-inter-module.js';
 import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
 import {createLeaseTokenRouteGroup} from './index.js';
+import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
 const URL = '/runs/jobs/current/steps/next';
 
@@ -148,6 +153,27 @@ describe('POST /runs/jobs/current/steps/next', () => {
     const after = await getStepsByJobId(jobId);
     expect(after[0]?.status).toBe('running');
     expect(after[1]?.status).toBe('pending');
+  });
+
+  test('serves a maximum-valid resolved config within the complete response budget', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const step = steps[0];
+    if (!step) throw new Error('Expected a step');
+    const config = {run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - 10)};
+    await db().update(stepsTable).set({config, configPlan: null}).where(eq(stepsTable.id, step.id));
+    const token = await mintActiveLeaseToken({jobId});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: URL,
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().step.config).toEqual(config);
+    expect(serializedResponseByteLength(res.rawPayload)).toBeLessThanOrEqual(
+      RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES,
+    );
   });
 
   test('re-delivers the in-flight step on a retried pull', async () => {

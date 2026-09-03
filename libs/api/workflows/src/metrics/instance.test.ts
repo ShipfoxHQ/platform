@@ -265,4 +265,16 @@ describe('workflow payload metrics', () => {
       reason: 'value_truncated_at_write_limit',
     });
   });
+
+  test('records next-step response size and overflow by response kind', () => {
+    metrics.recordWorkflowNextStepResponseSize('step', 12_345);
+    metrics.recordWorkflowNextStepResponseOverflow('step');
+
+    expect(histogramRecord('workflows_next_step_response_size')).toHaveBeenCalledWith(12_345, {
+      kind: 'step',
+    });
+    expect(counterAdd('workflows_next_step_response_overflow')).toHaveBeenCalledWith(1, {
+      kind: 'step',
+    });
+  });
 });

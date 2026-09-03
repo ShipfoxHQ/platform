@@ -1,6 +1,6 @@
 import {
-  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
@@ -531,6 +531,30 @@ describe('toStepAttemptDto', () => {
 });
 
 describe('toStepAttemptDetailResponseDto', () => {
+  it('keeps authored and resolved config inline through the 256 KiB detail limit', () => {
+    const config = {run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES - 11)};
+    const attempt: StepAttempt = {...baseAttempt, config};
+
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'run', authoredConfig: config}),
+      attempt,
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+      {
+        authoredConfig: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
+        config: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
+      },
+    );
+
+    expect(result.authored_config).toEqual(config);
+    expect(result.config).toEqual(config);
+    expect(result.oversized_fields).toEqual([]);
+  });
+
   it('returns authored config, resolved config, and attempt trace', () => {
     const stepData = step({
       type: 'run',
@@ -657,14 +681,14 @@ describe('toStepAttemptDetailResponseDto', () => {
         jobId: '44444444-4444-4444-8444-444444444444',
         jobExecutionId: '55555555-5555-4555-8555-555555555555',
       },
-      {config: WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES + 1},
+      {config: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES + 1},
     );
 
     expect(result.config).toBeNull();
     expect(result.oversized_fields).toContainEqual({
       field: 'config',
-      stored_bytes: WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES + 1,
-      reason: 'legacy_value_exceeds_inline_limit',
+      stored_bytes: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES + 1,
+      reason: 'value_exceeds_inline_limit',
     });
   });
 

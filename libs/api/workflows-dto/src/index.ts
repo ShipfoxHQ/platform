@@ -113,6 +113,7 @@ export {
   WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT,
   WORKFLOW_RUN_JOB_POSITION_MAX,
   WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
   type WorkflowDiagnosticFieldDto,
   type WorkflowExecutionContextDto,
   type WorkflowExecutionEventDto,

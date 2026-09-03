@@ -11,7 +11,7 @@ import type {
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {JobStatusReason} from '#core/entities/job.js';
-import type {Step, StepAttempt} from '#core/entities/step.js';
+import type {StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
 import {
   getJobExecutionFailureOrigin,
@@ -19,6 +19,7 @@ import {
   getStepAttemptDetail,
   getWorkflowRunAttemptById,
 } from '#db/index.js';
+import type {StepAttemptDetailStep} from '#db/workflow-runs/steps.js';
 import {recordWorkflowFailureAnnotationFailed} from '#metrics/instance.js';
 
 const JOB_FAILURE_ANNOTATION_REASONS = new Set([
@@ -357,7 +358,7 @@ function failureContext(kind: 'job' | 'step', id: string): string {
   return `failure:${kind}:${id}`;
 }
 
-function stepFailureBody(step: Step, attempt: StepAttempt): string {
+function stepFailureBody(step: StepAttemptDetailStep, attempt: StepAttempt): string {
   const copy = stepFailureCopy(step, attempt);
   const details = stepFailureSizeDetails(attempt.error ?? step.error);
   return [
@@ -402,7 +403,7 @@ function jobFailureBody(
   return [`**${copy.title}**`, '', progress, '', copy.description].join('\n');
 }
 
-function stepFailureCopy(step: Step, attempt: StepAttempt): FailureCopy {
+function stepFailureCopy(step: StepAttemptDetailStep, attempt: StepAttempt): FailureCopy {
   const error = attempt.error ?? step.error;
   const reason = errorReason(error);
   const toolFailure = toolStepFailureCopy(step, attempt, error, reason);
@@ -418,7 +419,7 @@ function stepFailureCopy(step: Step, attempt: StepAttempt): FailureCopy {
 }
 
 function toolStepFailureCopy(
-  step: Step,
+  step: StepAttemptDetailStep,
   attempt: StepAttempt,
   error: Record<string, unknown> | null,
   reason: string | undefined,
@@ -433,7 +434,7 @@ function toolStepFailureCopy(
 }
 
 function successfulToolFailureCopy(
-  step: Step,
+  step: StepAttemptDetailStep,
   attempt: StepAttempt,
   error: Record<string, unknown> | null,
   reason: string | undefined,
@@ -501,7 +502,7 @@ function agentConfigFailureCopy(error: Record<string, unknown> | null): FailureC
     : (AGENT_CONFIG_FAILURE_COPY[issue as AgentConfigIssueDto] ?? fallback);
 }
 
-function interruptedToolFailureCopy(step: Step): FailureCopy {
+function interruptedToolFailureCopy(step: StepAttemptDetailStep): FailureCopy {
   return toolSensitivity(step) === 'write'
     ? {
         title: 'Tool call outcome is uncertain',
@@ -558,19 +559,19 @@ function errorString(error: Record<string, unknown> | null, key: string): string
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-function toolCallName(step: Step): string {
+function toolCallName(step: StepAttemptDetailStep): string {
   const provider = toolProvider(step);
   return provider === undefined ? 'tool call' : `${provider} call`;
 }
 
-function toolProvider(step: Step): string | undefined {
+function toolProvider(step: StepAttemptDetailStep): string | undefined {
   const tool = step.config.tool;
   if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return undefined;
   const provider = 'provider' in tool ? tool.provider : undefined;
   return typeof provider === 'string' ? PROVIDER_DISPLAY_NAMES[provider] : undefined;
 }
 
-function toolSensitivity(step: Step): string | undefined {
+function toolSensitivity(step: StepAttemptDetailStep): string | undefined {
   const tool = step.config.tool;
   if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) return undefined;
   const sensitivity = 'sensitivity' in tool ? tool.sensitivity : undefined;
