@@ -13,6 +13,7 @@ export const DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS = 35_000;
 export const MAX_CREDENTIAL_SOCKET_REQUEST_ATTEMPTS = 3;
 export const CREDENTIAL_SOCKET_RETRY_BACKOFF_MS = 25;
 export const CREDENTIAL_SOCKET_MODE = 0o600;
+const CREDENTIAL_SOCKET_PATH_PROBE_TIMEOUT_MS = 100;
 
 export type CredentialSocketTransportRequest = {
   version: typeof CREDENTIAL_SOCKET_PROTOCOL_VERSION;
@@ -36,6 +37,13 @@ export type CredentialSocketTransportResponseInput = {
   [key: string]: unknown;
 };
 
+export type CredentialSocketTransportRejectionOutcome = 'rejected' | 'error';
+
+export type CredentialSocketTransportRejectionHandler = (
+  request: CredentialSocketTransportRequest | undefined,
+  outcome: CredentialSocketTransportRejectionOutcome,
+) => void;
+
 export type CredentialSocketTransportHandler = (
   request: CredentialSocketTransportRequest,
   signal: AbortSignal,
@@ -49,6 +57,7 @@ export type CredentialSocketTransportServerOptions = {
   capability: string;
   timeoutMs: number;
   handleRequest: CredentialSocketTransportHandler;
+  onRequestRejected?: CredentialSocketTransportRejectionHandler;
 };
 
 export type CredentialSocketTransportServer = {
@@ -81,12 +90,13 @@ export function createCredentialSocketTransportServer(
 ): CredentialSocketTransportServer {
   assertSocketPath(options.socketPath);
   assertCredentialSocketCapability(options.capability);
-  assertSocketTimeout(options.timeoutMs);
+  assertCredentialSocketTimeout(options.timeoutMs);
 
   let server: Server | undefined;
   let started = false;
   let closed = false;
   let lifecycle: Promise<void> = Promise.resolve();
+  let socketOwnership: SocketIdentity | undefined;
   const connections = new Set<Socket>();
   const inFlight = new Set<Promise<void>>();
 
@@ -102,11 +112,27 @@ export function createCredentialSocketTransportServer(
   const handleConnection = (socket: Socket): void => {
     connections.add(socket);
     const abortController = new AbortController();
+    let rejectionReported = false;
+    const reportRejection = (
+      request: CredentialSocketTransportRequest | undefined,
+      outcome: CredentialSocketTransportRejectionOutcome,
+    ): void => {
+      if (rejectionReported) return;
+      rejectionReported = true;
+      try {
+        options.onRequestRejected?.(request, outcome);
+      } catch {
+        // Rejection reporting must not affect socket cleanup.
+      }
+    };
     socket.once('close', () => {
       connections.delete(socket);
       abortController.abort();
     });
-    socket.setTimeout(options.timeoutMs, () => socket.destroy());
+    socket.setTimeout(options.timeoutMs, () => {
+      reportRejection(undefined, 'error');
+      socket.destroy();
+    });
 
     const chunks: Buffer[] = [];
     let size = 0;
@@ -116,6 +142,7 @@ export function createCredentialSocketTransportServer(
       size += chunk.length;
       if (size > MAX_CREDENTIAL_SOCKET_REQUEST_BYTES) {
         tooLarge = true;
+        reportRejection(undefined, 'error');
         socket.destroy();
         return;
       }
@@ -130,6 +157,7 @@ export function createCredentialSocketTransportServer(
         options.capability,
         options.handleRequest,
         abortController.signal,
+        reportRejection,
       );
       inFlight.add(response);
       void response.then(
@@ -160,15 +188,18 @@ export function createCredentialSocketTransportServer(
     try {
       await listen(nextServer, options.socketPath);
       listening = true;
+      socketOwnership = await readSocketIdentity(options.socketPath);
       assertServerOpen();
       await chmod(options.socketPath, CREDENTIAL_SOCKET_MODE);
       server = nextServer;
       started = true;
     } catch {
+      const ownership = socketOwnership;
+      socketOwnership = undefined;
       for (const connection of connections) connection.destroy();
       if (listening) await closeServer(nextServer);
       else nextServer.close();
-      await rm(options.socketPath, {force: true});
+      await removeOwnedSocketPath(options.socketPath, ownership);
       throw new CredentialSocketError('Credential socket could not start');
     }
   }
@@ -180,13 +211,15 @@ export function createCredentialSocketTransportServer(
   async function closeServerForJob(): Promise<void> {
     if (closed) return;
     closed = true;
+    const ownership = socketOwnership;
+    socketOwnership = undefined;
     const currentServer = server;
     server = undefined;
     started = false;
     for (const connection of connections) connection.destroy();
     if (currentServer !== undefined) await closeServer(currentServer);
     await Promise.allSettled(inFlight);
-    await rm(options.socketPath, {force: true});
+    await removeOwnedSocketPath(options.socketPath, ownership);
   }
 }
 
@@ -199,7 +232,7 @@ export async function requestCredentialSocketTransport(
   assertSocketPath(socketPath);
   assertCredentialSocketCapability(request.capability);
   const timeoutMs = options.timeoutMs ?? DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS;
-  assertSocketTimeout(timeoutMs);
+  assertCredentialSocketTimeout(timeoutMs);
   const encoded = encodeRequest({
     ...request,
     version: CREDENTIAL_SOCKET_PROTOCOL_VERSION,
@@ -284,12 +317,15 @@ async function respond(
   capability: string,
   handleRequest: CredentialSocketTransportHandler,
   signal: AbortSignal,
+  onRequestRejected: CredentialSocketTransportRejectionHandler,
 ): Promise<void> {
   let response: CredentialSocketTransportResponse;
+  let request: CredentialSocketTransportRequest | undefined;
   try {
-    const request = decodeRequest(body);
+    request = decodeRequest(body);
     if (signal.aborted) return;
     if (request.capability !== capability) {
+      onRequestRejected(request, 'rejected');
       response = {version: CREDENTIAL_SOCKET_PROTOCOL_VERSION, ok: false};
     } else {
       response = normalizeResponse(await handleRequest(request, signal));
@@ -297,6 +333,7 @@ async function respond(
     }
   } catch (error) {
     if (signal.aborted) return;
+    onRequestRejected(request, 'error');
     logger().warn(
       {reason: error instanceof Error ? error.name : 'UnknownError'},
       'Credential socket request rejected',
@@ -305,8 +342,19 @@ async function respond(
   }
 
   if (signal.aborted) return;
+  sendResponse(socket, response);
+}
+
+function sendResponse(socket: Socket, response: CredentialSocketTransportResponse): void {
   try {
     socket.end(encodeResponse(response));
+    return;
+  } catch {
+    // A handler response can exceed the response bound or fail JSON encoding. Return a
+    // bounded rejection so clients do not retry a request whose handler already ran.
+  }
+  try {
+    socket.end(encodeResponse({version: CREDENTIAL_SOCKET_PROTOCOL_VERSION, ok: false}));
   } catch {
     socket.destroy();
   }
@@ -404,9 +452,57 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
   try {
     const stats = await lstat(socketPath);
     if (!stats.isSocket()) throw new CredentialSocketError('Credential socket path is occupied');
+    if (await isSocketActive(socketPath)) {
+      throw new CredentialSocketError('Credential socket path is occupied');
+    }
     await rm(socketPath);
   } catch (error) {
     if (error instanceof CredentialSocketError) throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+function isSocketActive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(socketPath);
+    let settled = false;
+    const finish = (active: boolean): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(active);
+    };
+    socket.once('connect', () => finish(true));
+    socket.once('error', (error: NodeJS.ErrnoException) => {
+      finish(error.code !== 'ECONNREFUSED' && error.code !== 'ENOENT');
+    });
+    socket.once('close', () => finish(false));
+    socket.setTimeout(CREDENTIAL_SOCKET_PATH_PROBE_TIMEOUT_MS, () => finish(true));
+  });
+}
+
+type SocketIdentity = {
+  dev: number;
+  ino: number;
+};
+
+async function readSocketIdentity(socketPath: string): Promise<SocketIdentity> {
+  const stats = await lstat(socketPath);
+  if (!stats.isSocket()) throw new CredentialSocketError('Credential socket path is occupied');
+  return {dev: stats.dev, ino: stats.ino};
+}
+
+async function removeOwnedSocketPath(
+  socketPath: string,
+  ownership: SocketIdentity | undefined,
+): Promise<void> {
+  if (ownership === undefined) return;
+  try {
+    const stats = await lstat(socketPath);
+    if (stats.isSocket() && stats.dev === ownership.dev && stats.ino === ownership.ino) {
+      await rm(socketPath);
+    }
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 }
@@ -437,7 +533,7 @@ export function assertCredentialSocketCapability(capability: string): void {
   }
 }
 
-function assertSocketTimeout(timeoutMs: number): void {
+export function assertCredentialSocketTimeout(timeoutMs: number): void {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError('Credential socket timeout must be a positive finite number');
   }

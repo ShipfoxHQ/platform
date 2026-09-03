@@ -10,6 +10,7 @@ import {
   CREDENTIAL_SOCKET_PROTOCOL_VERSION,
   CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS,
   CredentialSocketError,
+  type CredentialSocketTransportClientOptions,
   type CredentialSocketTransportRequest,
   type CredentialSocketTransportResponse,
   type CredentialSocketTransportServer,
@@ -43,6 +44,11 @@ export type CredentialSocketServerOptions = {
 
 export type CredentialSocketServer = CredentialSocketTransportServer;
 
+export type CredentialSocketRequestOptions = Pick<
+  CredentialSocketTransportClientOptions,
+  'timeoutMs'
+>;
+
 /** Creates the Git credential adapter over the transport-neutral socket framing. */
 export function createCredentialSocketServer(
   options: CredentialSocketServerOptions,
@@ -52,6 +58,8 @@ export function createCredentialSocketServer(
     capability: options.capability,
     timeoutMs: options.broker.renewalTimeoutMs + CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS,
     handleRequest: (request, signal) => handleGitRequest(request, options.broker, signal),
+    onRequestRejected: (request, outcome) =>
+      recordCredentialSocketRequest(operationForRequest(request), outcome),
   });
   return {
     socketPath: transport.socketPath,
@@ -67,11 +75,22 @@ export function createCredentialSocketServer(
 export async function requestCredentialSocket(
   socketPath: string,
   request: Omit<CredentialSocketRequest, 'version'>,
+  options: CredentialSocketRequestOptions = {},
 ): Promise<CredentialSocketResponse> {
   const response = await requestCredentialSocketTransport(socketPath, request, {
+    ...options,
     shouldRetry: (_error, _attempt) => request.operation !== 'erase',
   });
   return decodeResponse(response);
+}
+
+function operationForRequest(
+  request: CredentialSocketTransportRequest | undefined,
+): CredentialSocketOperation | 'unknown' {
+  const operation = request?.operation;
+  return operation === 'get' || operation === 'store' || operation === 'erase'
+    ? operation
+    : 'unknown';
 }
 
 async function handleGitRequest(

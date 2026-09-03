@@ -11,11 +11,13 @@ import {
 } from '@shipfox/runner-protocol';
 import {
   type BrokerCredentialInput,
+  CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS,
   type CredentialFailureEvent,
   type CredentialFailureEventSource,
   type CredentialFailureKind,
   createCredentialBroker,
   createCredentialSocketServer,
+  DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS,
   type GitCredentialHelperConfig,
   normalizeRepositoryUrl,
   type PersistedCheckoutCredential,
@@ -79,6 +81,7 @@ export function createJobCredentialLifecycle(options: {
     replaceSecrets: (secrets) => options.replaceSecrets([...secrets]),
     clearSecrets: options.clearSecrets,
   });
+  const socketTimeoutMs = broker.renewalTimeoutMs + CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS;
 
   const socketServer = createCredentialSocketServer({
     socketPath: socket.socketPath,
@@ -91,6 +94,9 @@ export function createJobCredentialLifecycle(options: {
       command: GIT_CREDENTIAL_HELPER_COMMAND,
       socketPath: socket.socketPath,
       capability,
+      ...(socketTimeoutMs === DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS
+        ? {}
+        : {timeoutMs: socketTimeoutMs}),
     },
     start: async () => {
       try {

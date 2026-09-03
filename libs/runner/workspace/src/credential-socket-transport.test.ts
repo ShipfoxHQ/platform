@@ -4,9 +4,11 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
   type CredentialSocketTransportHandler,
+  type CredentialSocketTransportRejectionHandler,
   type CredentialSocketTransportResponseInput,
   createCredentialSocketTransportServer,
   MAX_CREDENTIAL_SOCKET_REQUEST_BYTES,
+  MAX_CREDENTIAL_SOCKET_RESPONSE_BYTES,
   requestCredentialSocketTransport,
 } from '#credential-socket-transport.js';
 
@@ -46,6 +48,7 @@ describe('credential socket transport framing', () => {
   let root: string;
   let socketPath: string;
   let handleRequest: ReturnType<typeof vi.fn<CredentialSocketTransportHandler>>;
+  let onRequestRejected: ReturnType<typeof vi.fn<CredentialSocketTransportRejectionHandler>>;
   let server: ReturnType<typeof createCredentialSocketTransportServer>;
 
   beforeEach(async () => {
@@ -55,11 +58,13 @@ describe('credential socket transport framing', () => {
       ok: true,
       echo: request.payload,
     }));
+    onRequestRejected = vi.fn<CredentialSocketTransportRejectionHandler>();
     server = createCredentialSocketTransportServer({
       socketPath,
       capability,
       timeoutMs: 25,
       handleRequest,
+      onRequestRejected,
     });
     await server.start();
   });
@@ -88,15 +93,36 @@ describe('credential socket transport framing', () => {
 
   it('returns a bounded rejection for a capability mismatch without invoking the handler', async () => {
     await expect(
-      requestCredentialSocketTransport(socketPath, {capability: 'wrong-capability'}),
+      requestCredentialSocketTransport(socketPath, {
+        capability: 'wrong-capability',
+        operation: 'get',
+      }),
     ).resolves.toEqual({version: 1, ok: false});
     expect(handleRequest).not.toHaveBeenCalled();
+    expect(onRequestRejected).toHaveBeenCalledWith(
+      expect.objectContaining({operation: 'get'}),
+      'rejected',
+    );
+  });
+
+  it('returns a bounded rejection when a handler response exceeds the response limit', async () => {
+    handleRequest.mockResolvedValue({
+      ok: true,
+      payload: 'x'.repeat(MAX_CREDENTIAL_SOCKET_RESPONSE_BYTES),
+    });
+
+    await expect(requestCredentialSocketTransport(socketPath, {capability})).resolves.toEqual({
+      version: 1,
+      ok: false,
+    });
+    expect(handleRequest).toHaveBeenCalledTimes(1);
   });
 
   it('returns a bounded rejection for malformed framing', async () => {
     const result = await exchange(socketPath, '{"version":1,"capability":"transport-capability"}');
     expect(JSON.parse(result.body)).toEqual({version: 1, ok: false});
     expect(handleRequest).not.toHaveBeenCalled();
+    expect(onRequestRejected).toHaveBeenCalledWith(undefined, 'error');
   });
 
   it('closes an oversized request before invoking the handler', async () => {
@@ -104,6 +130,7 @@ describe('credential socket transport framing', () => {
     expect(result.connected).toBe(true);
     expect(result.body).toBe('');
     expect(handleRequest).not.toHaveBeenCalled();
+    expect(onRequestRejected).toHaveBeenCalledWith(undefined, 'error');
   });
 
   it('closes an incomplete request after the configured timeout', async () => {
@@ -115,6 +142,27 @@ describe('credential socket transport framing', () => {
     expect(result.connected).toBe(true);
     expect(result.body).toBe('');
     expect(handleRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not claim or remove another transport instance's live socket", async () => {
+    const otherHandleRequest = vi.fn<CredentialSocketTransportHandler>(() => ({ok: true}));
+    const otherServer = createCredentialSocketTransportServer({
+      socketPath,
+      capability,
+      timeoutMs: 60_000,
+      handleRequest: otherHandleRequest,
+    });
+
+    try {
+      await expect(otherServer.start()).rejects.toThrow('occupied');
+      await expect(requestCredentialSocketTransport(socketPath, {capability})).resolves.toEqual({
+        version: 1,
+        ok: true,
+      });
+      expect(otherHandleRequest).not.toHaveBeenCalled();
+    } finally {
+      await otherServer.close();
+    }
   });
 
   it('aborts an in-flight handler and waits for it during shutdown', async () => {
@@ -132,15 +180,27 @@ describe('credential socket transport framing', () => {
         });
       });
     });
-    const client = connect(socketPath);
+    const shutdownSocketPath = join(root, 'shutdown.sock');
+    const shutdownServer = createCredentialSocketTransportServer({
+      socketPath: shutdownSocketPath,
+      capability,
+      timeoutMs: 60_000,
+      handleRequest,
+    });
+    await shutdownServer.start();
+    const client = connect(shutdownSocketPath);
     client.once('error', () => undefined);
     client.once('connect', () =>
       client.end(`${JSON.stringify({version: 1, capability, payload: 'pending'})}\n`),
     );
 
     await started;
-    await expect(server.close()).resolves.toBeUndefined();
-    expect(requestSignal.aborted).toBe(true);
-    client.destroy();
+    try {
+      await expect(shutdownServer.close()).resolves.toBeUndefined();
+      expect(requestSignal.aborted).toBe(true);
+    } finally {
+      await shutdownServer.close();
+      client.destroy();
+    }
   });
 });

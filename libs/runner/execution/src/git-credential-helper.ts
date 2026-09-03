@@ -1,5 +1,5 @@
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
-import {normalizeRepositoryUrl} from '@shipfox/runner-workspace';
+import {assertCredentialSocketTimeout, normalizeRepositoryUrl} from '@shipfox/runner-workspace';
 import {
   type CredentialSocketOperation,
   requestCredentialSocket,
@@ -30,14 +30,19 @@ export async function runGitCredentialHelper(params?: {
   const socketPath = readSocketPath(argv);
   const capability = readCapability(argv);
   const operation = readOperation(argv);
+  const timeoutMs = readTimeoutMs(argv);
   const input = params?.input ?? (await readBoundedStdin());
   const fields = parseGitCredentialInput(input);
   const repositoryUrl = repositoryUrlOf(fields);
-  const response = await requestCredentialSocket(socketPath, {
+  const request = {
     operation,
     repositoryUrl,
     capability,
-  });
+  };
+  const response =
+    timeoutMs === undefined
+      ? await requestCredentialSocket(socketPath, request)
+      : await requestCredentialSocket(socketPath, request, {timeoutMs});
   if (!response.ok) throw new Error('Credential helper request was rejected');
   if (operation !== 'get' || response.credential === undefined) return;
 
@@ -96,6 +101,19 @@ function readOperation(argv: readonly string[]): GitCredentialHelperOperation {
   const operation = argv.at(-1);
   if (operation === 'get' || operation === 'store' || operation === 'erase') return operation;
   throw new Error('Unknown Git credential operation');
+}
+
+function readTimeoutMs(argv: readonly string[]): number | undefined {
+  const index = argv.indexOf('--timeout-ms');
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  const timeoutMs = value === undefined ? Number.NaN : Number(value);
+  try {
+    assertCredentialSocketTimeout(timeoutMs);
+  } catch {
+    throw new Error('Credential helper timeout is invalid');
+  }
+  return timeoutMs;
 }
 
 function operationForMetrics(argv: readonly string[]): CredentialSocketOperation | 'unknown' {

@@ -52,6 +52,7 @@ export {
   CredentialSocketError,
   type CredentialSocketOperation,
   type CredentialSocketRequest,
+  type CredentialSocketRequestOptions,
   type CredentialSocketResponse,
   type CredentialSocketServer,
   type CredentialSocketServerOptions,
@@ -60,6 +61,7 @@ export {
 } from '#credential-socket.js';
 export {
   assertCredentialSocketCapability,
+  assertCredentialSocketTimeout,
   assertSocketPath,
   CREDENTIAL_SOCKET_MODE,
   CREDENTIAL_SOCKET_PROTOCOL_VERSION,
@@ -67,6 +69,8 @@ export {
   CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS,
   type CredentialSocketTransportClientOptions,
   type CredentialSocketTransportHandler,
+  type CredentialSocketTransportRejectionHandler,
+  type CredentialSocketTransportRejectionOutcome,
   type CredentialSocketTransportRequest,
   type CredentialSocketTransportRequestInput,
   type CredentialSocketTransportResponse,
