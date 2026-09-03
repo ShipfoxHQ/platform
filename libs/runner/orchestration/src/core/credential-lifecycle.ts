@@ -45,6 +45,7 @@ export function createJobCredentialLifecycle(options: {
   registerSecrets: (secrets: string[]) => void;
   replaceSecrets: (secrets: string[]) => void;
   clearSecrets: () => void;
+  renewalTimeoutMs?: number;
 }): JobCredentialLifecycle {
   const capability = randomUUID();
   const socket = credentialSocketPath(options.credentialsDir, capability);
@@ -80,6 +81,7 @@ export function createJobCredentialLifecycle(options: {
     publishSecrets: (secrets) => options.registerSecrets([...secrets]),
     replaceSecrets: (secrets) => options.replaceSecrets([...secrets]),
     clearSecrets: options.clearSecrets,
+    ...(options.renewalTimeoutMs === undefined ? {} : {renewalTimeoutMs: options.renewalTimeoutMs}),
   });
   const socketTimeoutMs = broker.renewalTimeoutMs + CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS;
 

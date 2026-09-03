@@ -3,12 +3,14 @@ import {connect} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
+  assertCredentialSocketTimeout,
   type CredentialSocketTransportHandler,
   type CredentialSocketTransportRejectionHandler,
   type CredentialSocketTransportResponseInput,
   createCredentialSocketTransportServer,
   MAX_CREDENTIAL_SOCKET_REQUEST_BYTES,
   MAX_CREDENTIAL_SOCKET_RESPONSE_BYTES,
+  MAX_CREDENTIAL_SOCKET_TIMEOUT_MS,
   requestCredentialSocketTransport,
 } from '#credential-socket-transport.js';
 
@@ -142,6 +144,12 @@ describe('credential socket transport framing', () => {
     expect(result.connected).toBe(true);
     expect(result.body).toBe('');
     expect(handleRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects timeouts above Node's timer maximum", () => {
+    expect(() => assertCredentialSocketTimeout(MAX_CREDENTIAL_SOCKET_TIMEOUT_MS + 1)).toThrow(
+      'milliseconds',
+    );
   });
 
   it("does not claim or remove another transport instance's live socket", async () => {

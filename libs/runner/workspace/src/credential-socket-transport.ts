@@ -1,4 +1,4 @@
-import {chmod, lstat, mkdir, rm} from 'node:fs/promises';
+import {chmod, type FileHandle, lstat, mkdir, open, readFile, rm} from 'node:fs/promises';
 import {connect, createServer, type Server, type Socket} from 'node:net';
 import {dirname} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -13,7 +13,9 @@ export const DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS = 35_000;
 export const MAX_CREDENTIAL_SOCKET_REQUEST_ATTEMPTS = 3;
 export const CREDENTIAL_SOCKET_RETRY_BACKOFF_MS = 25;
 export const CREDENTIAL_SOCKET_MODE = 0o600;
+export const MAX_CREDENTIAL_SOCKET_TIMEOUT_MS = 2_147_483_647;
 const CREDENTIAL_SOCKET_PATH_PROBE_TIMEOUT_MS = 100;
+const CREDENTIAL_SOCKET_LOCK_SUFFIX = '.lock';
 
 export type CredentialSocketTransportRequest = {
   version: typeof CREDENTIAL_SOCKET_PROTOCOL_VERSION;
@@ -96,7 +98,7 @@ export function createCredentialSocketTransportServer(
   let started = false;
   let closed = false;
   let lifecycle: Promise<void> = Promise.resolve();
-  let socketOwnership: SocketIdentity | undefined;
+  let socketLock: FileHandle | undefined;
   const connections = new Set<Socket>();
   const inFlight = new Set<Promise<void>>();
 
@@ -180,27 +182,31 @@ export function createCredentialSocketTransportServer(
   async function startServer(): Promise<void> {
     if (started) return;
     assertServerOpen();
-    await prepareSocketPath(options.socketPath);
-    assertServerOpen();
-
-    const nextServer = createServer({allowHalfOpen: true}, handleConnection);
-    let listening = false;
+    const nextSocketLock = await acquireSocketLock(options.socketPath);
+    let keepSocketLock = false;
     try {
-      await listen(nextServer, options.socketPath);
-      listening = true;
-      socketOwnership = await readSocketIdentity(options.socketPath);
+      await prepareSocketPath(options.socketPath);
       assertServerOpen();
-      await chmod(options.socketPath, CREDENTIAL_SOCKET_MODE);
-      server = nextServer;
-      started = true;
-    } catch {
-      const ownership = socketOwnership;
-      socketOwnership = undefined;
-      for (const connection of connections) connection.destroy();
-      if (listening) await closeServer(nextServer);
-      else nextServer.close();
-      await removeOwnedSocketPath(options.socketPath, ownership);
-      throw new CredentialSocketError('Credential socket could not start');
+
+      const nextServer = createServer({allowHalfOpen: true}, handleConnection);
+      let listening = false;
+      try {
+        await listen(nextServer, options.socketPath);
+        listening = true;
+        assertServerOpen();
+        await chmod(options.socketPath, CREDENTIAL_SOCKET_MODE);
+        server = nextServer;
+        socketLock = nextSocketLock;
+        keepSocketLock = true;
+        started = true;
+      } catch {
+        for (const connection of connections) connection.destroy();
+        if (listening) await closeServer(nextServer);
+        else nextServer.close();
+        throw new CredentialSocketError('Credential socket could not start');
+      }
+    } finally {
+      if (!keepSocketLock) await releaseSocketLock(options.socketPath, nextSocketLock);
     }
   }
 
@@ -211,15 +217,15 @@ export function createCredentialSocketTransportServer(
   async function closeServerForJob(): Promise<void> {
     if (closed) return;
     closed = true;
-    const ownership = socketOwnership;
-    socketOwnership = undefined;
+    const lock = socketLock;
+    socketLock = undefined;
     const currentServer = server;
     server = undefined;
     started = false;
     for (const connection of connections) connection.destroy();
     if (currentServer !== undefined) await closeServer(currentServer);
     await Promise.allSettled(inFlight);
-    await removeOwnedSocketPath(options.socketPath, ownership);
+    if (lock !== undefined) await releaseSocketLock(options.socketPath, lock);
   }
 }
 
@@ -462,6 +468,58 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
   }
 }
 
+/** Serializes transport instances so socket cleanup cannot race another owner. */
+async function acquireSocketLock(socketPath: string): Promise<FileHandle> {
+  const lockPath = `${socketPath}${CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
+  await mkdir(dirname(socketPath), {recursive: true, mode: 0o700});
+  for (;;) {
+    try {
+      const handle = await open(lockPath, 'wx', 0o600);
+      try {
+        await handle.writeFile(`${process.pid}\n`, 'utf8');
+        return handle;
+      } catch (error) {
+        try {
+          await rm(lockPath, {force: true});
+        } finally {
+          await handle.close();
+        }
+        throw error;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (await socketLockOwnerIsAlive(lockPath)) {
+        throw new CredentialSocketError('Credential socket path is occupied');
+      }
+      await rm(lockPath, {force: true});
+    }
+  }
+}
+
+async function socketLockOwnerIsAlive(lockPath: string): Promise<boolean> {
+  let owner: number;
+  try {
+    owner = Number((await readFile(lockPath, 'utf8')).trim());
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ENOENT';
+  }
+  if (!Number.isSafeInteger(owner) || owner <= 0) return true;
+  try {
+    process.kill(owner, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function releaseSocketLock(socketPath: string, lock: FileHandle): Promise<void> {
+  try {
+    await rm(`${socketPath}${CREDENTIAL_SOCKET_LOCK_SUFFIX}`, {force: true});
+  } finally {
+    await lock.close();
+  }
+}
+
 function isSocketActive(socketPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect(socketPath);
@@ -479,32 +537,6 @@ function isSocketActive(socketPath: string): Promise<boolean> {
     socket.once('close', () => finish(false));
     socket.setTimeout(CREDENTIAL_SOCKET_PATH_PROBE_TIMEOUT_MS, () => finish(true));
   });
-}
-
-type SocketIdentity = {
-  dev: number;
-  ino: number;
-};
-
-async function readSocketIdentity(socketPath: string): Promise<SocketIdentity> {
-  const stats = await lstat(socketPath);
-  if (!stats.isSocket()) throw new CredentialSocketError('Credential socket path is occupied');
-  return {dev: stats.dev, ino: stats.ino};
-}
-
-async function removeOwnedSocketPath(
-  socketPath: string,
-  ownership: SocketIdentity | undefined,
-): Promise<void> {
-  if (ownership === undefined) return;
-  try {
-    const stats = await lstat(socketPath);
-    if (stats.isSocket() && stats.dev === ownership.dev && stats.ino === ownership.ino) {
-      await rm(socketPath);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
 }
 
 export function assertSocketPath(socketPath: string): void {
@@ -534,8 +566,14 @@ export function assertCredentialSocketCapability(capability: string): void {
 }
 
 export function assertCredentialSocketTimeout(timeoutMs: number): void {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new RangeError('Credential socket timeout must be a positive finite number');
+  if (
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > MAX_CREDENTIAL_SOCKET_TIMEOUT_MS
+  ) {
+    throw new RangeError(
+      `Credential socket timeout must be between 1 and ${MAX_CREDENTIAL_SOCKET_TIMEOUT_MS} milliseconds`,
+    );
   }
 }
 

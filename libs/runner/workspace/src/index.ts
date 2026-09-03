@@ -85,6 +85,7 @@ export {
   MAX_CREDENTIAL_SOCKET_REQUEST_ATTEMPTS,
   MAX_CREDENTIAL_SOCKET_REQUEST_BYTES,
   MAX_CREDENTIAL_SOCKET_RESPONSE_BYTES,
+  MAX_CREDENTIAL_SOCKET_TIMEOUT_MS,
   requestCredentialSocketTransport,
 } from '#credential-socket-transport.js';
 export {
