@@ -177,7 +177,10 @@ for (const tokenCase of GITHUB_TOKEN_CASES) {
       expect(providerRequests.every((request) => request.assertion_failures.length === 0)).toBe(
         true,
       );
-      expect(githubApi.calls).toEqual([
+      // Source metadata lookups can finish after definition sync reports terminal, so keep
+      // background repository-resolution calls out of the agent-tool request trace.
+      const agentToolCalls = githubApi.calls.filter((call) => call.kind !== 'resolve-repository');
+      expect(agentToolCalls).toEqual([
         {
           kind: 'mint-token',
           authorization: expect.stringMatching(BEARER_AUTHORIZATION),
