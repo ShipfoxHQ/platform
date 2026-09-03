@@ -99,6 +99,12 @@ export interface ManagedProviderRuntimeConfig {
   /** Gateway mount root, including path prefixes but no client API path, query, or fragment. */
   readonly baseUrl: string;
   readonly credentials: Record<string, string>;
+  readonly expiresAt?: Date | undefined;
+  readonly generation?: string | undefined;
+  readonly renewal?:
+    | {readonly mode: 'refresh-at'; readonly refreshAt: Date}
+    | {readonly mode: 'on-rejection'}
+    | undefined;
 }
 
 export interface ManagedModelProvider {
@@ -114,5 +120,6 @@ export interface ManagedModelProvider {
     /** Complete job identity supplied by the leased workflow step when available. */
     jobIdentity?: ManagedProviderJobIdentity | undefined;
     model: string;
+    renewableInference?: boolean | undefined;
   }) => Promise<ManagedProviderRuntimeConfig>;
 }

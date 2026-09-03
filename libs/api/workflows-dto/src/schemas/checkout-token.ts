@@ -1,3 +1,4 @@
+import {credentialRenewalSchema, validateRenewalWindow} from '@shipfox/api-agent-dto';
 import {z} from 'zod';
 
 const carryFields = {
@@ -11,36 +12,6 @@ const checkoutGitAuthorSchema = z.object({
   email: z.string().min(1),
 });
 
-const checkoutCredentialRenewalSchema = z.discriminatedUnion('mode', [
-  z.object({mode: z.literal('refresh-at'), refresh_at: z.string().datetime({offset: true})}),
-  z.object({mode: z.literal('on-rejection')}),
-]);
-
-function validateRenewalWindow<
-  T extends {
-    expires_at: string;
-    renewal?: {mode: 'refresh-at'; refresh_at: string} | {mode: 'on-rejection'} | undefined;
-  },
->(auth: T, ctx: z.RefinementCtx) {
-  if (auth.renewal?.mode !== 'refresh-at') return;
-
-  const refreshAt = Date.parse(auth.renewal.refresh_at);
-  const expiresAt = Date.parse(auth.expires_at);
-  if (!Number.isFinite(refreshAt) || !Number.isFinite(expiresAt)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['renewal', 'refresh_at'],
-      message: 'refresh_at and expires_at must be valid timestamps',
-    });
-  } else if (refreshAt >= expiresAt) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['renewal', 'refresh_at'],
-      message: 'refresh_at must be earlier than expires_at',
-    });
-  }
-}
-
 const checkoutTokenBasicAuthSchema = z
   .object({
     kind: z.literal('basic'),
@@ -48,7 +19,7 @@ const checkoutTokenBasicAuthSchema = z
     token: z.string().min(1),
     expires_at: z.string().datetime({offset: true}),
     generation: z.string().min(1).optional(),
-    renewal: checkoutCredentialRenewalSchema.optional(),
+    renewal: credentialRenewalSchema.optional(),
     ...carryFields,
   })
   .superRefine(validateRenewalWindow);
@@ -59,7 +30,7 @@ const checkoutTokenBearerAuthSchema = z
     token: z.string().min(1),
     expires_at: z.string().datetime({offset: true}),
     generation: z.string().min(1).optional(),
-    renewal: checkoutCredentialRenewalSchema.optional(),
+    renewal: credentialRenewalSchema.optional(),
     ...carryFields,
   })
   .superRefine(validateRenewalWindow);

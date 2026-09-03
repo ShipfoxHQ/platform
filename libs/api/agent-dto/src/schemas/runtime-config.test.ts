@@ -72,6 +72,104 @@ describe('agentRuntimeCredentialsResponseSchema', () => {
     });
   });
 
+  it('parses renewable managed Claude runtime credentials', () => {
+    const parsed = agentRuntimeCredentialsResponseSchema.parse({
+      harness: 'claude',
+      provider_id: 'shipfox',
+      model: 'managed-claude',
+      thinking: 'high',
+      credentials: {api_key: 'managed-token'},
+      expires_at: '2026-06-10T12:00:00.000Z',
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T11:55:00.000Z'},
+      claude: {
+        base_url: 'https://gateway.example.test',
+        auth_token: 'managed-token',
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      expires_at: '2026-06-10T12:00:00.000Z',
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T11:55:00.000Z'},
+    });
+  });
+
+  it('requires all renewable metadata fields together', () => {
+    const input = {
+      harness: 'pi' as const,
+      provider_id: 'shipfox',
+      model: 'managed-claude',
+      thinking: 'high' as const,
+      credentials: {api_key: 'managed-token'},
+      expires_at: '2026-06-10T12:00:00.000Z',
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {mode: 'on-rejection' as const},
+    };
+
+    const withoutExpiry = (({expires_at: _expiresAt, ...value}) => value)(input);
+    const withoutGeneration = (({generation: _generation, ...value}) => value)(input);
+    const withoutRenewal = (({renewal: _renewal, ...value}) => value)(input);
+
+    expect(agentRuntimeCredentialsResponseSchema.safeParse(withoutExpiry).success).toBe(false);
+    expect(agentRuntimeCredentialsResponseSchema.safeParse(withoutGeneration).success).toBe(false);
+    expect(agentRuntimeCredentialsResponseSchema.safeParse(withoutRenewal).success).toBe(false);
+  });
+
+  it('requires an API key and matching Claude token for renewable credentials', () => {
+    const input = {
+      harness: 'claude' as const,
+      provider_id: 'shipfox',
+      model: 'managed-claude',
+      thinking: 'high' as const,
+      credentials: {api_key: 'managed-token'},
+      expires_at: '2026-06-10T12:00:00.000Z',
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {mode: 'on-rejection' as const},
+      claude: {
+        base_url: 'https://gateway.example.test',
+        auth_token: 'managed-token',
+      },
+    };
+
+    expect(
+      agentRuntimeCredentialsResponseSchema.safeParse({
+        ...input,
+        credentials: {authorization: 'managed-token'},
+      }).success,
+    ).toBe(false);
+    expect(
+      agentRuntimeCredentialsResponseSchema.safeParse({
+        ...input,
+        claude: {...input.claude, auth_token: 'different-token'},
+      }).success,
+    ).toBe(false);
+  });
+
+  it('requires a UUID generation and a refresh time before expiry', () => {
+    const input = {
+      harness: 'pi' as const,
+      provider_id: 'shipfox',
+      model: 'managed-claude',
+      thinking: 'high' as const,
+      credentials: {api_key: 'managed-token'},
+      expires_at: '2026-06-10T12:00:00.000Z',
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {mode: 'refresh-at' as const, refresh_at: '2026-06-10T11:55:00.000Z'},
+    };
+
+    expect(
+      agentRuntimeCredentialsResponseSchema.safeParse({...input, generation: 'generation-1'})
+        .success,
+    ).toBe(false);
+    expect(
+      agentRuntimeCredentialsResponseSchema.safeParse({
+        ...input,
+        renewal: {mode: 'refresh-at', refresh_at: '2026-06-10T12:00:00.000Z'},
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects a claude runtime block for a reserved provider id', () => {
     const parse = () =>
       agentRuntimeCredentialsResponseSchema.parse({

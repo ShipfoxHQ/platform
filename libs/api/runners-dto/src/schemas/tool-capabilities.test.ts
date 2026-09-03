@@ -24,6 +24,16 @@ describe('runnerToolCapabilitiesSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('accepts the renewable inference feature flag', () => {
+    const result = runnerToolCapabilitiesSchema.safeParse({
+      features: {renewable_git: true, renewable_inference: true},
+      harnesses: {},
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.features?.renewable_inference).toBe(true);
+  });
+
   it('requires renewable_git when protocol features are present', () => {
     const result = runnerToolCapabilitiesSchema.safeParse({
       features: {},

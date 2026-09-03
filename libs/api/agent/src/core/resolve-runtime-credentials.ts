@@ -268,6 +268,7 @@ function appendManagedProviderResponse(
   managedModel: ManagedModelProvider['models'][number] | undefined,
 ): void {
   if (managed === undefined) return;
+  appendManagedCredentialMetadata(response, managed.runtimeConfig);
   const modelDescriptor = toCustomAgentModelDto(
     managedModel ?? {id: params.model, label: params.model},
   );
@@ -291,4 +292,23 @@ function appendManagedProviderResponse(
     base_url: managedProviderAdapterBaseUrl(clientApi, managed.runtimeConfig.baseUrl),
     auth_token: authToken,
   };
+}
+
+function appendManagedCredentialMetadata(
+  response: AgentRuntimeCredentialsResponseDto,
+  runtimeConfig: ManagedProviderRuntimeConfig,
+): void {
+  if (
+    runtimeConfig.expiresAt === undefined ||
+    runtimeConfig.generation === undefined ||
+    runtimeConfig.renewal === undefined
+  ) {
+    return;
+  }
+  response.expires_at = runtimeConfig.expiresAt.toISOString();
+  response.generation = runtimeConfig.generation;
+  response.renewal =
+    runtimeConfig.renewal.mode === 'refresh-at'
+      ? {mode: 'refresh-at', refresh_at: runtimeConfig.renewal.refreshAt.toISOString()}
+      : {mode: 'on-rejection'};
 }

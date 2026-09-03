@@ -35,6 +35,7 @@ export const stepErrorReasonSchema = z.enum([
   'agent_config_invalid',
   'agent_invocation_failed',
   'agent_harness_unavailable',
+  'agent_inference_credentials_unavailable',
   'agent_session_key_invalid',
   'agent_session_held',
   'agent_session_harness_mismatch',

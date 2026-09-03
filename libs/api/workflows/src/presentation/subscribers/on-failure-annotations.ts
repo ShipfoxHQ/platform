@@ -99,6 +99,11 @@ const STEP_FAILURE_COPY: Readonly<
     description:
       'Shipfox could not start the agent. Try again. If the problem continues, check the runner setup.',
   },
+  agent_inference_credentials_unavailable: {
+    title: 'Inference credentials are unavailable',
+    description:
+      'Shipfox could not obtain inference credentials for this agent. Try again. If the problem continues, check the model provider configuration.',
+  },
   agent_session_key_invalid: {
     title: 'Agent session configuration needs attention',
     description: 'Review the session key and mode before trying again.',

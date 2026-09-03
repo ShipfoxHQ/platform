@@ -25,6 +25,7 @@ export {
   type CommitSessionTranscriptQueryDto,
   type CommitSessionTranscriptResponseDto,
   type CreateCustomModelProviderBodyDto,
+  type CredentialRenewalDto,
   type CustomAgentModelDto,
   type CustomModelProviderConfigDto,
   type CustomModelProviderHeaderDto,
@@ -35,6 +36,7 @@ export {
   commitSessionTranscriptQuerySchema,
   commitSessionTranscriptResponseSchema,
   createCustomModelProviderBodySchema,
+  credentialRenewalSchema,
   customAgentModelSchema,
   customModelProviderConfigDtoSchema,
   customModelProviderHeaderDtoSchema,
@@ -160,6 +162,7 @@ export {
   updateCustomModelProviderHeaderRequestSchema,
   updateModelProviderConfigBodySchema,
   updateModelProviderDefaultModelBodySchema,
+  validateRenewalWindow,
   type WorkspaceProvidersPolicy,
   workspaceProvidersPolicySchema,
 } from '#schemas/index.js';
