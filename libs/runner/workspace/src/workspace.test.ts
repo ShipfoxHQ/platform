@@ -411,22 +411,35 @@ describe('cleanupOrphanedJobCredentials', () => {
     const liveCapability = randomUUID();
     const deadSocketPath = runnerFallbackCredentialSocketPath(deadCapability);
     const deadOwnerPath = runnerFallbackCredentialSocketOwnerPath(deadCapability);
+    const deadLockPath = `${deadSocketPath}.lock`;
     const liveSocketPath = runnerFallbackCredentialSocketPath(liveCapability);
     const liveOwnerPath = runnerFallbackCredentialSocketOwnerPath(liveCapability);
-    const paths = [deadSocketPath, deadOwnerPath, liveSocketPath, liveOwnerPath];
+    const liveLockPath = `${liveSocketPath}.lock`;
+    const paths = [
+      deadSocketPath,
+      deadOwnerPath,
+      deadLockPath,
+      liveSocketPath,
+      liveOwnerPath,
+      liveLockPath,
+    ];
     await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
     await writeFile(deadSocketPath, 'stale socket placeholder');
     await writeFile(deadOwnerPath, '-1:stale-owner');
+    await writeFile(deadLockPath, '-1\n');
     await writeFile(liveSocketPath, 'live socket placeholder');
     await writeFile(liveOwnerPath, `${process.pid}:live-owner`);
+    await writeFile(liveLockPath, `${process.pid}\n`);
 
     try {
       await cleanupOrphanedJobCredentials(root);
 
       await expect(stat(deadSocketPath)).rejects.toThrow();
       await expect(stat(deadOwnerPath)).rejects.toThrow();
+      await expect(stat(deadLockPath)).rejects.toThrow();
       await expect(stat(liveSocketPath)).resolves.toBeDefined();
       await expect(stat(liveOwnerPath)).resolves.toBeDefined();
+      await expect(stat(liveLockPath)).resolves.toBeDefined();
     } finally {
       for (const path of paths) await rm(path, {force: true});
     }

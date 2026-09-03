@@ -1,4 +1,4 @@
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {connect} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -170,6 +170,23 @@ describe('credential socket transport framing', () => {
       expect(otherHandleRequest).not.toHaveBeenCalled();
     } finally {
       await otherServer.close();
+    }
+  });
+
+  it('reclaims a malformed lock when no socket is active', async () => {
+    const staleSocketPath = join(root, 'malformed.sock');
+    await writeFile(`${staleSocketPath}.lock`, '');
+    const staleServer = createCredentialSocketTransportServer({
+      socketPath: staleSocketPath,
+      capability,
+      timeoutMs: 60_000,
+      handleRequest,
+    });
+
+    try {
+      await expect(staleServer.start()).resolves.toBeUndefined();
+    } finally {
+      await staleServer.close();
     }
   });
 

@@ -1,4 +1,15 @@
-import {chmod, type FileHandle, lstat, mkdir, open, readFile, rm} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {
+  chmod,
+  type FileHandle,
+  link,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  rename,
+  rm,
+} from 'node:fs/promises';
 import {connect, createServer, type Server, type Socket} from 'node:net';
 import {dirname} from 'node:path';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -471,44 +482,101 @@ async function prepareSocketPath(socketPath: string): Promise<void> {
 /** Serializes transport instances so socket cleanup cannot race another owner. */
 async function acquireSocketLock(socketPath: string): Promise<FileHandle> {
   const lockPath = `${socketPath}${CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
+  const candidatePath = `${lockPath}.${randomUUID()}.tmp`;
   await mkdir(dirname(socketPath), {recursive: true, mode: 0o700});
-  for (;;) {
+  const handle = await open(candidatePath, 'wx', 0o600);
+  let lockPublished = false;
+  let ownershipTransferred = false;
+  try {
+    await handle.writeFile(`${process.pid}\n`, 'utf8');
+    for (;;) {
+      if (!(await tryPublishSocketLock(socketPath, lockPath, candidatePath))) continue;
+      lockPublished = true;
+      await rm(candidatePath, {force: true});
+      ownershipTransferred = true;
+      return handle;
+    }
+  } finally {
+    if (!ownershipTransferred)
+      await cleanupSocketLockCandidate(lockPath, candidatePath, handle, lockPublished);
+  }
+}
+
+async function tryPublishSocketLock(
+  socketPath: string,
+  lockPath: string,
+  candidatePath: string,
+): Promise<boolean> {
+  try {
+    await link(candidatePath, lockPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (await socketLockOwnerIsAlive(socketPath, lockPath)) {
+      throw new CredentialSocketError('Credential socket path is occupied');
+    }
+    await reclaimStaleSocketLock(socketPath, lockPath);
+    return false;
+  }
+}
+
+async function cleanupSocketLockCandidate(
+  lockPath: string,
+  candidatePath: string,
+  handle: FileHandle,
+  lockPublished: boolean,
+): Promise<void> {
+  try {
+    if (lockPublished) await rm(lockPath, {force: true});
+  } finally {
     try {
-      const handle = await open(lockPath, 'wx', 0o600);
-      try {
-        await handle.writeFile(`${process.pid}\n`, 'utf8');
-        return handle;
-      } catch (error) {
-        try {
-          await rm(lockPath, {force: true});
-        } finally {
-          await handle.close();
-        }
-        throw error;
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      if (await socketLockOwnerIsAlive(lockPath)) {
-        throw new CredentialSocketError('Credential socket path is occupied');
-      }
-      await rm(lockPath, {force: true});
+      await rm(candidatePath, {force: true});
+    } finally {
+      await handle.close();
     }
   }
 }
 
-async function socketLockOwnerIsAlive(lockPath: string): Promise<boolean> {
+async function socketLockOwnerIsAlive(socketPath: string, lockPath: string): Promise<boolean> {
   let owner: number;
   try {
     owner = Number((await readFile(lockPath, 'utf8')).trim());
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ENOENT';
   }
-  if (!Number.isSafeInteger(owner) || owner <= 0) return true;
+  if (!Number.isSafeInteger(owner) || owner <= 0) return isSocketActive(socketPath);
   try {
     process.kill(owner, 0);
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function reclaimStaleSocketLock(socketPath: string, lockPath: string): Promise<boolean> {
+  const stalePath = `${lockPath}.${randomUUID()}.stale`;
+  try {
+    await rename(lockPath, stalePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+
+  if (await isSocketActive(socketPath)) {
+    await restoreSocketLock(stalePath, lockPath);
+    return false;
+  }
+  await rm(stalePath, {force: true});
+  return true;
+}
+
+async function restoreSocketLock(stalePath: string, lockPath: string): Promise<void> {
+  try {
+    await link(stalePath, lockPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  } finally {
+    await rm(stalePath, {force: true});
   }
 }
 

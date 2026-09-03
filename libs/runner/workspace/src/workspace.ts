@@ -15,7 +15,8 @@ const JOB_DIRECTORY_LOCK_RETRY_MS = 10;
 export const RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR = '/tmp/shipfox-runner-credentials';
 const FALLBACK_CREDENTIAL_SOCKET_SUFFIX = '.sock';
 const FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX = '.owner';
-const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE = /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner)?$/u;
+const FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX = '.lock';
+const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE = /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock)?$/u;
 
 export function runnerFallbackCredentialSocketPath(capability: string): string {
   assertUuidCapability(capability);
@@ -250,6 +251,7 @@ async function cleanupOrphanedFallbackCredentialSockets(): Promise<void> {
 async function cleanupFallbackCredentialSocket(capability: string): Promise<void> {
   const socketPath = runnerFallbackCredentialSocketPath(capability);
   const ownerPath = runnerFallbackCredentialSocketOwnerPath(capability);
+  const lockPath = `${socketPath}${FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
   let owner: string | undefined;
   try {
     owner = (await readFile(ownerPath, 'utf8')).trim();
@@ -265,6 +267,7 @@ async function cleanupFallbackCredentialSocket(capability: string): Promise<void
   try {
     await rm(socketPath, {force: true});
     await rm(ownerPath, {force: true});
+    await rm(lockPath, {force: true});
   } catch (error) {
     logger().warn({err: error, socketPath}, 'Failed to remove orphaned fallback credential socket');
   }
