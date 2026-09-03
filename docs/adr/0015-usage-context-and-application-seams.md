@@ -49,9 +49,27 @@ The context owns two kinds of record:
 **Facts come from committed events and one inter-module command.** Usage subscribes to
 `workflows.job_execution.queued`, `runners.job.claimed`, `runners.job.lease_expired`, and
 `workflows.job_execution.terminated`. Every handler is an idempotent write keyed on the
-producer's ids. Handlers are commutative, because Workflows and Runners events order on
-different keys. An inference source records segments through `recordInferenceSegments` in the
-`@shipfox/api-usage-dto/inter-module` export, idempotent by segment key.
+producer's ids. An inference source records segments through `recordInferenceSegments` in the
+`@shipfox/api-usage-dto/inter-module` export.
+
+**Handlers accept any arrival order.** Workflows and Runners events order on different keys, so
+the four events can reach Usage in any order and more than once. Each handler writes only its own
+fields:
+
+| Event | Fields the handler writes |
+| --- | --- |
+| `workflows.job_execution.queued` | Ids, requested labels, and the queued time. |
+| `runners.job.claimed` | The started time and runner identity. |
+| `runners.job.lease_expired` | The lease-expired time. |
+| `workflows.job_execution.terminated` | Status, duration, the finished time, and the terminal state. |
+
+A row in the terminal state never leaves it. A late claimed or lease-expired event fills only its
+own fields and never changes status, duration, or state.
+
+**Segment keys are unique across sources.** A producer prefixes the key with its `source` value
+and composes it from the identifiers that define the segment. Two sources cannot collide, and one
+source cannot reuse a key for a different segment. A repeated key is a duplicate: Usage counts it
+and does not record it twice.
 
 **Usage reads no peer table and calls no peer contract.** It depends on the Workflows and Runners
 events being self-sufficient. The terminated event carries every field a usage record needs, so
@@ -59,12 +77,15 @@ a late claimed event only fills display fields.
 
 **Usage publishes two outbox events.** `usage.job_execution.recorded` orders on the workflow run
 id. `usage.inference_segment.recorded` orders on the step attempt id. Each is published once, in
-the same transaction as the row, guarded by the row's `recorded_at`. Both payloads carry the full
-record.
+the same transaction as the row, guarded by the row's `recorded_at`. Both payloads carry the
+record as it stood at publication. A late claimed event may still fill display fields in the row
+afterwards. A consumer that needs those fields reads the row or the list cursors.
 
 **Usage exposes per-entity read routes only.** One route returns the usage of a workflow run.
-One route returns the usage of a job execution. There is no per-definition list route, and the
-workflow runs list carries no usage data. Aggregates such as period totals, time series, or
+One route returns the usage of a job execution. Both routes are workspace-scoped. The workspace id
+is a path parameter, and the route requires workspace access the way other workspace routes do.
+It returns only rows that belong to that workspace. There is no per-definition list route, and
+the workflow runs list carries no usage data. Aggregates such as period totals, time series, or
 top-N views are out of scope for this context. They need their own tables and retention, and a
 consumer builds them from the events and list cursors below.
 
@@ -72,7 +93,8 @@ consumer builds them from the events and list cursors below.
 the context carries a price, an amount, a currency, or a rate.
 
 **The context follows the existing ownership rules.** Its database namespace is `usage` and its
-tables use the `usage_` prefix under ADR 0006. It is classified in `api-contexts.cjs` as `usage`,
+tables use the `usage_` prefix under ADR 0006. Rows are retained for a configured number of days
+and dropped by whole partition. It is classified in `api-contexts.cjs` as `usage`,
 with `libs/api/usage` as the implementation and `libs/api/usage-dto` as the DTO package. The
 application root registers it in the default module set before the dispatcher, so its
 subscribers are live before any enriched event flows.
@@ -138,8 +160,10 @@ interface RequiredAction {
 ```
 
 `reason` is a stable kebab-case code owned by the policy, such as `workspace-quota-exhausted`.
-`requiredAction` tells a user what to do and where. Every surface that shows a denial renders
-that one object rather than inventing its own text.
+`requiredAction` tells a user what to do and where. Its
+`url` is an absolute `https` URL or an application-relative path chosen by the policy. Surfaces
+render it as a trusted link and never derive it from request input. Every surface that shows a
+denial renders that one object rather than inventing its own text.
 
 **Workflows calls the policy beside the operating-state gate.** Every path in the job-admission
 inventory calls it: manual run, scheduled run, integration webhook to a trigger, listener `fire`
@@ -161,12 +185,18 @@ known error to the contract. Under ADR 0002, adding the `admission-denied` known
 breaking contract change once, and the release that adds it follows that rule. Later reasons are
 additive.
 
-**A policy failure is transient, not a denial.** A policy that throws is an unknown failure.
-Callers keep their existing retry behavior, so a policy outage delays work instead of discarding
-it. Only an explicit `allowed: false` result is permanent.
+**A policy failure is transient, not a denial.** A policy that throws or exceeds the call
+timeout is an unknown failure. Workflows bounds every `admit()` call with a timeout, so a hanging
+policy cannot hold an admission path open. Callers keep their existing retry budgets.
+Trigger and listener paths follow the dispatcher's retry and dead-letter rules. Manual starts and
+reruns fail the HTTP request. A policy outage delays work instead of discarding it. Only an
+explicit `allowed: false` result is permanent.
 
-**Upstream records no policy state.** The policy owner records its own side effects. Workflows
-and Triggers store the reason string and nothing else about the policy.
+**Upstream records no policy state.** The policy owner records its own side effects. `admit()`
+can run more than once for one logical admission, because callers retry after a lost response
+and the dispatcher redelivers at least once. A policy keys its side effects idempotently, the way
+Usage handlers do. Workflows and Triggers store the reason string and nothing else about the
+policy.
 
 ### Admission is decided server-side only
 
@@ -195,6 +225,9 @@ is that entry for Usage.
   two events, and two routes. A consumer needs only the DTO package.
 - The enriched Runners and Workflows events are a prerequisite. Usage subscribers ship in the
   same release as those events, because an event with no subscriber is pruned after seven days.
+  Those events are the only reconstruction path. The API server composition test proves the
+  Usage module is registered, and operators alert on the Usage subscribers' dispatch backlog well
+  before the prune horizon.
 - The client shell owns a second optional implementation seam, and usage components carry three
   cost states in their stories and tests.
 - Every admission path makes two decisions. The Workflows inter-module contract gains one known
