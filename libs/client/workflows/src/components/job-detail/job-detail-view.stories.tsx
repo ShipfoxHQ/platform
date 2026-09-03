@@ -20,18 +20,27 @@ import type {
   JobExecution,
   Step,
   StepAttemptDetail,
+  WorkflowJobDetail,
   WorkflowRunDetail,
 } from '#core/workflow-run.js';
 import {workflowRunAnnotationsQueryKeys} from '#hooks/api/annotations.js';
 import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
+import {workflowJobQueryKeys} from '#hooks/api/workflow-job-detail.js';
+import {toWorkflowJobDetail} from '#hooks/api/workflow-job-detail-mapper.js';
+import {
+  toWorkflowRunLineageHeadFromRecord,
+  toWorkflowRunOverviewFromRunDetail,
+} from '#hooks/api/workflow-run-mapper.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
 import {WorkflowJobDetailPage} from '#pages/workflow-job-detail-page.js';
 import {
   workflowJob,
+  workflowJobDetailResponseDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
   workflowRunDetail,
+  workflowRunDetailDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -306,11 +315,43 @@ function createStoryQueryClient(
   if (!run) return client;
   seedStoryLogs(client, run);
   client.setQueryData(workflowRunsQueryKeys.detail(run.id), run);
+  seedStoryWorkflowQueries(client, run);
   for (const detail of stepDetails) {
     client.setQueryData(stepAttemptDetailQueryKeys.detail(detail.stepId, detail.attempt), detail);
   }
   seedStoryAnnotationSummaries(client, run);
   return client;
+}
+
+function seedStoryWorkflowQueries(client: QueryClient, run: WorkflowRunDetail): void {
+  client.setQueryData(workflowRunsQueryKeys.head(run.id), toWorkflowRunLineageHeadFromRecord(run));
+  client.setQueryData(
+    workflowRunsQueryKeys.overview(run.id, run.runAttempt.attempt),
+    toWorkflowRunOverviewFromRunDetail(run),
+  );
+
+  const detail = storyRunDto({status: run.status, jobs: run.jobs});
+  for (const job of run.jobs) {
+    seedStorySelectedJobDetail(client, detail, job.id);
+    for (const execution of job.jobExecutions) {
+      seedStorySelectedJobDetail(client, detail, job.id, execution.id);
+    }
+  }
+}
+
+function seedStorySelectedJobDetail(
+  client: QueryClient,
+  detail: ReturnType<typeof storyRunDto>,
+  jobId: string,
+  executionId?: string,
+): void {
+  const selectedJobDetail = toWorkflowJobDetail(
+    workflowJobDetailResponseDto({detail, jobId, executionId}),
+  );
+  client.setQueryData<WorkflowJobDetail>(
+    workflowJobQueryKeys.detail(jobId, executionId),
+    selectedJobDetail,
+  );
 }
 
 function seedStoryLogs(client: QueryClient, run: WorkflowRunDetail): void {
@@ -997,7 +1038,11 @@ function storyRun({
   status: WorkflowRunDetail['status'];
   jobs: Job[];
 }): WorkflowRunDetail {
-  return workflowRunDetail({
+  return workflowRunDetail(storyRunDto({status, jobs}));
+}
+
+function storyRunDto({status, jobs}: {status: WorkflowRunDetail['status']; jobs: Job[]}) {
+  return workflowRunDetailDto({
     id: RUN_ID,
     status,
     current_attempt: 1,
