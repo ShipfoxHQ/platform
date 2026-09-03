@@ -8,7 +8,7 @@ import {
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, eq, gt, inArray, notInArray, or, sql} from 'drizzle-orm';
+import {and, asc, count, eq, gt, inArray, isNull, notInArray, or, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {
   type AgentToolMaterializationContext,
@@ -82,6 +82,13 @@ import {
 
 const TERMINAL_EXECUTION_STATUSES: JobExecutionStatus[] = ['succeeded', 'failed', 'cancelled'];
 const MAX_LISTENER_RESOLUTION_ATTEMPTS = 3;
+
+function pendingListenerEventCondition() {
+  return and(
+    eq(jobListenerEvents.outcome, 'pending'),
+    isNull(jobListenerEvents.consumedByExecutionId),
+  );
+}
 
 function recordFinalizedListenerEventMetrics(
   counts: FinalizedListenerEventCounts,
@@ -478,9 +485,7 @@ export async function peekListenerBuffer(params: {jobId: string}): Promise<Liste
       newestAgeMs: sql<number>`coalesce(floor(extract(epoch from (statement_timestamp() - max(${jobListenerEvents.receivedAt}) filter (where ${jobListenerEvents.disposition} = 'fire'))) * 1000), 0)::integer`,
     })
     .from(jobListenerEvents)
-    .where(
-      and(eq(jobListenerEvents.jobId, params.jobId), eq(jobListenerEvents.outcome, 'pending')),
-    );
+    .where(and(eq(jobListenerEvents.jobId, params.jobId), pendingListenerEventCondition()));
 
   return {
     fireCount: row?.fireCount ?? 0,
@@ -700,7 +705,7 @@ async function hasPendingResolveEvent(jobId: string, tx: Tx): Promise<boolean> {
       and(
         eq(jobListenerEvents.jobId, jobId),
         eq(jobListenerEvents.disposition, 'resolve'),
-        eq(jobListenerEvents.outcome, 'pending'),
+        pendingListenerEventCondition(),
       ),
     )
     .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
@@ -717,7 +722,7 @@ async function hasBufferedFireEvent(jobId: string, tx: Tx): Promise<boolean> {
       and(
         eq(jobListenerEvents.jobId, jobId),
         eq(jobListenerEvents.disposition, 'fire'),
-        eq(jobListenerEvents.outcome, 'pending'),
+        pendingListenerEventCondition(),
       ),
     )
     .limit(1);
@@ -740,7 +745,7 @@ async function lockBufferedFireEventBatch(
         and(
           eq(jobListenerEvents.jobId, params.jobId),
           eq(jobListenerEvents.disposition, 'fire'),
-          eq(jobListenerEvents.outcome, 'pending'),
+          pendingListenerEventCondition(),
           cursor === undefined
             ? undefined
             : or(

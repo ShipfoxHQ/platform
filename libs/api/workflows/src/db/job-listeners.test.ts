@@ -1136,6 +1136,28 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(result.newestAgeMs).toBeGreaterThan(0);
   });
 
+  it('ignores legacy events with a consumer and the default pending outcome', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    await bufferEvent(job.id, 'fire');
+    await bufferEvent(job.id, 'resolve');
+    const consumedExecution = await insertExecution(job.id, 99, 'succeeded');
+
+    await db()
+      .update(jobListenerEvents)
+      .set({consumedByExecutionId: consumedExecution.id})
+      .where(eq(jobListenerEvents.jobId, job.id));
+
+    await expect(peekListenerBuffer({jobId: job.id})).resolves.toEqual({
+      fireCount: 0,
+      resolvePending: false,
+      oldestAgeMs: 0,
+      newestAgeMs: 0,
+    });
+    await expect(
+      drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1}),
+    ).resolves.toEqual({kind: 'empty'});
+  });
+
   it('reports a resolve request when a resolve event is buffered', async () => {
     const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
     await bufferEvent(job.id, 'resolve');
