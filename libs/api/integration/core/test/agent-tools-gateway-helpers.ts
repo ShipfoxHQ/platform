@@ -131,7 +131,18 @@ export function catalogTool(overrides: Partial<AgentToolCatalogEntry> = {}): Age
     sensitive: false,
     requiredScope: [],
     inputSchema: {type: 'object', properties: {}, additionalProperties: false},
-    outputSchema: {type: 'object', additionalProperties: true},
+    outputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        status: {const: 'dispatched'},
+        provider: {type: 'string'},
+        connection_id: {type: 'string'},
+        tool_id: {type: 'string'},
+        method: {type: 'string'},
+      },
+      required: ['status', 'provider', 'connection_id', 'tool_id'],
+    },
     methods: [
       {
         id: 'get',

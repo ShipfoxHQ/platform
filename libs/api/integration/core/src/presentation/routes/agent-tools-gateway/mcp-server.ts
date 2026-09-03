@@ -43,6 +43,19 @@ export interface BuildAgentToolsMcpServerParams {
   recordCall?: IntegrationToolCallRecorder | undefined;
 }
 
+const integrationToolErrorOutputSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: {type: 'string'},
+    status: {type: 'integer', minimum: 100, maximum: 599},
+    retryAfterSeconds: {type: 'number', minimum: 0},
+    reason: {type: 'string'},
+  },
+  required: ['code'],
+} as const;
+const outputSchemaRootKeywords = ['$defs', 'definitions', '$id', '$schema'] as const;
+
 export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams): Server {
   const server = new Server(
     {name: 'shipfox-integration-tools', version: '0.0.0'},
@@ -59,7 +72,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
       },
       ...(authorizedTool.outputSchema
         ? {
-            outputSchema: authorizedTool.outputSchema as {
+            outputSchema: outputSchemaWithIntegrationToolError(authorizedTool.outputSchema) as {
               type: 'object';
               properties?: Record<string, object> | undefined;
               required?: string[] | undefined;
@@ -150,6 +163,26 @@ function unpackDispatchResult(dispatched: CallToolResult | IntegrationToolDispat
     };
   }
   return {result: dispatched as CallToolResult};
+}
+
+function outputSchemaWithIntegrationToolError(
+  outputSchema: Record<string, unknown>,
+): Record<string, unknown> {
+  // MCP clients validate structuredContent even when the tool result is an error.
+  const rootSchemaKeywords = Object.fromEntries(
+    outputSchemaRootKeywords
+      .filter((keyword) => Object.hasOwn(outputSchema, keyword))
+      .map((keyword) => [keyword, outputSchema[keyword]]),
+  );
+  const successSchema = {...outputSchema};
+  for (const keyword of outputSchemaRootKeywords) {
+    delete successSchema[keyword];
+  }
+  return {
+    ...rootSchemaKeywords,
+    type: 'object',
+    anyOf: [successSchema, integrationToolErrorOutputSchema],
+  };
 }
 
 function toolCallErrorDetails(result: CallToolResult): {

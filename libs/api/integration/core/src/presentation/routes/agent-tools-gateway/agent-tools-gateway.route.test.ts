@@ -125,6 +125,10 @@ describe('agent tools gateway route', () => {
     await client.close();
 
     expect(tools.tools.map((tool) => tool.name)).toEqual(['github_main__issue_read']);
+    expect(tools.tools[0]?.outputSchema).toMatchObject({
+      type: 'object',
+      anyOf: expect.any(Array),
+    });
     expect(result.isError).not.toBe(true);
     expect(result.structuredContent).toMatchObject({
       status: 'dispatched',
@@ -182,6 +186,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -235,7 +240,7 @@ describe('agent tools gateway route', () => {
     const providerError = new IntegrationProviderError(
       'provider-rejected',
       'commit_id is missing',
-      undefined,
+      30,
       422,
     );
     const app = await createGatewayApp({
@@ -265,6 +270,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -277,7 +283,35 @@ describe('agent tools gateway route', () => {
     expect(result).toEqual({
       isError: true,
       content: [{type: 'text', text: 'commit_id is missing'}],
-      structuredContent: {code: 'provider-rejected', status: 422},
+      structuredContent: {code: 'provider-rejected', retryAfterSeconds: 30, status: 422},
+    });
+  });
+
+  it('omits invalid provider retry hints before MCP validation', async () => {
+    const lease = leaseContext({workspaceId: 'workspace-1'});
+    const integration = materializedIntegration({connectionId: 'connection-1'});
+    leases.set('invalid-retry-lease', lease);
+    const providerError = new IntegrationProviderError('rate-limited', 'Try again later', -1, 429);
+    const app = await createGatewayApp({
+      registry: registryWithAgentTools([catalogTool()], {callError: providerError}),
+      loadLeasedAgentStep: async () => ({
+        workspaceId: lease.workspaceId,
+        step: {type: 'agent', config: agentStepConfig([integration])},
+      }),
+      getIntegrationConnectionById: async () =>
+        connection({
+          id: integration.connectionId,
+          workspaceId: lease.workspaceId,
+          slug: integration.connectionSlug,
+        }),
+    });
+
+    const result = await callIssueReadTool(app, 'invalid-retry-lease');
+
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: 'Try again later'}],
+      structuredContent: {code: 'rate-limited', status: 429},
     });
   });
 
@@ -312,6 +346,7 @@ describe('agent tools gateway route', () => {
     );
 
     await client.connect(transport as unknown as Transport);
+    await client.listTools();
     const result = await client.callTool(
       {
         name: 'github_main__issue_read',
@@ -365,6 +400,7 @@ async function callIssueReadTool(app: FastifyInstance, leaseToken: string) {
   );
 
   await client.connect(transport as unknown as Transport);
+  await client.listTools();
   const result = await client.callTool(
     {
       name: 'github_main__issue_read',
