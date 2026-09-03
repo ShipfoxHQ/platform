@@ -251,6 +251,7 @@ function runLoop(params: {
   agentStateDir?: string;
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
+  replaceInferenceSecrets?: (secrets: string[]) => void;
   registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
   credentialFailureEvents?: CredentialFailureEventSource;
   credentialHelper?: {
@@ -268,6 +269,9 @@ function runLoop(params: {
     secrets: params.secrets ?? [],
     ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
     ...(params.registerSecrets ? {registerSecrets: params.registerSecrets} : {}),
+    ...(params.replaceInferenceSecrets
+      ? {replaceInferenceSecrets: params.replaceInferenceSecrets}
+      : {}),
     ...(params.registerCheckoutCredential
       ? {registerCheckoutCredential: params.registerCheckoutCredential}
       : {}),
@@ -3168,9 +3172,180 @@ describe('runJobSteps', () => {
     expect(execution.result.error?.message).toBe('crashed with *** ***');
   });
 
+  it('redacts the current inference generations from step results', async () => {
+    const run = buildRunStep();
+    const retainedGenerations = [
+      'inference-generation-current',
+      'inference-generation-previous',
+      'inference-generation-oldest-retained',
+    ];
+    executeRunStepMock.mockResolvedValueOnce({
+      success: false,
+      outputs: Object.fromEntries(
+        retainedGenerations.map((generation) => [generation, generation]),
+      ),
+      error: {message: `provider returned ${retainedGenerations.join(' ')}`},
+      exit_code: null,
+    });
+    const ac = new AbortController();
+
+    const execution = await executeStep({
+      step: run,
+      attempt: 1,
+      cwd: '/work',
+      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
+      jobContext: JOB_CONTEXT,
+      leaseClient,
+      leaseToken: leaseTokenSource,
+      secrets: [],
+      subscribeSecrets: (subscriber) => {
+        subscriber(['inference-generation-retired']);
+        subscriber(retainedGenerations);
+        return () => undefined;
+      },
+      signal: ac.signal,
+      workspacePrepared: true,
+      gitConfigPath: GIT_CONFIG_PATH,
+      jobId: JOB_ID,
+      stepLabel: 'run',
+    });
+
+    expect(execution.result).toEqual({
+      success: false,
+      outputs: Object.fromEntries(retainedGenerations.map((generation) => [generation, '***'])),
+      error: {message: `provider returned ${retainedGenerations.map(() => '***').join(' ')}`},
+      exit_code: null,
+    });
+  });
+
+  it('keeps crash redaction bounded to the latest inference generations', async () => {
+    const run = buildRunStep();
+    const retiredGeneration = 'inference-generation-retired';
+    const retainedGenerations = [
+      'inference-generation-current',
+      'inference-generation-previous',
+      'inference-generation-oldest-retained',
+    ];
+    executeRunStepMock.mockImplementationOnce(() => {
+      throw new Error(`crashed with ${retainedGenerations.join(' ')} ${retiredGeneration}`);
+    });
+    const ac = new AbortController();
+
+    const execution = await executeStep({
+      step: run,
+      attempt: 1,
+      cwd: '/work',
+      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
+      jobContext: JOB_CONTEXT,
+      leaseClient,
+      leaseToken: leaseTokenSource,
+      secrets: [],
+      subscribeSecrets: (subscriber) => {
+        subscriber([retiredGeneration]);
+        subscriber(retainedGenerations);
+        return () => undefined;
+      },
+      signal: ac.signal,
+      workspacePrepared: true,
+      gitConfigPath: GIT_CONFIG_PATH,
+      jobId: JOB_ID,
+      stepLabel: 'run',
+    });
+
+    expect(execution.result.error?.message).toBe(
+      `crashed with ${retainedGenerations.map(() => '***').join(' ')} ${retiredGeneration}`,
+    );
+  });
+
+  it('drops retired agent inference generations from later step results', async () => {
+    const firstAgent = buildAgentStep({id: '00000000-0000-0000-0000-0000000000f1'});
+    const secondAgent = buildAgentStep({id: '00000000-0000-0000-0000-0000000000f2'});
+    const retiredGeneration = 'inference-generation-retired';
+    const retainedGenerations = [
+      'inference-generation-current',
+      'inference-generation-previous',
+      'inference-generation-oldest-retained',
+    ] as const;
+    const [currentGeneration, previousGeneration, oldestGeneration] = retainedGenerations;
+    const jobSecrets: string[] = [];
+    const replaceInferenceSecrets = vi.fn((replacement: string[]) => {
+      jobSecrets.splice(0, jobSecrets.length, ...replacement);
+    });
+    const runtimeConfig = (apiKey: string | Record<string, string>) => ({
+      harness: 'pi',
+      provider_id: 'anthropic',
+      model: 'claude-opus-4-8',
+      thinking: 'high',
+      credentials: typeof apiKey === 'string' ? {api_key: apiKey} : apiKey,
+    });
+    requestAgentRuntimeConfigMock
+      .mockResolvedValueOnce(runtimeConfig(retiredGeneration))
+      .mockResolvedValueOnce(
+        runtimeConfig({
+          current: currentGeneration,
+          previous: previousGeneration,
+          oldest: oldestGeneration,
+        }),
+      );
+    executeAgentStepMock
+      .mockResolvedValueOnce({
+        success: false,
+        response: `agent echoed ${retiredGeneration}`,
+        error: {
+          message: `provider returned ${retiredGeneration}`,
+          reason: 'agent_invocation_failed',
+        },
+        exit_code: null,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        response: `agent echoed ${retiredGeneration} ${retainedGenerations.join(' ')}`,
+        error: {
+          message: `provider returned ${retiredGeneration} ${retainedGenerations.join(' ')}`,
+          reason: 'agent_invocation_failed',
+        },
+        exit_code: null,
+      });
+    const ac = new AbortController();
+    const executeAgent = (step: StepDto) =>
+      executeStep({
+        step,
+        attempt: 1,
+        cwd: '/work',
+        logsDir: LOGS_DIR,
+        agentStateDir: AGENT_STATE_DIR,
+        jobContext: JOB_CONTEXT,
+        leaseClient,
+        leaseToken: leaseTokenSource,
+        secrets: jobSecrets,
+        replaceInferenceSecrets,
+        signal: ac.signal,
+        workspacePrepared: true,
+        gitConfigPath: GIT_CONFIG_PATH,
+        jobId: JOB_ID,
+        stepLabel: 'implement',
+      });
+
+    const firstExecution = await executeAgent(firstAgent);
+    const secondExecution = await executeAgent(secondAgent);
+
+    expect(firstExecution.result.response).toBe('agent echoed ***');
+    expect(secondExecution.result.response).toBe(
+      `agent echoed ${retiredGeneration} ${retainedGenerations.map(() => '***').join(' ')}`,
+    );
+    expect(secondExecution.result.error?.message).toBe(
+      `provider returned ${retiredGeneration} ${retainedGenerations.map(() => '***').join(' ')}`,
+    );
+    expect(replaceInferenceSecrets).toHaveBeenNthCalledWith(1, [retiredGeneration]);
+    expect(replaceInferenceSecrets).toHaveBeenNthCalledWith(2, retainedGenerations);
+  });
+
   it('redacts runtime credential values from agent failures and responses', async () => {
     const agent = buildAgentStep();
     const hexCredential = Buffer.from('sk-runtime-secret').toString('hex');
+    const replaceInferenceSecrets = vi.fn();
     executeAgentStepMock.mockResolvedValue({
       success: false,
       response: 'provider echoed sk-runtime-secret',
@@ -3192,6 +3367,7 @@ describe('runJobSteps', () => {
       leaseClient,
       leaseToken: leaseTokenSource,
       secrets: [],
+      replaceInferenceSecrets,
       signal: ac.signal,
       workspacePrepared: true,
       gitConfigPath: GIT_CONFIG_PATH,
@@ -3208,6 +3384,7 @@ describe('runJobSteps', () => {
       },
       exit_code: null,
     });
+    expect(replaceInferenceSecrets).toHaveBeenCalledWith(['sk-runtime-secret']);
   });
 
   it('redacts runtime credential values from successful agent response and outputs', async () => {

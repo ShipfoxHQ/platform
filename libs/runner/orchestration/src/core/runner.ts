@@ -58,6 +58,7 @@ const bootTimeline = createBootTimelineCollector();
 type RunnerBootPhaseTimeline = ReturnType<typeof createRunnerBootPhaseTimeline>;
 type RunnerShutdownReason = 'success' | 'controlled-exit' | 'fatal-failure';
 const RUNNER_LIFECYCLE_CAPABILITIES: ['local_execution_fence_v1'] = ['local_execution_fence_v1'];
+const MAX_INFERENCE_SECRET_GENERATIONS = 3;
 let bootPhaseTimeline: RunnerBootPhaseTimeline | undefined;
 // Module-level so the long-lived SIGINT handler can reach the in-flight job's
 // controller; locally-scoped capture isn't possible from a process-global handler.
@@ -357,6 +358,7 @@ export async function runJob(
   const runnerSecrets = runnerSecret.length > 0 ? [runnerSecret] : [];
   const registeredSecrets = new Set<string>();
   const brokerSecrets = new Set<string>();
+  const inferenceSecrets = new Set<string>();
   const secrets = [...runnerSecrets, initialLeaseToken];
   const secretSubscribers = new Set<(secrets: string[]) => void>();
   const rotatingLeaseSecrets = () =>
@@ -382,6 +384,7 @@ export async function runJob(
         ...rotatingLeaseSecrets(),
         ...registeredSecrets,
         ...brokerSecrets,
+        ...inferenceSecrets,
       ]),
     );
     notifySecretSubscribers();
@@ -427,6 +430,23 @@ export async function runJob(
   const clearBrokerSecrets = () => {
     if (brokerSecrets.size === 0) return;
     brokerSecrets.clear();
+    rebuildSecrets();
+  };
+  const replaceInferenceSecrets = (replacement: string[]) => {
+    const next = new Set(
+      [...new Set(replacement.filter((secret) => secret.length > 0))].slice(
+        0,
+        MAX_INFERENCE_SECRET_GENERATIONS,
+      ),
+    );
+    if (
+      next.size === inferenceSecrets.size &&
+      [...next].every((secret) => inferenceSecrets.has(secret))
+    ) {
+      return;
+    }
+    inferenceSecrets.clear();
+    for (const secret of next) inferenceSecrets.add(secret);
     rebuildSecrets();
   };
 
@@ -485,6 +505,7 @@ export async function runJob(
         return () => secretSubscribers.delete(subscriber);
       },
       registerSecrets,
+      replaceInferenceSecrets,
       ...(credentialLifecycle
         ? {
             credentialHelper: credentialLifecycle.helper,

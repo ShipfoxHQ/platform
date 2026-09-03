@@ -107,8 +107,11 @@ export async function runJobSteps(params: {
   leaseToken: LeaseTokenSource;
   /** Secrets masked out of captured output before it reaches the spool. */
   secrets: string[];
+  /** Receives the complete job secret registry whenever one of its sets changes. */
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
   registerSecrets?: (secrets: string[]) => void;
+  /** Replaces the job's bounded current and previous inference credential generations. */
+  replaceInferenceSecrets?: (secrets: string[]) => void;
   registerCheckoutCredential?: (credential: PersistedCheckoutCredential) => void;
   credentialHelper?: GitCredentialHelperConfig | undefined;
   credentialFailureEvents?: CredentialFailureEventSource | undefined;
@@ -202,6 +205,9 @@ async function runJobStepIteration(
     leaseToken: params.leaseToken,
     secrets: params.secrets,
     ...(params.subscribeSecrets ? {subscribeSecrets: params.subscribeSecrets} : {}),
+    ...(params.replaceInferenceSecrets
+      ? {replaceInferenceSecrets: params.replaceInferenceSecrets}
+      : {}),
     signal: params.signal,
     workspacePrepared: state.workspacePrepared,
     checkoutDestinations: state.checkoutDestinations,
@@ -617,6 +623,7 @@ export async function executeStep(params: {
   leaseToken: LeaseTokenSource;
   secrets: string[];
   subscribeSecrets?: (subscriber: (secrets: string[]) => void) => () => void;
+  replaceInferenceSecrets?: (secrets: string[]) => void;
   signal: AbortSignal;
   workspacePrepared: boolean;
   checkoutDestinations?: CheckoutDestinations | undefined;
@@ -649,8 +656,21 @@ export async function executeStep(params: {
   const unsubscribeSecrets: Array<() => void> = [];
   const secretState = {
     subscribedSecrets: [...secrets],
-    crashSecretVariants: buildSecretVariants(secrets),
+    crashSecrets: [...secrets],
+    inferenceSecrets: [] as string[],
   };
+  const replaceInferenceSecrets = params.replaceInferenceSecrets
+    ? (replacement: string[]) => {
+        params.replaceInferenceSecrets?.(replacement);
+        const currentJobSecrets = [...params.secrets];
+        secretState.subscribedSecrets = currentJobSecrets;
+        secretState.crashSecrets = currentJobSecrets;
+        secretState.inferenceSecrets = [
+          ...new Set(replacement.filter((secret) => secret.length > 0)),
+        ];
+      }
+    : undefined;
+  const stepParams = withInferenceSecretReplacer(params, replaceInferenceSecrets);
   const registerStreamSecrets = createStreamSecretRegistrar({
     subscribeSecrets,
     secretState,
@@ -670,7 +690,7 @@ export async function executeStep(params: {
 
     if (step.type === 'setup') {
       const execution = await executeSetupStepBranch({
-        params: {...params, step},
+        params: {...stepParams, step},
         append,
         onStream: (createdStream) => {
           stream = createdStream;
@@ -698,7 +718,7 @@ export async function executeStep(params: {
 
     if (step.type === 'checkout') {
       const execution = await executeCheckoutStepBranch({
-        params: {...params, step},
+        params: {...stepParams, step},
         append,
         onStream: (createdStream) => {
           stream = createdStream;
@@ -723,7 +743,7 @@ export async function executeStep(params: {
     // be opened, run the agent without it rather than failing the step.
     if (step.type === 'agent') {
       const execution = await executeAgentStepBranch({
-        params: {...params, step},
+        params: {...stepParams, step},
         stepCwd,
         append,
         onStream: (createdStream) => {
@@ -738,7 +758,7 @@ export async function executeStep(params: {
     }
 
     const execution = await executeRunStepBranch({
-      params: {...params, step},
+      params: {...stepParams, step},
       stepCwd,
       append,
       onStream: (createdStream) => {
@@ -766,6 +786,14 @@ export async function executeStep(params: {
     for (const unsubscribe of unsubscribeSecrets) unsubscribe();
     runStream?.writeGroupEnd();
   }
+}
+
+function withInferenceSecretReplacer(
+  params: Parameters<typeof executeStep>[0],
+  replaceInferenceSecrets: ((secrets: string[]) => void) | undefined,
+): Parameters<typeof executeStep>[0] {
+  if (replaceInferenceSecrets === undefined) return params;
+  return {...params, replaceInferenceSecrets};
 }
 
 async function resolveStepWorkingDirectory(
@@ -810,7 +838,8 @@ function crashedStepExecution(params: {
       message: redactSecrets(
         params.error instanceof Error ? params.error.message : String(params.error),
         buildSecretVariants([
-          ...params.secretState.crashSecretVariants,
+          ...params.secretState.crashSecrets,
+          ...params.secretState.inferenceSecrets,
           ...params.secretState.subscribedSecrets,
           ...params.secrets,
         ]),
@@ -839,19 +868,20 @@ function createStreamSecretRegistrar(params: {
 }): (target: SecretAwareStream) => void {
   return (target) => {
     if (!target?.setSecrets && !target?.setRotatingSecrets && !target?.addSecrets) return;
-    const unsubscribe = params.subscribeSecrets?.((registeredSecrets) => {
-      params.secretState.subscribedSecrets = [
-        ...new Set([...params.secretState.subscribedSecrets, ...registeredSecrets]),
-      ];
+    const unsubscribe = params.subscribeSecrets?.((jobSecrets) => {
+      // Notifications are complete snapshots, not deltas. Replacing the snapshot keeps
+      // inference generations bounded in crash serialization while registered sets remain
+      // available through the job registry.
+      params.secretState.subscribedSecrets = [...jobSecrets];
       if (target.setSecrets) {
-        target.setSecrets(registeredSecrets);
+        target.setSecrets(jobSecrets);
         return;
       }
       if (target.setRotatingSecrets) {
-        target.setRotatingSecrets(registeredSecrets);
+        target.setRotatingSecrets(jobSecrets);
         return;
       }
-      target.addSecrets?.(registeredSecrets);
+      target.addSecrets?.(jobSecrets);
     });
     if (unsubscribe) params.unsubscribeSecrets.push(unsubscribe);
   };
@@ -961,7 +991,8 @@ async function executeCheckoutStepBranch(params: {
 
 interface StepSecretState {
   subscribedSecrets: string[];
-  crashSecretVariants: string[];
+  crashSecrets: string[];
+  inferenceSecrets: string[];
 }
 
 async function executeAgentStepBranch(params: {
@@ -1002,8 +1033,10 @@ async function executeAgentStepBranch(params: {
     ...Object.values(runtimeConfig.credentials),
     ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
   ];
+  input.replaceInferenceSecrets?.(runtimeSecretValues);
   const agentSecrets = [...input.secrets, ...runtimeSecretValues];
-  params.secretState.crashSecretVariants = buildSecretVariants(agentSecrets);
+  params.secretState.crashSecrets = [...input.secrets];
+  params.secretState.inferenceSecrets = [...new Set(runtimeSecretValues)];
   const sessionStream = createAgentSessionLogStream(input, agentSecrets, params.append);
   params.onStream(sessionStream);
   params.registerStreamSecrets(sessionStream);
@@ -1047,7 +1080,8 @@ async function executeAgentStepBranch(params: {
     result: maskAgentResult(
       result,
       buildSecretVariants([
-        ...agentSecrets,
+        ...params.secretState.crashSecrets,
+        ...params.secretState.inferenceSecrets,
         ...params.secretState.subscribedSecrets,
         ...input.secrets,
       ]),
@@ -1298,7 +1332,8 @@ async function executeRunStepBranch(params: {
     ...(input.ambientGitConfigSecrets ?? []),
     ...(secretMaterial?.secretValues ?? []),
   ];
-  params.secretState.crashSecretVariants = buildSecretVariants(runSecrets);
+  params.secretState.crashSecrets = [...runSecrets];
+  params.secretState.inferenceSecrets = [];
   const stepStream = createRunStepLogStream(input, runSecrets, params.append);
   params.onStream(stepStream);
   params.registerStreamSecrets(stepStream);
@@ -1315,7 +1350,12 @@ async function executeRunStepBranch(params: {
   });
   result = maskRunStepOutputs(
     result,
-    buildSecretVariants([...runSecrets, ...params.secretState.subscribedSecrets, ...input.secrets]),
+    buildSecretVariants([
+      ...params.secretState.crashSecrets,
+      ...params.secretState.inferenceSecrets,
+      ...params.secretState.subscribedSecrets,
+      ...input.secrets,
+    ]),
   );
   writeRunFailureContext(stepStream, result);
   return {
