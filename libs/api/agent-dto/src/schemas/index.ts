@@ -93,12 +93,14 @@ export {
   type ManagedModelProvider,
   type ManagedModelThinkingLevel,
   type ManagedModelThinkingLevelMap,
+  type ManagedProviderJobIdentity,
   type ManagedProviderRuntimeConfig,
   managedModelApiSchema,
   managedModelCompatSchema,
   managedModelMetadataSchema,
   managedModelThinkingLevelMapSchema,
   managedModelThinkingLevelSchema,
+  managedProviderJobIdentitySchema,
   toCustomAgentModelDto,
 } from './managed-provider.js';
 export {

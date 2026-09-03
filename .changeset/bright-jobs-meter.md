@@ -4,4 +4,4 @@
 "@shipfox/api-workflows": minor
 ---
 
-Adds `projectId`, `jobId`, `jobExecutionId`, `stepId`, and `attempt` to managed provider credential resolution.
+Adds the leased job identity to managed provider credential resolution.

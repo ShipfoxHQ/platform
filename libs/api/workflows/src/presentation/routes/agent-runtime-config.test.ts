@@ -126,13 +126,15 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
     });
     expect(resolveRuntimeCredentials).toHaveBeenCalledWith({
       workspaceId: run.workspaceId,
-      projectId: run.projectId,
       runId: run.id,
-      jobId: job.id,
-      jobExecutionId: step.jobExecutionId,
-      stepId: step.id,
       stepAttemptId: expect.any(String),
-      attempt: step.currentAttempt,
+      jobIdentity: {
+        projectId: run.projectId,
+        jobId: job.id,
+        jobExecutionId: step.jobExecutionId,
+        stepId: step.id,
+        attempt: step.currentAttempt,
+      },
       harness: 'pi',
       provider: 'anthropic',
       model: 'claude-opus-4-8',
@@ -143,11 +145,12 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
   test('derives the credential workspace from the leased job instead of hostile lease claims', async () => {
     const {run, job, step} = await createRunningAgentStep();
     const hostileWorkspaceId = crypto.randomUUID();
+    const hostileProjectId = crypto.randomUUID();
     await saveWorkspaceCredential(run.workspaceId, 'sk-correct-workspace-secret');
     await saveWorkspaceCredential(hostileWorkspaceId, 'sk-hostile-workspace-secret');
     const token = await mintActiveLeaseToken({
       jobId: job.id,
-      token: {workspaceId: hostileWorkspaceId},
+      token: {projectId: hostileProjectId, workspaceId: hostileWorkspaceId},
     });
 
     const res = await app.inject({
@@ -158,6 +161,11 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().credentials.api_key).toBe('sk-correct-workspace-secret');
+    expect(resolveRuntimeCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobIdentity: expect.objectContaining({projectId: run.projectId}),
+      }),
+    );
   });
 
   test('returns decrypted runtime credentials for a gated running agent step', async () => {

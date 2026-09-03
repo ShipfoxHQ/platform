@@ -79,7 +79,7 @@ describe('resolveRuntimeCredentials', () => {
   it('resolves managed provider credentials into the pi custom provider contract', async () => {
     const runId = crypto.randomUUID();
     const stepAttemptId = crypto.randomUUID();
-    const identity = {
+    const jobIdentity = {
       projectId: crypto.randomUUID(),
       jobId: crypto.randomUUID(),
       jobExecutionId: crypto.randomUUID(),
@@ -98,7 +98,7 @@ describe('resolveRuntimeCredentials', () => {
         workspaceId,
         runId,
         stepAttemptId,
-        ...identity,
+        jobIdentity,
         harness: 'pi',
         provider: 'shipfox',
         model: 'responses-model',
@@ -111,7 +111,7 @@ describe('resolveRuntimeCredentials', () => {
       workspaceId,
       runId,
       stepAttemptId,
-      ...identity,
+      jobIdentity,
       model: 'responses-model',
     });
     expect(result).toEqual({

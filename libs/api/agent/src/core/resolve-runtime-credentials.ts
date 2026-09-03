@@ -3,6 +3,7 @@ import type {
   AgentThinking,
   Harness,
   ManagedModelProvider,
+  ManagedProviderJobIdentity,
   ManagedProviderRuntimeConfig,
   ModelProviderRef,
   SupportedModelProviderId,
@@ -29,11 +30,7 @@ export interface ResolveRuntimeCredentialsParams {
   workspaceId: string;
   runId: string;
   stepAttemptId: string;
-  projectId?: string | undefined;
-  jobId?: string | undefined;
-  jobExecutionId?: string | undefined;
-  stepId?: string | undefined;
-  attempt?: number | undefined;
+  jobIdentity?: ManagedProviderJobIdentity | undefined;
   harness: Harness;
   provider: ModelProviderRef;
   model: string;
@@ -79,11 +76,11 @@ export async function resolveRuntimeCredentials(
 
   const instanceCredentials = instanceFallbackCredentials(params.provider, runtimeConfig);
   if (instanceCredentials) {
-    agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});
+    recordRuntimeConfigResolution(params, {source: 'instance', outcome: 'resolved'});
     return toResponse(params, instanceCredentials);
   }
 
-  agentRuntimeConfigResolvedCount.add(1, {
+  recordRuntimeConfigResolution(params, {
     source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
     outcome: 'unavailable',
   });
@@ -99,17 +96,26 @@ async function resolveManagedCredentials(
     workspaceId: params.workspaceId,
     runId: params.runId,
     stepAttemptId: params.stepAttemptId,
-    ...(params.projectId === undefined ? {} : {projectId: params.projectId}),
-    ...(params.jobId === undefined ? {} : {jobId: params.jobId}),
-    ...(params.jobExecutionId === undefined ? {} : {jobExecutionId: params.jobExecutionId}),
-    ...(params.stepId === undefined ? {} : {stepId: params.stepId}),
-    ...(params.attempt === undefined ? {} : {attempt: params.attempt}),
+    ...(params.jobIdentity === undefined ? {} : {jobIdentity: params.jobIdentity}),
     model: params.model,
   });
-  agentRuntimeConfigResolvedCount.add(1, {source: 'instance', outcome: 'resolved'});
+  recordRuntimeConfigResolution(params, {source: 'instance', outcome: 'resolved'});
   return toResponse(params, managedRuntimeConfig.credentials, undefined, {
     provider: managedProvider,
     runtimeConfig: managedRuntimeConfig,
+  });
+}
+
+function recordRuntimeConfigResolution(
+  params: Pick<ResolveRuntimeCredentialsParams, 'jobIdentity'>,
+  result: {
+    source: 'workspace' | 'instance';
+    outcome: 'resolved' | 'unavailable' | 'decryption_failed';
+  },
+): void {
+  agentRuntimeConfigResolvedCount.add(1, {
+    ...result,
+    has_job_identity: params.jobIdentity !== undefined,
   });
 }
 
@@ -118,7 +124,7 @@ function throwWorkspaceProviderUnavailable(
   runtimeConfig: RuntimeCredentialsConfig,
   managedProvider: ManagedModelProvider | undefined,
 ): never {
-  agentRuntimeConfigResolvedCount.add(1, {
+  recordRuntimeConfigResolution(params, {
     source: params.provider === runtimeConfig.AGENT_DEFAULT_PROVIDER ? 'instance' : 'workspace',
     outcome: 'unavailable',
   });
@@ -169,11 +175,14 @@ async function resolveWorkspaceCredentials(
   try {
     const values = await readWorkspaceCredentialValues(params, options);
     const response = workspaceCredentialsResponse(params, providerConfig, values);
-    agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'resolved'});
+    recordRuntimeConfigResolution(params, {source: 'workspace', outcome: 'resolved'});
     return response;
   } catch (error) {
     if (isInterModuleKnownError(secretsInterModuleContract.methods.getSecretsByNamespace, error)) {
-      agentRuntimeConfigResolvedCount.add(1, {source: 'workspace', outcome: 'decryption_failed'});
+      recordRuntimeConfigResolution(params, {
+        source: 'workspace',
+        outcome: 'decryption_failed',
+      });
     }
     throw error;
   }

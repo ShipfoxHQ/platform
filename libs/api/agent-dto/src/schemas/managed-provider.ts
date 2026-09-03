@@ -20,6 +20,16 @@ export const managedModelApiSchema = z.enum([
 
 export type ManagedModelApi = z.infer<typeof managedModelApiSchema>;
 
+export const managedProviderJobIdentitySchema = z.object({
+  projectId: z.string().uuid(),
+  jobId: z.string().uuid(),
+  jobExecutionId: z.string().uuid(),
+  stepId: z.string().uuid(),
+  attempt: z.number().int().positive(),
+});
+
+export type ManagedProviderJobIdentity = z.infer<typeof managedProviderJobIdentitySchema>;
+
 export const managedModelMetadataSchema = customAgentModelSchema
   .omit({
     id: true,
@@ -101,12 +111,8 @@ export interface ManagedModelProvider {
     workspaceId: string;
     runId: string;
     stepAttemptId: string;
-    /** Job identity is supplied by the leased workflow step when available. */
-    projectId?: string | undefined;
-    jobId?: string | undefined;
-    jobExecutionId?: string | undefined;
-    stepId?: string | undefined;
-    attempt?: number | undefined;
+    /** Complete job identity supplied by the leased workflow step when available. */
+    jobIdentity?: ManagedProviderJobIdentity | undefined;
     model: string;
   }) => Promise<ManagedProviderRuntimeConfig>;
 }
