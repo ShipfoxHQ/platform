@@ -502,6 +502,8 @@ export function githubOperationRoute(
       return 'GET /search/issues';
     case 'create_pull_request.':
       return `POST ${repoPath}/pulls`;
+    case 'add_pull_request_comment.':
+      return `POST ${repoPath}/issues/${pull}/comments`;
     case 'create_commit.':
       return GITHUB_GRAPHQL_ROUTE;
     case 'create_branch.':

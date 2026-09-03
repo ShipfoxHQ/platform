@@ -118,6 +118,13 @@ const expectedCatalogRows = [
     requiredScope: [{permission: 'pull_requests', access: 'write'}],
   },
   {
+    id: 'add_pull_request_comment',
+    category: 'pull_requests',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: [{permission: 'pull_requests', access: 'write'}],
+  },
+  {
     id: 'create_commit',
     category: 'repository',
     sensitivity: 'write',
@@ -422,6 +429,11 @@ const githubOperationRouteCases = [
     toolId: 'create_pull_request',
     args: {},
     expectedRoute: 'POST /repos/{owner}/{repo}/pulls',
+  },
+  {
+    toolId: 'add_pull_request_comment',
+    args: {pull_number: 1, body: 'Comment'},
+    expectedRoute: 'POST /repos/{owner}/{repo}/issues/{pull_number}/comments',
   },
   {
     toolId: 'create_commit',
@@ -792,6 +804,7 @@ describe('github agent tool catalog', () => {
   it('keeps reviewed input constraints aligned with GitHub operations', () => {
     const listIssueTypesSchema = inputSchemaFor('list_issue_types');
     const addIssueCommentSchema = inputSchemaFor('add_issue_comment');
+    const addPullRequestCommentSchema = inputSchemaFor('add_pull_request_comment');
     const updatePullRequestSchema = inputSchemaFor('update_pull_request');
     const addReplySchema = inputSchemaFor('add_reply_to_pull_request_comment');
     const pullRequestReadSchema = inputSchemaFor('pull_request_read');
@@ -814,6 +827,7 @@ describe('github agent tool catalog', () => {
       {required: ['issue_number', 'reaction']},
       {required: ['comment_id', 'reaction']},
     ]);
+    expect(addPullRequestCommentSchema.required).toEqual(['owner', 'repo', 'pull_number', 'body']);
     expect(addReplySchema.anyOf).toEqual([
       {required: ['pull_number', 'body']},
       {required: ['reaction']},
@@ -2215,6 +2229,97 @@ describe('github agent tool catalog', () => {
     expect(result).toEqual({
       content: [{type: 'text', text: '{"id":7}'}],
       structuredContent: {id: 7},
+    });
+  });
+
+  it('posts a pull request conversation comment with pull request write permission', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {id: 8}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {pull_requests: 'write' as const},
+      }),
+    );
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'add_pull_request_comment');
+    if (!tool) throw new Error('Missing add_pull_request_comment tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_pull_request_comment',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+        body: 'Comment',
+      },
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      'POST /repos/{owner}/{repo}/issues/{pull_number}/comments',
+      {owner: 'shipfox', repo: 'platform', pull_number: 1, body: 'Comment'},
+    );
+    expect(result).toEqual({
+      content: [{type: 'text', text: '{"id":8}'}],
+      structuredContent: {id: 8},
+    });
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
+      pull_requests: 'write',
+    });
+  });
+
+  it('rejects a pull request conversation comment without pull request write permission', async () => {
+    const request = vi.fn();
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {issues: 'write' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const tool = githubAgentToolCatalog.find((entry) => entry.id === 'add_pull_request_comment');
+    if (!tool) throw new Error('Missing add_pull_request_comment tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [tool],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_pull_request_comment',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+        body: 'Comment',
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: add_pull_request_comment requires pull_requests: write',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
     });
   });
 

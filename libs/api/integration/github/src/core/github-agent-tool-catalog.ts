@@ -498,7 +498,7 @@ export const githubAgentToolCatalog = [
     id: 'add_issue_comment',
     category: 'issues',
     description:
-      'Add a comment and/or reaction to a specific issue or issue comment in a GitHub repository. Use this tool with pull requests as well, but only if the user is not asking specifically to add or react to review comments. At least one of body or reaction is required.',
+      'Add a comment and/or reaction to a specific issue or issue comment in a GitHub repository. For pull request conversation comments, use add_pull_request_comment. At least one of body or reaction is required.',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.issuesWrite,
@@ -701,6 +701,23 @@ export const githubAgentToolCatalog = [
     outputSchema: objectSchema({pull_request: openObjectSchema('Created GitHub pull request')}, [
       'pull_request',
     ]),
+  }),
+  tool({
+    id: 'add_pull_request_comment',
+    category: 'pull_requests',
+    description:
+      'Add a conversation comment to a pull request. This does not create an inline review comment or reply to a review comment.',
+    sensitivity: 'write',
+    sensitive: false,
+    requiredScope: scopes.pullRequestsWrite,
+    inputSchema: repositoryInputSchema(
+      {
+        pull_number: integerSchema('Pull request number'),
+        body: stringSchema('Comment content'),
+      },
+      ['pull_number', 'body'],
+    ),
+    outputSchema: openObjectSchema('Created pull request conversation comment'),
   }),
   tool({
     id: 'create_commit',
