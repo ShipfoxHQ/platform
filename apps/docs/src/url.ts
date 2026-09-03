@@ -4,6 +4,7 @@ export {canonicalDocsOrigin} from './lib/canonical-docs-origin';
 
 const LOCAL_DOCS_ORIGIN = 'http://localhost:3500';
 export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
+const VERCEL_DEPLOYMENT_HOST_PATTERN = /\.vercel\.app$/i;
 
 type DocsEnvironment = Partial<
   Pick<
@@ -25,7 +26,13 @@ export function resolveDocsOrigin(environment: DocsEnvironment = config): string
   const deploymentEnvironment = environment.VERCEL_ENV ?? environment.NEXT_PUBLIC_VERCEL_ENV;
   if (deploymentEnvironment === 'production') {
     const productionHost = environment.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL;
-    return productionHost ? originFromDeploymentHost(productionHost) : PUBLIC_DOCS_ORIGIN;
+    if (productionHost) {
+      const productionOrigin = originFromDeploymentHost(productionHost);
+      if (!VERCEL_DEPLOYMENT_HOST_PATTERN.test(new URL(productionOrigin).hostname)) {
+        return productionOrigin;
+      }
+    }
+    return PUBLIC_DOCS_ORIGIN;
   }
 
   const deploymentHost = environment.VERCEL_URL ?? environment.NEXT_PUBLIC_VERCEL_URL;
