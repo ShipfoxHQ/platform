@@ -6,6 +6,15 @@ import {db, sessions} from '#db/index.js';
 import {agentTestSecretsClient} from '#test/fixtures/secrets-client.js';
 import {createAgentInterModulePresentation} from './inter-module.js';
 
+const metricMocks = vi.hoisted(() => ({
+  sessionForkedCount: {add: vi.fn()},
+}));
+
+vi.mock('#metrics/instance.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#metrics/instance.js')>()),
+  sessionForkedCount: metricMocks.sessionForkedCount,
+}));
+
 const signal = new AbortController().signal;
 
 function createPresentation() {
@@ -50,6 +59,10 @@ async function findSessionRow(sessionId: string) {
 }
 
 describe('agent inter-module claimSession', () => {
+  beforeEach(() => {
+    metricMocks.sessionForkedCount.add.mockClear();
+  });
+
   it('claims a resume session on first use and returns the descriptor with the pinned harness', async () => {
     const input = newClaimInput({harness: 'claude'});
 
@@ -162,6 +175,11 @@ describe('agent inter-module claimSession', () => {
       descriptor: {id: claimed.descriptor?.id, key: 'main', mode: 'fork', segment: 0},
       harness: 'pi',
     });
+    expect(metricMocks.sessionForkedCount.add).toHaveBeenCalledWith(1, {
+      outcome: 'loaded',
+      harness: 'pi',
+      harness_inherited: false,
+    });
     const row = await findSessionRow(result.descriptor?.id ?? '');
     expect(row?.claimedByStepAttempt).toBe(resumeInput.stepAttemptId);
   });
@@ -172,6 +190,11 @@ describe('agent inter-module claimSession', () => {
     const result = await claim(createPresentation(), input);
 
     expect(result).toEqual({descriptor: null, harness: 'pi'});
+    expect(metricMocks.sessionForkedCount.add).toHaveBeenCalledWith(1, {
+      outcome: 'fresh',
+      harness: 'pi',
+      harness_inherited: false,
+    });
     const rows = await db()
       .select()
       .from(sessions)
@@ -215,6 +238,11 @@ describe('agent inter-module claimSession', () => {
     expect(result).toEqual({
       descriptor: {id: created.descriptor?.id, key: 'main', mode: 'fork', segment: 0},
       harness: 'pi',
+    });
+    expect(metricMocks.sessionForkedCount.add).toHaveBeenCalledWith(1, {
+      outcome: 'loaded',
+      harness: 'pi',
+      harness_inherited: true,
     });
   });
 

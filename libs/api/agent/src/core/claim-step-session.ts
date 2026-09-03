@@ -71,7 +71,11 @@ export async function claimStepSession(
       key: params.key,
     });
     if (!existingSession) {
-      sessionForkedCount.add(1, {outcome: 'fresh'});
+      sessionForkedCount.add(1, {
+        outcome: 'fresh',
+        harness: params.harness,
+        harness_inherited: false,
+      });
       return {descriptor: null, harness: params.harness};
     }
     if (params.harnessExplicit && existingSession.harness !== params.harness) {
@@ -83,7 +87,11 @@ export async function claimStepSession(
         requestedHarness: params.harness,
       });
     }
-    sessionForkedCount.add(1, {outcome: 'loaded'});
+    sessionForkedCount.add(1, {
+      outcome: 'loaded',
+      harness: existingSession.harness,
+      harness_inherited: !params.harnessExplicit,
+    });
     return {descriptor: toDescriptor(existingSession, 'fork'), harness: existingSession.harness};
   }
 

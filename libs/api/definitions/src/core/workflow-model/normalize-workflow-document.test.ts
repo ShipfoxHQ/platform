@@ -1087,7 +1087,7 @@ describe('normalizeWorkflowDocument', () => {
       expect(model.jobs).toHaveLength(2);
     });
 
-    it('accepts an omitted harness when the configured default differs', () => {
+    it('accepts an omitted fork harness when the configured default differs', () => {
       const model = normalizeWorkflowDocument(
         {
           name: 'session sharing',
@@ -1097,7 +1097,13 @@ describe('normalizeWorkflowDocument', () => {
             },
             implement: {
               needs: 'plan',
-              steps: [{key: 'implement', prompt: 'Implement.', session: 'main'}],
+              steps: [
+                {
+                  key: 'implement',
+                  prompt: 'Implement.',
+                  session: {key: 'main', mode: 'fork'},
+                },
+              ],
             },
           },
         },
@@ -1110,6 +1116,36 @@ describe('normalizeWorkflowDocument', () => {
       );
 
       expect(model.jobs).toHaveLength(2);
+    });
+
+    it('reports an omitted resume harness against the configured default', () => {
+      const error = expectInvalid(
+        {
+          name: 'session sharing',
+          jobs: {
+            plan: {
+              steps: [{key: 'plan', prompt: 'Plan.', session: 'main'}],
+            },
+            implement: {
+              needs: 'plan',
+              steps: [{key: 'implement', prompt: 'Implement.', session: 'main', harness: 'pi'}],
+            },
+          },
+        },
+        {
+          agentValidationCatalog: {
+            ...agentValidationCatalog,
+            default_harness_id: 'claude',
+          },
+        },
+      );
+
+      expect(error.issues).toEqual([
+        expect.objectContaining({
+          code: 'agent-session-harness-mismatch',
+          details: expect.objectContaining({harnesses: ['claude', 'pi']}),
+        }),
+      ]);
     });
 
     it('reports both parallel resume and harness disagreement for a conflicting pair', () => {

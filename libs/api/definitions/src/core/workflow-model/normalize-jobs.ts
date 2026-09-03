@@ -153,7 +153,7 @@ export function normalizeJobs(
     issues.push(...(state.issuesBySourceName.get(sourceName) ?? []));
   }
 
-  validateAgentSessionSharing(document, issues);
+  validateAgentSessionSharing(document, issues, context.agentValidationCatalog.default_harness_id);
 
   return entries.flatMap(([sourceName]) => {
     const model = state.modelsBySourceName.get(sourceName);
@@ -1211,7 +1211,7 @@ const MAX_SESSION_SHARING_PAIR_EVALUATIONS = 100_000;
 // at most one issue is reported per code per key, so the earliest conflict in
 // the examined window is the one that matters. The window always retains the
 // first resume-mode step of each distinct job and one step per distinct
-// authored harness before it fills with the earliest remaining steps (see
+// effective harness before it fills with the earliest remaining steps (see
 // selectSessionSharingWindow), so a job holding many serial steps -- or a job
 // whose first sharing step forks the session -- cannot push another job's
 // resume step -- or a divergent harness -- out of the window.
@@ -1232,18 +1232,25 @@ const RUN_GLOBAL_SESSION_KEY_CONTEXT_ROOTS = new Set<string>([
   'secrets',
 ]);
 
-function collectSessionSharingSteps(document: WorkflowDocument): SessionSharingStep[] {
+function collectSessionSharingSteps(
+  document: WorkflowDocument,
+  defaultHarnessId: string,
+): SessionSharingStep[] {
   const steps: SessionSharingStep[] = [];
   for (const [jobName, job] of Object.entries(document.jobs)) {
     job.steps.forEach((step, stepIndex) => {
       if (step.session === undefined) return;
+      const mode = typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume');
       steps.push({
         jobName,
         stepIndex,
         stepKey: step.key,
         keySource: typeof step.session === 'string' ? step.session : step.session.key,
-        mode: typeof step.session === 'string' ? 'resume' : (step.session.mode ?? 'resume'),
-        harness: step.harness,
+        mode,
+        // A resume without an authored harness creates the session with the
+        // workspace default. An omitted fork instead inherits an existing
+        // session's pin, so it cannot participate in a static mismatch pair.
+        harness: step.harness ?? (mode === 'resume' ? defaultHarnessId : undefined),
       });
     });
   }
@@ -1427,8 +1434,9 @@ function validateSessionSharingGroups(
 function validateAgentSessionSharing(
   document: WorkflowDocument,
   issues: WorkflowModelValidationIssue[],
+  defaultHarnessId: string,
 ): void {
-  const steps = collectSessionSharingSteps(document);
+  const steps = collectSessionSharingSteps(document, defaultHarnessId);
 
   // Steps whose session field already produced an issue in the per-step pass
   // can never name a session; stacking sharing issues on them would double-
@@ -1441,7 +1449,7 @@ function validateAgentSessionSharing(
   // be exhausted by unrelated (different-key) pairs before later identical
   // keys are examined. Each group is then cut to a fixed window (see
   // selectSessionSharingWindow) that always keeps the first resume-mode step
-  // of each distinct job and one step per distinct authored harness, so a
+  // of each distinct job and one step per distinct effective harness, so a
   // single degenerate group cannot starve every later key and a long serial
   // job -- or a fork step hiding its job's resume step -- cannot hide another
   // job's sharing step behind the window. Keys that reference per-job context
@@ -1456,7 +1464,7 @@ function sessionStepPathKey(step: SessionSharingStep): string {
 
 // Cuts a session-key group to the fixed step window while always retaining
 // the first resume-mode step of each distinct job and one step per distinct
-// authored harness, then fills the remainder with the earliest steps in
+// effective harness, then fills the remainder with the earliest steps in
 // document order. Without the resume retention, one job holding more than
 // MAX_SESSION_SHARING_STEPS_PER_KEY serial steps -- or a job whose first
 // sharing step forks the session -- would fill the window and silently drop
