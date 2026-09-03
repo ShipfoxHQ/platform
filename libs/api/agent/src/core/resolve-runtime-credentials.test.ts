@@ -307,6 +307,66 @@ describe('resolveRuntimeCredentials', () => {
     });
   });
 
+  it('maps managed on-rejection credential metadata into the runtime response', async () => {
+    const expiresAt = new Date('2026-06-10T12:00:00.000Z');
+    const generation = '11111111-1111-4111-8111-111111111111';
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'anthropic-messages',
+      baseUrl: 'https://gateway.example.test/inference/v1/',
+      credentials: {api_key: 'managed-token'},
+      expiresAt,
+      generation,
+      renewal: {mode: 'on-rejection'},
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result).toMatchObject({
+      expires_at: expiresAt.toISOString(),
+      generation,
+      renewal: {mode: 'on-rejection'},
+    });
+  });
+
+  it('omits incomplete managed renewable credential metadata', async () => {
+    const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
+    resolveCredentials.mockResolvedValue({
+      api: 'anthropic-messages',
+      baseUrl: 'https://gateway.example.test/inference/v1/',
+      credentials: {api_key: 'managed-token'},
+      generation: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const result = await resolveRuntimeCredentials(
+      {
+        workspaceId,
+        runId: crypto.randomUUID(),
+        stepAttemptId: crypto.randomUUID(),
+        harness: 'claude',
+        provider: 'shipfox',
+        model: 'claude-model',
+        thinking: 'high',
+      },
+      {managedProvider: managedProvider(resolveCredentials)},
+    );
+
+    expect(result).not.toHaveProperty('expires_at');
+    expect(result).not.toHaveProperty('generation');
+    expect(result).not.toHaveProperty('renewal');
+  });
+
   it('keeps the catalog model ID when a managed model has no Claude model ID', async () => {
     const resolveCredentials = vi.fn<ManagedModelProvider['resolveCredentials']>();
     resolveCredentials.mockResolvedValue({

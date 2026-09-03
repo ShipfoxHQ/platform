@@ -279,16 +279,17 @@ function appendManagedCredentialMetadata(
   response: AgentRuntimeCredentialsResponseDto,
   runtimeConfig: ManagedProviderRuntimeConfig,
 ): void {
-  if (runtimeConfig.expiresAt !== undefined) {
-    response.expires_at = runtimeConfig.expiresAt.toISOString();
+  if (
+    runtimeConfig.expiresAt === undefined ||
+    runtimeConfig.generation === undefined ||
+    runtimeConfig.renewal === undefined
+  ) {
+    return;
   }
-  if (runtimeConfig.generation !== undefined) {
-    response.generation = runtimeConfig.generation;
-  }
-  if (runtimeConfig.renewal !== undefined) {
-    response.renewal =
-      runtimeConfig.renewal.mode === 'refresh-at'
-        ? {mode: 'refresh-at', refresh_at: runtimeConfig.renewal.refreshAt.toISOString()}
-        : {mode: 'on-rejection'};
-  }
+  response.expires_at = runtimeConfig.expiresAt.toISOString();
+  response.generation = runtimeConfig.generation;
+  response.renewal =
+    runtimeConfig.renewal.mode === 'refresh-at'
+      ? {mode: 'refresh-at', refresh_at: runtimeConfig.renewal.refreshAt.toISOString()}
+      : {mode: 'on-rejection'};
 }
