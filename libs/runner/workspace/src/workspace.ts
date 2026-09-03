@@ -16,7 +16,8 @@ export const RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR = '/tmp/shipfox-runner-creden
 const FALLBACK_CREDENTIAL_SOCKET_SUFFIX = '.sock';
 const FALLBACK_CREDENTIAL_SOCKET_OWNER_SUFFIX = '.owner';
 const FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX = '.lock';
-const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE = /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock)?$/u;
+const FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE =
+  /^(?<capability>[0-9a-f-]+)\.sock(?:\.owner|\.lock(?:\.[0-9a-f-]+\.(?:tmp|stale))?)?$/u;
 
 export function runnerFallbackCredentialSocketPath(capability: string): string {
   assertUuidCapability(capability);
@@ -244,14 +245,28 @@ async function cleanupOrphanedFallbackCredentialSockets(): Promise<void> {
   }
 
   await Promise.all(
-    [...capabilities].map((capability) => cleanupFallbackCredentialSocket(capability)),
+    [...capabilities].map((capability) => cleanupFallbackCredentialSocket(capability, entries)),
   );
 }
 
-async function cleanupFallbackCredentialSocket(capability: string): Promise<void> {
+async function cleanupFallbackCredentialSocket(
+  capability: string,
+  entries: Dirent[],
+): Promise<void> {
   const socketPath = runnerFallbackCredentialSocketPath(capability);
   const ownerPath = runnerFallbackCredentialSocketOwnerPath(capability);
   const lockPath = `${socketPath}${FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
+  const lockPaths = new Set([lockPath]);
+  const lockPrefix = `${capability}${FALLBACK_CREDENTIAL_SOCKET_SUFFIX}${FALLBACK_CREDENTIAL_SOCKET_LOCK_SUFFIX}`;
+  for (const entry of entries) {
+    if (
+      entry.isFile() &&
+      entry.name.startsWith(lockPrefix) &&
+      FALLBACK_CREDENTIAL_SOCKET_ENTRY_RE.test(entry.name)
+    ) {
+      lockPaths.add(join(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, entry.name));
+    }
+  }
   let owner: string | undefined;
   try {
     owner = (await readFile(ownerPath, 'utf8')).trim();
@@ -267,7 +282,7 @@ async function cleanupFallbackCredentialSocket(capability: string): Promise<void
   try {
     await rm(socketPath, {force: true});
     await rm(ownerPath, {force: true});
-    await rm(lockPath, {force: true});
+    for (const path of lockPaths) await rm(path, {force: true});
   } catch (error) {
     logger().warn({err: error, socketPath}, 'Failed to remove orphaned fallback credential socket');
   }

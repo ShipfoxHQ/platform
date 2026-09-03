@@ -412,24 +412,36 @@ describe('cleanupOrphanedJobCredentials', () => {
     const deadSocketPath = runnerFallbackCredentialSocketPath(deadCapability);
     const deadOwnerPath = runnerFallbackCredentialSocketOwnerPath(deadCapability);
     const deadLockPath = `${deadSocketPath}.lock`;
+    const deadCandidatePath = `${deadLockPath}.${randomUUID()}.tmp`;
+    const deadStalePath = `${deadLockPath}.${randomUUID()}.stale`;
     const liveSocketPath = runnerFallbackCredentialSocketPath(liveCapability);
     const liveOwnerPath = runnerFallbackCredentialSocketOwnerPath(liveCapability);
     const liveLockPath = `${liveSocketPath}.lock`;
+    const liveCandidatePath = `${liveLockPath}.${randomUUID()}.tmp`;
+    const liveStalePath = `${liveLockPath}.${randomUUID()}.stale`;
     const paths = [
       deadSocketPath,
       deadOwnerPath,
       deadLockPath,
+      deadCandidatePath,
+      deadStalePath,
       liveSocketPath,
       liveOwnerPath,
       liveLockPath,
+      liveCandidatePath,
+      liveStalePath,
     ];
     await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
     await writeFile(deadSocketPath, 'stale socket placeholder');
     await writeFile(deadOwnerPath, '-1:stale-owner');
     await writeFile(deadLockPath, '-1\n');
+    await writeFile(deadCandidatePath, 'stale candidate');
+    await writeFile(deadStalePath, 'stale quarantine');
     await writeFile(liveSocketPath, 'live socket placeholder');
     await writeFile(liveOwnerPath, `${process.pid}:live-owner`);
     await writeFile(liveLockPath, `${process.pid}\n`);
+    await writeFile(liveCandidatePath, 'live candidate');
+    await writeFile(liveStalePath, 'live quarantine');
 
     try {
       await cleanupOrphanedJobCredentials(root);
@@ -437,9 +449,13 @@ describe('cleanupOrphanedJobCredentials', () => {
       await expect(stat(deadSocketPath)).rejects.toThrow();
       await expect(stat(deadOwnerPath)).rejects.toThrow();
       await expect(stat(deadLockPath)).rejects.toThrow();
+      await expect(stat(deadCandidatePath)).rejects.toThrow();
+      await expect(stat(deadStalePath)).rejects.toThrow();
       await expect(stat(liveSocketPath)).resolves.toBeDefined();
       await expect(stat(liveOwnerPath)).resolves.toBeDefined();
       await expect(stat(liveLockPath)).resolves.toBeDefined();
+      await expect(stat(liveCandidatePath)).resolves.toBeDefined();
+      await expect(stat(liveStalePath)).resolves.toBeDefined();
     } finally {
       for (const path of paths) await rm(path, {force: true});
     }
