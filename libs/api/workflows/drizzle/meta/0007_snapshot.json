@@ -424,13 +424,15 @@
           "name": "stored_payload_bytes",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "0"
         },
         "normalized_event_bytes": {
           "name": "normalized_event_bytes",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "0"
         },
         "received_at": {
           "name": "received_at",

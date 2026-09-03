@@ -55,8 +55,8 @@ export const jobListenerEvents = pgTable(
     event: text('event').notNull(),
     triggerReference: jsonb('trigger_reference').$type<WorkflowRunTriggerReference>(),
     payload: jsonb('payload'),
-    storedPayloadBytes: integer('stored_payload_bytes').notNull(),
-    normalizedEventBytes: integer('normalized_event_bytes').notNull(),
+    storedPayloadBytes: integer('stored_payload_bytes').notNull().default(0),
+    normalizedEventBytes: integer('normalized_event_bytes').notNull().default(0),
     receivedAt: timestamp('received_at', {withTimezone: true}).notNull(),
     consumedByExecutionId: uuid('consumed_by_execution_id').references(() => jobExecutions.id, {
       onDelete: 'cascade',
