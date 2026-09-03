@@ -1,4 +1,5 @@
 import {
+  MAX_RESOLVED_STEP_CONFIG_BYTES,
   WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
@@ -206,12 +207,12 @@ describe('workflow run queries', () => {
 
       await db()
         .update(stepsTable)
-        .set({config: {run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}})
+        .set({config: {run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES)}})
         .where(eq(stepsTable.id, step.id));
 
       await expect(nextStepForJob(job.id)).rejects.toMatchObject({
-        name: 'WorkflowDiagnosticTooLargeError',
-        field: 'config',
+        name: 'WorkflowExecutionPayloadTooLargeError',
+        field: 'resolved_config',
       });
       await expect(
         db().select().from(stepAttemptsTable).where(eq(stepAttemptsTable.stepId, step.id)),
@@ -280,8 +281,9 @@ describe('workflow run queries', () => {
           ),
         ),
       ).rejects.toMatchObject({
-        name: 'WorkflowDiagnosticTooLargeError',
-        field: 'output',
+        name: 'JobOutputTooLargeError',
+        outputKey: 'output',
+        scope: 'total',
       });
       await expect(
         db()

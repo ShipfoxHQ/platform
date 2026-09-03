@@ -36,7 +36,7 @@ import {
 } from '#metrics/instance.js';
 import {createAgentDefaultsResolver} from './agent-defaults.js';
 import {defaultStepConditionTrace, explicitConditionTrace} from './condition-trace.js';
-import {assertWorkflowDiagnosticSize} from './diagnostics.js';
+import {assertWorkflowProductOutputSize, assertWorkflowStepResultSize} from './diagnostics.js';
 import type {JobExecution} from './entities/job-execution.js';
 import type {
   PersistedEvaluationTraceEntry,
@@ -49,11 +49,13 @@ import {
   AgentStepSessionClaimError,
   InterpolationUnresolvableError,
   JobNotFoundError,
+  JobOutputTooLargeError,
   StepAttemptAheadError,
   StepNotFoundError,
   StepNotRunningError,
   ToolConfigInvalidError,
-  WorkflowDiagnosticTooLargeError,
+  WorkflowExecutionPayloadTooLargeError,
+  WorkflowStepResultTooLargeError,
 } from './errors.js';
 import {completeAgentDefaults, readAgentStepSessionIntent} from './step-config/agent.js';
 import {assembleStepDispatchContext} from './step-config/assemble-run-context.js';
@@ -119,7 +121,7 @@ type DispatchConfigError =
   | AgentConfigUnresolvableError
   | AgentStepSessionClaimError
   | ToolConfigInvalidError
-  | WorkflowDiagnosticTooLargeError;
+  | WorkflowExecutionPayloadTooLargeError;
 
 interface PendingStepDispatchParams {
   readonly jobExecutionId: string;
@@ -892,8 +894,8 @@ function toDispatchConfigError(error: unknown): DispatchConfigError | null {
   const isToolConfigError = error instanceof ToolConfigInvalidError;
   if (isToolConfigError) return error;
 
-  const isDiagnosticError = error instanceof WorkflowDiagnosticTooLargeError;
-  if (isDiagnosticError) return error;
+  const isExecutionPayloadError = error instanceof WorkflowExecutionPayloadTooLargeError;
+  if (isExecutionPayloadError) return error;
 
   return null;
 }
@@ -919,13 +921,17 @@ function dispatchConfigError(error: DispatchConfigError): Record<string, unknown
     };
   }
 
-  if (error instanceof WorkflowDiagnosticTooLargeError) {
+  if (error instanceof WorkflowExecutionPayloadTooLargeError) {
     return {
       message: error.message,
-      reason: 'diagnostic_too_large',
+      reason: 'execution_payload_too_large',
       field: error.field,
       source: 'workflows',
-      code: 'workflow_diagnostic_too_large',
+      code: 'workflow_execution_payload_too_large',
+      retryable: false,
+      limitBytes: error.limitBytes,
+      measuredBytes: error.measuredBytes,
+      overshootBytes: error.overshootBytes,
     };
   }
 
@@ -1134,7 +1140,7 @@ function normalizeReportedStepResult(
 
 function findOversizedReportedDiagnostic(
   reported: ReportedStepResult,
-): WorkflowDiagnosticTooLargeError | undefined {
+): WorkflowStepResultTooLargeError | JobOutputTooLargeError | undefined {
   for (const [field, value] of [
     ['output', reported.output],
     ['response', reported.response],
@@ -1147,13 +1153,22 @@ function findOversizedReportedDiagnostic(
 }
 
 function findOversizedDiagnostic(
-  field: Parameters<typeof assertWorkflowDiagnosticSize>[0],
+  field: 'output' | 'response' | 'error',
   value: unknown,
-): WorkflowDiagnosticTooLargeError | undefined {
+): WorkflowStepResultTooLargeError | JobOutputTooLargeError | undefined {
   try {
-    assertWorkflowDiagnosticSize(field, value);
+    if (field === 'output') {
+      assertWorkflowProductOutputSize('output', value);
+    } else {
+      assertWorkflowStepResultSize(field, value);
+    }
   } catch (error) {
-    if (error instanceof WorkflowDiagnosticTooLargeError) return error;
+    if (
+      error instanceof WorkflowStepResultTooLargeError ||
+      error instanceof JobOutputTooLargeError
+    ) {
+      return error;
+    }
     throw error;
   }
   return undefined;
@@ -1161,12 +1176,12 @@ function findOversizedDiagnostic(
 
 function failedReportedStepResult(
   reported: ReportedStepResult,
-  error: WorkflowDiagnosticTooLargeError,
+  error: WorkflowStepResultTooLargeError | JobOutputTooLargeError,
 ): {result: ReportedStepResult; gateEvaluationAllowed: boolean} {
   return {
     result: {
       status: 'failed',
-      error: diagnosticTooLargeStepError(error),
+      error: stepResultTooLargeStepError(error),
       output: null,
       response: null,
       exitCode: reported.exitCode,
@@ -1211,15 +1226,15 @@ async function decideReportedStepTransition(params: {
   });
   const gateResult = gateResultPayload(gateOutcome, params.result.exitCode);
   try {
-    assertWorkflowDiagnosticSize('gate_result', gateResult);
+    assertWorkflowStepResultSize('gate_result', gateResult);
   } catch (error) {
-    if (!(error instanceof WorkflowDiagnosticTooLargeError)) throw error;
+    if (!(error instanceof WorkflowStepResultTooLargeError)) throw error;
     return {
       decision: {
         kind: 'fail-job',
         failedStepId: params.stepId,
         attempt: params.reportedAttempt,
-        failureError: diagnosticTooLargeStepError(error),
+        failureError: stepResultTooLargeStepError(error),
       },
       gateResult: null,
     };
@@ -1285,15 +1300,20 @@ function outputInvalidError(error: StepOutputCoercionError): Record<string, unkn
   };
 }
 
-function diagnosticTooLargeStepError(
-  error: WorkflowDiagnosticTooLargeError,
+function stepResultTooLargeStepError(
+  error: WorkflowStepResultTooLargeError | JobOutputTooLargeError,
 ): Record<string, unknown> {
+  const field = error instanceof JobOutputTooLargeError ? 'output' : error.field;
   return {
     message: error.message,
-    code: 'workflow_diagnostic_too_large',
-    reason: 'diagnostic_too_large',
-    field: error.field,
+    code: 'step_result_too_large',
+    reason: 'step_result_too_large',
+    field,
     source: 'workflows',
+    retryable: false,
+    limitBytes: error.limitBytes,
+    measuredBytes: error.measuredBytes,
+    overshootBytes: error.overshootBytes,
   };
 }
 
@@ -1314,7 +1334,7 @@ function resolveRestartFeedback(params: {
       definitionId: params.definitionId,
       vars: params.vars,
     });
-    assertWorkflowDiagnosticSize('restart_feedback', feedback);
+    assertWorkflowStepResultSize('restart_feedback', feedback);
     return {
       ...params.decision,
       feedback,
@@ -1328,12 +1348,12 @@ function resolveRestartFeedback(params: {
         failureError: dispatchConfigError(error),
       };
     }
-    if (error instanceof WorkflowDiagnosticTooLargeError) {
+    if (error instanceof WorkflowStepResultTooLargeError) {
       return {
         kind: 'fail-job',
         failedStepId: params.decision.failedStepId,
         attempt: params.decision.attempt,
-        failureError: diagnosticTooLargeStepError(error),
+        failureError: stepResultTooLargeStepError(error),
       };
     }
     throw error;

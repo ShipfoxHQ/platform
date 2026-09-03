@@ -1,5 +1,5 @@
-import {WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES} from '@shipfox/api-workflows-dto';
 import {eq, sql} from 'drizzle-orm';
+import {MAX_JOB_OUTPUTS_TOTAL_BYTES} from '#core/step-config/job-output-limits.js';
 import {buildModel, createTestRun, jobTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
@@ -388,7 +388,7 @@ describe('workflow run queries', () => {
       if (!job) throw new Error('Expected workflow job');
       const execution = await getFirstJobExecutionByJobId(job.id);
       if (!execution) throw new Error('Expected workflow job execution');
-      const oversizedOutputs = {payload: 'x'.repeat(WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES)};
+      const oversizedOutputs = {payload: 'x'.repeat(MAX_JOB_OUTPUTS_TOTAL_BYTES)};
 
       await db()
         .update(jobExecutions)
@@ -397,7 +397,11 @@ describe('workflow run queries', () => {
 
       await expect(
         updateJobStatus({jobId: job.id, status: 'succeeded', expectedVersion: job.version}),
-      ).rejects.toMatchObject({name: 'WorkflowDiagnosticTooLargeError', field: 'job_outputs'});
+      ).rejects.toMatchObject({
+        name: 'JobOutputTooLargeError',
+        outputKey: 'job_outputs',
+        scope: 'total',
+      });
 
       const [after] = await getJobsByWorkflowRunId(run.id);
       expect(after).toMatchObject({

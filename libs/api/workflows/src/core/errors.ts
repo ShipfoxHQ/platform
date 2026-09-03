@@ -1,3 +1,4 @@
+import type {WorkflowExecutionPayloadFieldDto} from '@shipfox/api-workflows-dto';
 import type {JobStatus} from './entities/job.js';
 import type {WorkflowRunStatus} from './entities/workflow-run.js';
 
@@ -169,7 +170,7 @@ export function isPermanentRunWorkflowError(error: unknown): boolean {
     error instanceof InterpolationUnresolvableError ||
     error instanceof InvalidJobRunnerLabelsError ||
     error instanceof WorkflowSourceSnapshotTooLargeError ||
-    error instanceof WorkflowDiagnosticTooLargeError
+    error instanceof WorkflowExecutionPayloadTooLargeError
   );
 }
 
@@ -253,6 +254,10 @@ export class WorkflowSourceSnapshotTooLargeError extends Error {
   }
 }
 
+/**
+ * @deprecated Only for reading and mapping legacy records. New writes use
+ * field-specific execution or product-output policies.
+ */
 export class WorkflowDiagnosticTooLargeError extends Error {
   readonly overshootBytes: number;
 
@@ -267,6 +272,49 @@ export class WorkflowDiagnosticTooLargeError extends Error {
         `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
     );
     this.name = 'WorkflowDiagnosticTooLargeError';
+    this.overshootBytes = overshootBytes;
+  }
+}
+
+/**
+ * An execution value cannot cross its owning write boundary. Keep this error
+ * distinct from diagnostic read overages: a valid execution payload may be
+ * larger than the inline diagnostic allowance.
+ */
+export class WorkflowExecutionPayloadTooLargeError extends Error {
+  readonly overshootBytes: number;
+  readonly code = 'workflow-execution-payload-too-large';
+
+  constructor(
+    readonly field: WorkflowExecutionPayloadFieldDto,
+    readonly limitBytes: number,
+    readonly measuredBytes: number,
+  ) {
+    const overshootBytes = measuredBytes - limitBytes;
+    super(
+      `Workflow execution payload field "${field}" exceeds the size limit of ${limitBytes} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
+    );
+    this.name = 'WorkflowExecutionPayloadTooLargeError';
+    this.overshootBytes = overshootBytes;
+  }
+}
+
+/** A step result value is too large to persist as attempt history. */
+export class WorkflowStepResultTooLargeError extends Error {
+  readonly overshootBytes: number;
+
+  constructor(
+    readonly field: string,
+    readonly limitBytes: number,
+    readonly measuredBytes: number,
+  ) {
+    const overshootBytes = measuredBytes - limitBytes;
+    super(
+      `Workflow step result field "${field}" exceeds the size limit of ${limitBytes} bytes ` +
+        `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,
+    );
+    this.name = 'WorkflowStepResultTooLargeError';
     this.overshootBytes = overshootBytes;
   }
 }

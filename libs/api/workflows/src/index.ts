@@ -61,9 +61,11 @@ export {
   ProjectMismatchError,
   runWorkflow,
   WorkflowDiagnosticTooLargeError,
+  WorkflowExecutionPayloadTooLargeError,
   WorkflowRunNotCancellableError,
   WorkflowSourceSnapshotTooLargeError,
   WorkflowStepAttemptInvocationLimitError,
+  WorkflowStepResultTooLargeError,
 } from '#core/index.js';
 export {
   closeDb,

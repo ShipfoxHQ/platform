@@ -1,5 +1,8 @@
 import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
-import {WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES} from '@shipfox/api-workflows-dto';
+import {
+  MAX_RESOLVED_STEP_CONFIG_BYTES,
+  WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
+} from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
@@ -8,6 +11,7 @@ import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
   WorkflowDiagnosticTooLargeError,
+  WorkflowExecutionPayloadTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
 } from '#core/errors.js';
 import {
@@ -925,8 +929,13 @@ describe('Workflows inter-module presentation', () => {
         ),
     ],
     [
-      'diagnostic-too-large',
-      () => new WorkflowDiagnosticTooLargeError('config', 64 * 1024, 64 * 1024 + 1),
+      'workflow-execution-payload-too-large',
+      () =>
+        new WorkflowExecutionPayloadTooLargeError(
+          'resolved_config',
+          MAX_RESOLVED_STEP_CONFIG_BYTES,
+          MAX_RESOLVED_STEP_CONFIG_BYTES + 1,
+        ),
     ],
   ] as const)('maps %s to the published contract error', (code, error) => {
     const result = toStartRunKnownError(error(), input.definitionId);
@@ -935,6 +944,12 @@ describe('Workflows inter-module presentation', () => {
       isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, result) &&
         result.code,
     ).toBe(code);
+  });
+
+  test('leaves the legacy diagnostic error unmapped', () => {
+    const error = new WorkflowDiagnosticTooLargeError('config', 64 * 1024, 64 * 1024 + 1);
+
+    expect(toStartRunKnownError(error, input.definitionId)).toBe(error);
   });
 
   test('maps a missing workspace from the Workspace contract for start-run', async () => {
@@ -1015,8 +1030,13 @@ describe('Workflows inter-module presentation', () => {
         ),
     ],
     [
-      'diagnostic-too-large',
-      () => new WorkflowDiagnosticTooLargeError('evaluation_trace', 64 * 1024, 64 * 1024 + 1),
+      'workflow-execution-payload-too-large',
+      () =>
+        new WorkflowExecutionPayloadTooLargeError(
+          'resolved_config',
+          MAX_RESOLVED_STEP_CONFIG_BYTES,
+          MAX_RESOLVED_STEP_CONFIG_BYTES + 1,
+        ),
     ],
   ] as const)('maps %s to the published dev-run contract error', (code, error) => {
     const result = toStartDevRunKnownError(error());
@@ -1025,6 +1045,12 @@ describe('Workflows inter-module presentation', () => {
       isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, result) &&
         result.code,
     ).toBe(code);
+  });
+
+  test('leaves the legacy diagnostic error unmapped for dev runs', () => {
+    const error = new WorkflowDiagnosticTooLargeError('evaluation_trace', 64 * 1024, 64 * 1024 + 1);
+
+    expect(toStartDevRunKnownError(error)).toBe(error);
   });
 
   test.each([

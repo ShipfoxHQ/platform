@@ -21,7 +21,7 @@ can change the values marked configurable.
 
 | Limit | Default | Configurable | Details |
 | --- | --- | --- | --- |
-| Output bytes per step | 64 KiB total, 16 KiB per value | No | Values past the cap fail the step's output parsing. See [Step outputs](/reference/workflow-schema#step-outputs). |
+| Output bytes per step | 256 KiB total, 64 KiB per value | No | The runner enforces both caps; Workflows also rejects persisted step output above the 256 KiB total cap. See [Step outputs](/reference/workflow-schema#step-outputs). |
 | Declared outputs per step | 128 entries | No | The `outputs:` map on one step. |
 | Agent output re-prompts | 2 | No | An agent step missing a declared output is re-prompted this many times before the step fails. |
 

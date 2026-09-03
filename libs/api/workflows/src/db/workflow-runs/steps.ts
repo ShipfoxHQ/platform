@@ -7,8 +7,12 @@ import {captureException} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import {and, asc, count, desc, eq, getTableColumns, gte, inArray, sql} from 'drizzle-orm';
 import {
-  assertWorkflowDiagnosticSize,
+  assertWorkflowExecutionPayloadSize,
+  assertWorkflowProductOutputSize,
   assertWorkflowStepAttemptInvocationCount,
+  boundWorkflowStepError,
+  boundWorkflowStepResult,
+  observeWorkflowDiagnosticSize,
 } from '#core/diagnostics.js';
 import type {
   PersistedEvaluationTraceEntry,
@@ -418,8 +422,8 @@ export async function dispatchStepWithCompletedConfig(
   params: DispatchStepWithCompletedConfigParams,
   tx: Tx,
 ): Promise<Step | null> {
-  assertWorkflowDiagnosticSize('config', params.config);
-  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+  assertWorkflowExecutionPayloadSize('resolved_config', params.config);
+  observeWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
 
   const rows = await tx
     .update(steps)
@@ -476,7 +480,7 @@ export interface MarkStepSkippedParams {
 }
 
 export async function markStepSkipped(params: MarkStepSkippedParams, tx: Tx): Promise<Step | null> {
-  assertWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
+  observeWorkflowDiagnosticSize('evaluation_trace', params.evaluationTrace);
 
   const rows = await tx
     .update(steps)
@@ -547,8 +551,8 @@ export async function insertRunningStepAttempt(
   const config = params.config;
   const evaluationTrace = params.evaluationTrace;
   if (params.allowLegacyOversizedDiagnostics !== true) {
-    assertWorkflowDiagnosticSize('config', config);
-    assertWorkflowDiagnosticSize('evaluation_trace', evaluationTrace);
+    assertWorkflowExecutionPayloadSize('resolved_config', config);
+    observeWorkflowDiagnosticSize('evaluation_trace', evaluationTrace);
   }
   assertWorkflowStepAttemptInvocationCount(params.invocations?.length ?? 0);
 
@@ -627,23 +631,31 @@ async function runBestEffortCheckoutRenewalSubjectMaintenance(
 // makes this idempotent: a duplicate report finds the attempt already terminal
 // and updates nothing (never-downgrade for the audit row).
 export async function finishStepAttempt(params: FinishStepAttemptParams, tx: Tx): Promise<void> {
-  assertWorkflowDiagnosticSize('output', params.output);
-  assertWorkflowDiagnosticSize('response', params.response);
-  assertWorkflowDiagnosticSize('error', params.error);
-  assertWorkflowDiagnosticSize('gate_result', params.gateResult);
-  assertWorkflowDiagnosticSize('restart_feedback', params.restartFeedback);
+  assertWorkflowProductOutputSize('output', params.output);
+  const boundedResponse = boundWorkflowStepResult('response', params.response);
+  const boundedError = boundWorkflowStepError(params.error);
+  const boundedGateResult = boundWorkflowStepResult('gate_result', params.gateResult);
+  const boundedRestartFeedback = boundWorkflowStepResult(
+    'restart_feedback',
+    params.restartFeedback,
+  );
+  const error =
+    boundedError ??
+    boundedResponse.error ??
+    boundedGateResult.error ??
+    boundedRestartFeedback.error;
 
   const rows = await tx
     .update(stepAttempts)
     .set({
       status: params.status,
       output: params.output ?? null,
-      response: params.response ?? null,
-      error: params.error ?? null,
+      response: boundedResponse.value,
+      error,
       exitCode: params.exitCode ?? null,
       logOutcome: params.logOutcome,
-      gateResult: params.gateResult ?? null,
-      restartFeedback: params.restartFeedback ?? null,
+      gateResult: boundedGateResult.value,
+      restartFeedback: boundedRestartFeedback.value,
       finishedAt: new Date(),
     })
     .where(
@@ -791,14 +803,14 @@ export interface ApplyStepResultParams {
 }
 
 export async function applyStepResult(params: ApplyStepResultParams, tx: Tx): Promise<void> {
-  assertWorkflowDiagnosticSize('error', params.error);
+  const error = boundWorkflowStepError(params.error);
 
   await tx
     .update(steps)
     .set({
       status: params.status,
       statusReason: null,
-      error: params.error ?? null,
+      error,
       updatedAt: new Date(),
     })
     .where(

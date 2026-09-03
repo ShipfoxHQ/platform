@@ -15,7 +15,7 @@ import {
   WORKFLOW_RUN_JOB_POSITION_MAX,
   WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
   WORKFLOW_RUN_OVERVIEW_RESPONSE_BYTE_LIMIT,
-  workflowDiagnosticFieldSchema,
+  workflowExecutionPayloadFieldSchema,
 } from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
@@ -37,7 +37,7 @@ import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
-  WorkflowDiagnosticTooLargeError,
+  WorkflowExecutionPayloadTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
@@ -863,16 +863,26 @@ function toRunCreationKnownError(
       measuredBytes: error.measuredBytes,
     });
   }
-  if (error instanceof WorkflowDiagnosticTooLargeError) {
-    const field = workflowDiagnosticFieldSchema.safeParse(error.field);
-    if (!field.success) return undefined;
-    return createInterModuleKnownError(method, 'diagnostic-too-large', {
-      field: field.data,
-      limitBytes: error.limitBytes,
-      measuredBytes: error.measuredBytes,
-    });
-  }
+  const executionPayloadError = toWorkflowExecutionPayloadKnownError(method, error);
+  if (executionPayloadError !== undefined) return executionPayloadError;
   return undefined;
+}
+
+function toWorkflowExecutionPayloadKnownError(
+  method:
+    | typeof workflowsInterModuleContract.methods.startRunFromTrigger
+    | typeof workflowsInterModuleContract.methods.startDevRun,
+  error: unknown,
+): unknown {
+  if (!(error instanceof WorkflowExecutionPayloadTooLargeError)) return undefined;
+  const field = workflowExecutionPayloadFieldSchema.safeParse(error.field);
+  if (!field.success) return undefined;
+  return createInterModuleKnownError(method, 'workflow-execution-payload-too-large', {
+    field: field.data,
+    limitBytes: error.limitBytes,
+    measuredBytes: error.measuredBytes,
+    overshootBytes: error.overshootBytes,
+  });
 }
 
 function toWorkspaceAdmissionKnownError(

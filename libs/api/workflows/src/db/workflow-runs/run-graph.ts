@@ -1,6 +1,11 @@
 import {WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED} from '@shipfox/api-workflows-dto';
 import type {SQL} from 'drizzle-orm';
-import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
+import {
+  assertWorkflowExecutionPayloadSize,
+  assertWorkflowProductOutputSize,
+  boundWorkflowStepError,
+  observeWorkflowDiagnosticSize,
+} from '#core/diagnostics.js';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import type {Tx} from '../db.js';
 import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
@@ -40,9 +45,9 @@ export async function persistMaterializedRunGraph(
   },
 ): Promise<void> {
   for (const materializedJob of params.materializedJobs) {
-    assertWorkflowDiagnosticSize('condition', materializedJob.job.success);
-    assertWorkflowDiagnosticSize('job_outputs', materializedJob.job.outputs);
-    assertWorkflowDiagnosticSize('evaluation_trace', materializedJob.job.evaluationTrace);
+    assertWorkflowExecutionPayloadSize('condition', materializedJob.job.success);
+    assertWorkflowProductOutputSize('job_outputs', materializedJob.job.outputs);
+    observeWorkflowDiagnosticSize('job_evaluation_trace', materializedJob.job.evaluationTrace);
   }
 
   const jobRows =
@@ -64,8 +69,8 @@ export async function persistMaterializedRunGraph(
     return jobExecution === undefined ? [] : [{...jobExecution, jobId: jobRow.id}];
   });
   for (const jobExecution of jobExecutionValues) {
-    assertWorkflowDiagnosticSize('execution_outputs', jobExecution.outputs);
-    assertWorkflowDiagnosticSize('execution_evaluation_trace', jobExecution.evaluationTrace);
+    assertWorkflowProductOutputSize('execution_outputs', jobExecution.outputs);
+    observeWorkflowDiagnosticSize('execution_evaluation_trace', jobExecution.evaluationTrace);
   }
   const jobExecutionRows =
     jobExecutionValues.length === 0
@@ -108,12 +113,12 @@ export async function persistMaterializedRunGraph(
   });
 
   for (const step of stepValues) {
-    assertWorkflowDiagnosticSize('config', step.config);
-    assertWorkflowDiagnosticSize('config', step.configPlan);
-    assertWorkflowDiagnosticSize('condition', step.condition);
-    assertWorkflowDiagnosticSize('evaluation_trace', step.evaluationTrace);
-    assertWorkflowDiagnosticSize('authored_config', step.authoredConfig);
-    assertWorkflowDiagnosticSize('error', step.error);
+    assertWorkflowExecutionPayloadSize('resolved_config', step.config);
+    assertWorkflowExecutionPayloadSize('config_plan', step.configPlan);
+    assertWorkflowExecutionPayloadSize('condition', step.condition);
+    observeWorkflowDiagnosticSize('evaluation_trace', step.evaluationTrace);
+    assertWorkflowExecutionPayloadSize('authored_config', step.authoredConfig);
+    step.error = boundWorkflowStepError(step.error);
   }
 
   if (stepValues.length > 0) {

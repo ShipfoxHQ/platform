@@ -238,8 +238,10 @@ describe('POST /runs/jobs/current/steps/:stepId/report', () => {
       output: null,
       response: null,
       error: {
-        reason: 'diagnostic_too_large',
+        reason: 'step_result_too_large',
         field: 'response',
+        retryable: false,
+        limitBytes: 8 * 1024,
       },
     });
   });

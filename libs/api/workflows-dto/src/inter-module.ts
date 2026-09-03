@@ -6,6 +6,7 @@ import {
 import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {workflowExecutionPayloadFieldSchema} from './schemas/workflow-execution-payload.js';
 import {
   WORKFLOW_JOB_EXECUTION_PAGE_LIMIT,
   WORKFLOW_JOB_EXECUTION_PAGE_MAX,
@@ -215,6 +216,12 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           limitBytes: z.number().int().positive(),
           measuredBytes: z.number().int().positive(),
         }),
+        'workflow-execution-payload-too-large': z.object({
+          field: workflowExecutionPayloadFieldSchema,
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+          overshootBytes: z.number().int().positive(),
+        }),
       },
     },
     startDevRun: {
@@ -258,6 +265,12 @@ export const workflowsInterModuleContract = defineInterModuleContract({
           field: workflowDiagnosticFieldSchema,
           limitBytes: z.number().int().positive(),
           measuredBytes: z.number().int().positive(),
+        }),
+        'workflow-execution-payload-too-large': z.object({
+          field: workflowExecutionPayloadFieldSchema,
+          limitBytes: z.number().int().positive(),
+          measuredBytes: z.number().int().positive(),
+          overshootBytes: z.number().int().positive(),
         }),
       },
     },
