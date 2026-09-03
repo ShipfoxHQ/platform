@@ -225,6 +225,63 @@ describe('Workflows inter-module presentation', () => {
     expect(mocks.getWorkflowRunSource).toHaveBeenCalledWith({workflowRunId, attempt: 3});
   });
 
+  it('returns the resolved attempt on run-level pages even when they are empty', async () => {
+    const workspaceId = input.workspaceId;
+    const workflowRunId = crypto.randomUUID();
+    const attempt = 3;
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    mocks.getLatestRunAttempt.mockResolvedValue(attempt);
+    mocks.listWorkflowRunJobsPage.mockResolvedValue({items: [], nextCursor: null, total: 0});
+    mocks.listWorkflowRunJobExplanationsPage.mockResolvedValue({items: [], nextCursor: null});
+    mocks.listFailedStepAttempts.mockResolvedValue([]);
+    mocks.getWorkflowRunAttemptIdForScope.mockResolvedValue(crypto.randomUUID());
+    mocks.getWorkflowRunAnnotationOrigins.mockResolvedValue([]);
+    const annotations = {
+      listAnnotationsForRunAttempt: vi.fn().mockResolvedValue({
+        annotations: [],
+        hasMore: false,
+        nextCursor: null,
+      }),
+    };
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      annotations: annotations as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const context = {signal: new AbortController().signal};
+
+    await expect(
+      presentation.handlers.listWorkflowRunJobs({workspaceId, workflowRunId, limit: 100}, context),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null, total: 0});
+    await expect(
+      presentation.handlers.listWorkflowRunAnnotations(
+        {workspaceId, workflowRunId, limit: 100},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    await expect(
+      presentation.handlers.listWorkflowRunJobExplanations(
+        {workspaceId, workflowRunId, limit: 100},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    await expect(
+      presentation.handlers.listFailedStepAttempts(
+        {workspaceId, workflowRunId, limit: 10},
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: []});
+  });
+
   it('masks cross-workspace bounded reads and rejects malformed cursors before the DB page', async () => {
     const workspaceId = input.workspaceId;
     const workflowRunId = crypto.randomUUID();
@@ -300,6 +357,7 @@ describe('Workflows inter-module presentation', () => {
         {signal: new AbortController().signal},
       ),
     ).resolves.toEqual({
+      workflow_run_attempt: 2,
       items: [
         {
           workflow_run_id: workflowRunId,

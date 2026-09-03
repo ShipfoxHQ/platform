@@ -365,6 +365,7 @@ export function createWorkflowsInterModulePresentation(params: {
 
       const response = toRunOverviewJobsPageDto(page);
       return {
+        workflow_run_attempt: attempt,
         items: response.items,
         nextCursor: response.next_cursor,
         ...(response.total === undefined ? {} : {total: response.total}),
@@ -528,6 +529,7 @@ export function createWorkflowsInterModulePresentation(params: {
       );
 
       return {
+        workflow_run_attempt: attempt,
         items: page.annotations.flatMap((annotation) => {
           const origin = originByKey.get(
             workflowRunAnnotationOriginKey({
@@ -559,6 +561,7 @@ export function createWorkflowsInterModulePresentation(params: {
       if (!page) return null;
 
       return {
+        workflow_run_attempt: attempt,
         items: page.items.map(toWorkflowRunJobExplanationDto),
         nextCursor: page.nextCursor
           ? encodeStringIdCursor({value: String(page.nextCursor.position), id: page.nextCursor.id})
@@ -579,7 +582,7 @@ export function createWorkflowsInterModulePresentation(params: {
         limit: input.limit,
       });
       if (!page) return null;
-      return {items: page.map(toFailedStepAttemptCoordinate)};
+      return {workflow_run_attempt: attempt, items: page.map(toFailedStepAttemptCoordinate)};
     },
     getWorkflowRunDetail: async (input) => {
       const detail = await getWorkflowRunDetail(

@@ -114,6 +114,7 @@ const workflowRunAttemptsInterModulePageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 const workflowRunJobsInterModulePageSchema = z.object({
+  workflow_run_attempt: attemptSchema,
   items: z.array(workflowRunJobListSummaryDtoSchema).max(100),
   nextCursor: z.string().nullable(),
   total: z.number().int().nonnegative().optional(),
@@ -134,10 +135,12 @@ const workflowStepAttemptsInterModulePageSchema = z.object({
   total: workflowStepAttemptSummariesResponseSchema.shape.total,
 });
 const workflowRunAnnotationsInterModulePageSchema = z.object({
+  workflow_run_attempt: attemptSchema,
   items: z.array(workflowRunAnnotationItemSchema).max(WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT),
   nextCursor: z.string().nullable(),
 });
 const workflowRunJobExplanationsInterModulePageSchema = z.object({
+  workflow_run_attempt: attemptSchema,
   items: z.array(workflowRunJobExplanationDtoSchema).max(WORKFLOW_RUN_JOB_EXPLANATIONS_PAGE_LIMIT),
   nextCursor: z.string().nullable(),
 });
@@ -525,6 +528,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
       }),
       output: z
         .object({
+          workflow_run_attempt: attemptSchema,
           items: z
             .array(failedStepAttemptCoordinateSchema)
             .max(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT),

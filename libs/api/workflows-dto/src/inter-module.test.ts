@@ -156,6 +156,34 @@ describe('workflowsInterModuleContract', () => {
     ]) {
       expect(method.output.parse(null)).toBeNull();
     }
+
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobs.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunAnnotations.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listWorkflowRunJobExplanations.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+        nextCursor: null,
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: [], nextCursor: null});
+    expect(
+      workflowsInterModuleContract.methods.listFailedStepAttempts.output.parse({
+        workflow_run_attempt: 3,
+        items: [],
+      }),
+    ).toEqual({workflow_run_attempt: 3, items: []});
   });
 
   test('rejects page limits outside the producer-owned bounds', () => {
