@@ -3,6 +3,15 @@ import {
   agentIntegrationMcpToolName,
 } from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
+import {
+  type AgentSessionCatalogFailure,
+  type AgentSessionDiagnosticStoreEntry,
+  AgentSessionDiagnostics,
+  type AgentSessionFailureClass,
+  type AgentSessionMetadataMode,
+  type AgentSessionTerminationReason,
+  type AgentSessionToolDescriptor,
+} from '#core/agent-session-diagnostics.js';
 import type {AgentInvocationFailurePhase} from '#core/errors.js';
 import type {HarnessInvocation, RequestedIntegrationTool} from '#core/harness.js';
 
@@ -34,7 +43,10 @@ export interface ClaudeToolCatalogFailure {
 }
 
 interface ClaudeToolDiagnosticsParams {
-  readonly invocation: Pick<HarnessInvocation, 'jobExecutionId' | 'stepId' | 'attempt'>;
+  readonly invocation: Pick<
+    HarnessInvocation,
+    'jobExecutionId' | 'stepId' | 'attempt' | 'provider' | 'model' | 'session'
+  >;
   readonly requestedTools: readonly RequestedIntegrationTool[];
   readonly resolvedToolNames?: readonly string[];
   readonly expectedSdkToolNames?: readonly string[];
@@ -42,6 +54,10 @@ interface ClaudeToolDiagnosticsParams {
   readonly selectedToolNames?: readonly string[] | undefined;
   readonly omissions?: readonly ClaudeToolOmission[];
   readonly catalogFailures?: readonly ClaudeToolCatalogFailure[];
+  readonly providerTools?: readonly AgentSessionToolDescriptor[] | undefined;
+  readonly metadataMode?: AgentSessionMetadataMode | undefined;
+  readonly directToolNames?: readonly string[] | undefined;
+  readonly proxyFallback?: boolean | undefined;
   readonly requiredOutputCount: number;
 }
 
@@ -59,6 +75,7 @@ export class ClaudeToolDiagnostics {
   readonly #sdkToolToIntegrationTool: ReadonlyMap<string, string>;
   readonly #selectedToolNames: readonly string[] | undefined;
   readonly #catalogFailures: readonly ClaudeToolCatalogFailure[];
+  readonly #sessionDiagnostics: AgentSessionDiagnostics;
   readonly #omissions = new Map<string, ClaudeToolOmissionReason>();
   readonly #requiredOutputCount: number;
   readonly #advertisedToolNames = new Set<string>();
@@ -66,9 +83,11 @@ export class ClaudeToolDiagnostics {
   readonly #attemptedToolNames = new Set<string>();
   readonly #failedToolNames = new Set<string>();
   readonly #toolUseIds = new Map<string, string>();
+  readonly #diagnosticToolUseIds = new Set<string>();
   #advertisementObserved = false;
   #sdkToolListObserved = false;
   #outcomeLogged = false;
+  #sessionDiagnosticsAppended = false;
   #failurePhase: AgentInvocationFailurePhase | undefined;
 
   constructor(params: ClaudeToolDiagnosticsParams) {
@@ -92,6 +111,19 @@ export class ClaudeToolDiagnostics {
     this.#selectedToolNames = params.selectedToolNames;
     this.#catalogFailures = (params.catalogFailures ?? []).slice(0, MAX_DIAGNOSTIC_ENTRIES);
     this.#requiredOutputCount = params.requiredOutputCount;
+    this.#sessionDiagnostics = new AgentSessionDiagnostics({
+      harness: 'claude',
+      invocation: params.invocation,
+      metadataMode:
+        params.metadataMode ?? (params.invocation.session?.mode === 'resume' ? 'warm' : 'cold'),
+      directToolNames: params.directToolNames,
+      proxyFallback: params.proxyFallback,
+      providerTools: params.providerTools,
+      catalogFailures: (params.catalogFailures ?? []).map(catalogFailureForSession),
+    });
+    if (params.invocation.session?.harnessSessionId !== undefined) {
+      this.#sessionDiagnostics.recordSessionId(params.invocation.session.harnessSessionId);
+    }
     for (const omission of params.omissions ?? []) {
       this.#addOmission(omission.toolName, omission.reason);
     }
@@ -99,6 +131,14 @@ export class ClaudeToolDiagnostics {
 
   get failurePhase(): AgentInvocationFailurePhase | undefined {
     return this.#failurePhase;
+  }
+
+  get sessionDiagnostics(): AgentSessionDiagnostics {
+    return this.#sessionDiagnostics;
+  }
+
+  recordTurnStart(): void {
+    this.#sessionDiagnostics.recordTurnStart();
   }
 
   recordPreparationFailure(reason: ClaudeToolOmissionReason): void {
@@ -137,6 +177,7 @@ export class ClaudeToolDiagnostics {
   }
 
   recordMessage(message: unknown): void {
+    if (isRecord(message)) this.#sessionDiagnostics.recordUsage(message.usage);
     if (isInitMessage(message)) {
       this.#recordInit(message);
       return;
@@ -144,7 +185,7 @@ export class ClaudeToolDiagnostics {
     if (!isRecord(message)) return;
 
     if (message.type === 'tool_progress') {
-      this.#recordToolUse(message.tool_name, message.tool_use_id);
+      this.#recordToolUse(message.tool_name, message.tool_use_id, undefined);
       return;
     }
     if (message.type === 'assistant') {
@@ -159,6 +200,7 @@ export class ClaudeToolDiagnostics {
     missingOutputCount?: number;
     executionFailed?: boolean;
     executionCompleted?: boolean;
+    aborted?: boolean;
   }): AgentInvocationFailurePhase | undefined {
     if (this.#outcomeLogged) return this.#failurePhase;
     this.#outcomeLogged = true;
@@ -166,6 +208,9 @@ export class ClaudeToolDiagnostics {
       this.#recordSdkRegistrationOmissions();
     }
     this.#failurePhase = this.#classify(params);
+    const failureClass = this.#sessionFailureClass(params);
+    if (failureClass !== undefined) this.#sessionDiagnostics.markFailure(failureClass);
+    this.#sessionDiagnostics.finish(sessionTerminationReason(params, failureClass), failureClass);
     if (!this.#hasIntegrationTools()) return this.#failurePhase;
 
     safeLog(
@@ -200,13 +245,60 @@ export class ClaudeToolDiagnostics {
     return this.#failurePhase;
   }
 
+  recordOutputWrite(params: {
+    key: string;
+    value: string;
+    result: {
+      readonly ok: boolean;
+      readonly idempotent?: boolean | undefined;
+      readonly code?: string | undefined;
+      readonly reason?: string | undefined;
+    };
+  }): void {
+    this.#sessionDiagnostics.recordOutputWrite(params);
+  }
+
+  async appendToSessionStore(
+    sessionStore:
+      | {
+          append(
+            key: {projectKey: string; sessionId: string},
+            entries: AgentSessionDiagnosticStoreEntry[],
+          ): Promise<void>;
+        }
+      | undefined,
+    sessionId: string | undefined,
+  ): Promise<void> {
+    if (this.#sessionDiagnosticsAppended || sessionStore === undefined || sessionId === undefined) {
+      return;
+    }
+    try {
+      await sessionStore.append({projectKey: '', sessionId}, [
+        this.#sessionDiagnostics.storeEntry(),
+      ]);
+      this.#sessionDiagnosticsAppended = true;
+    } catch {
+      safeLog(
+        {
+          event: 'runner.agent_session_diagnostics_persist_failed',
+          harness: 'claude',
+        },
+        'Claude session diagnostics could not be appended to the protected transcript',
+      );
+    }
+  }
+
   #recordInit(message: Record<string, unknown>): void {
     this.#advertisementObserved = true;
+    if (typeof message.session_id === 'string') {
+      this.#sessionDiagnostics.recordSessionId(message.session_id);
+    }
     if (!Array.isArray(message.tools)) return;
     this.#sdkToolListObserved = true;
     const advertised = new Set(
       message.tools.filter((tool): tool is string => typeof tool === 'string'),
     );
+    this.#sessionDiagnostics.recordProviderToolNames([...advertised]);
     for (const toolName of this.#expectedSdkToolNames) {
       const integrationName = this.#sdkToolToIntegrationTool.get(toolName);
       if (integrationName === undefined) continue;
@@ -224,27 +316,46 @@ export class ClaudeToolDiagnostics {
     if (!isRecord(message) || !Array.isArray(message.content)) return;
     for (const block of message.content) {
       if (!isRecord(block) || block.type !== 'tool_use') continue;
-      this.#recordToolUse(block.name, block.id);
+      this.#recordToolUse(block.name, block.id, block.input);
     }
   }
 
   #recordToolResults(message: unknown): void {
     if (!isRecord(message) || !Array.isArray(message.content)) return;
     for (const block of message.content) {
-      if (!isRecord(block) || block.type !== 'tool_result' || block.is_error !== true) continue;
+      if (!isRecord(block) || block.type !== 'tool_result') continue;
       if (typeof block.tool_use_id !== 'string') continue;
       const toolName = this.#toolUseIds.get(block.tool_use_id);
-      if (toolName !== undefined) this.#failedToolNames.add(toolName);
+      if (block.is_error === true && toolName !== undefined) this.#failedToolNames.add(toolName);
+      this.#sessionDiagnostics.recordToolResult({
+        toolCallId: block.tool_use_id,
+        ...(toolName === undefined ? {} : {toolName}),
+        isError: block.is_error === true,
+        details: block,
+        structuredContent: structuredClaudeToolResult(block.content),
+      });
     }
   }
 
-  #recordToolUse(name: unknown, toolUseId: unknown): void {
+  #recordToolUse(name: unknown, toolUseId: unknown, input: unknown): void {
     if (typeof name !== 'string' || !this.#expectedSdkToolNames.has(name)) return;
     const integrationName = this.#sdkToolToIntegrationTool.get(name);
     if (integrationName === undefined) return;
     this.#omissions.delete(integrationName);
     this.#attemptedToolNames.add(integrationName);
-    if (typeof toolUseId === 'string') this.#toolUseIds.set(toolUseId, integrationName);
+    if (typeof toolUseId === 'string') {
+      this.#toolUseIds.set(toolUseId, integrationName);
+      if (!this.#diagnosticToolUseIds.has(toolUseId)) {
+        this.#diagnosticToolUseIds.add(toolUseId);
+        this.#sessionDiagnostics.recordToolCall({
+          toolCallId: toolUseId,
+          toolName: integrationName,
+          args: input === undefined ? {} : input,
+        });
+      } else if (input !== undefined) {
+        this.#sessionDiagnostics.updateToolCallArguments(toolUseId, input);
+      }
+    }
   }
 
   #classify(params: {
@@ -278,6 +389,19 @@ export class ClaudeToolDiagnostics {
     return undefined;
   }
 
+  #sessionFailureClass(params: {
+    outputGate: ClaudeToolOutputGate;
+    executionFailed?: boolean;
+  }): AgentSessionFailureClass | undefined {
+    if (params.outputGate === 'failed') return 'required_output_missing';
+    const observed = this.#sessionDiagnostics.failureClasses[0];
+    if (observed !== undefined) return observed;
+    if (params.executionFailed === true && this.#catalogFailures.length > 0) {
+      return 'integration_tool_catalog_unavailable';
+    }
+    return undefined;
+  }
+
   #addOmission(toolName: string, reason: ClaudeToolOmissionReason): void {
     if (!this.#requestedToolNames.includes(toolName) || this.#omissions.has(toolName)) return;
     this.#omissions.set(toolName, reason);
@@ -306,12 +430,45 @@ export class ClaudeToolDiagnostics {
   }
 }
 
+function sessionTerminationReason(
+  params: {outputGate: ClaudeToolOutputGate; executionFailed?: boolean; aborted?: boolean},
+  failureClass: AgentSessionFailureClass | undefined,
+): AgentSessionTerminationReason {
+  if (params.aborted === true) return 'aborted';
+  if (params.executionFailed === true) return failureClass ?? 'error';
+  return params.outputGate === 'failed' ? 'error' : 'completed';
+}
+
 export function integrationToolName(tool: RequestedIntegrationTool): string {
   return agentIntegrationMcpToolName(tool.connectionSlug, tool.toolId);
 }
 
 export function claudeSdkToolName(integrationName: string): string {
   return `mcp__${AGENT_INTEGRATION_MCP_SERVER_NAME}__${integrationName}`;
+}
+
+function catalogFailureForSession(failure: ClaudeToolCatalogFailure): AgentSessionCatalogFailure {
+  return {
+    server: failure.server,
+    errorClass: failure.errorClass,
+    ...(failure.errorStatus === undefined ? {} : {status: failure.errorStatus}),
+  };
+}
+
+function structuredClaudeToolResult(content: unknown): unknown {
+  if (!Array.isArray(content)) return undefined;
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    if (block.structuredContent !== undefined) return block.structuredContent;
+    if (block.type !== 'text' || typeof block.text !== 'string') continue;
+    try {
+      const parsed: unknown = JSON.parse(block.text);
+      if (isRecord(parsed) && ('code' in parsed || 'reason' in parsed)) return parsed;
+    } catch {
+      // Ordinary provider text is intentionally excluded from diagnostics.
+    }
+  }
+  return undefined;
 }
 
 function isInitMessage(message: unknown): message is Record<string, unknown> {

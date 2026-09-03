@@ -310,7 +310,10 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   const hasDeclaredOutputs =
     invocation.outputs !== undefined && Object.keys(invocation.outputs).length > 0;
   const useOutputTools = hasDeclaredOutputs;
-  const managedMcpServers = useOutputTools ? [outputMcpServer(collector)] : [];
+  let activeToolDiagnostics: ClaudeToolDiagnostics | undefined;
+  const managedMcpServers = useOutputTools
+    ? [outputMcpServer(collector, () => activeToolDiagnostics)]
+    : [];
 
   await assertRunnerEgressAllowed(targetUrl, targetLabel);
 
@@ -326,7 +329,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   let claudeQuery: Query | undefined;
   let messages: ClaudeInputStream | undefined;
   let sessionStore: ClaudeSessionStore | undefined;
-  let sessionId: string | undefined;
+  let sessionId = sessionInvocation?.harnessSessionId;
   let response = '';
   let toolContext: ClaudeToolContext | undefined;
   let turnsCompleted = false;
@@ -337,12 +340,13 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   };
 
   try {
+    assertClaudeNotAborted(signal);
+    sessionStore = await createClaudeSessionStore(sessionInvocation);
     toolContext = await createClaudeToolContext(invocation, managedMcpServers);
+    activeToolDiagnostics = toolContext.diagnostics;
     toolContext.diagnostics.logManifest();
     configDir = await createClaudeConfigDir(agentStateDir);
 
-    assertClaudeNotAborted(signal);
-    sessionStore = await createClaudeSessionStore(sessionInvocation);
     const inputMessages = new ClaudeInputStream();
     messages = inputMessages;
     claudeQuery = query({
@@ -382,15 +386,16 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     });
     response = turnResponse;
     turnsCompleted = true;
+    toolContext.diagnostics.finish({
+      outputGate: hasDeclaredOutputs ? 'passed' : 'not_required',
+    });
+    await toolContext.diagnostics.appendToSessionStore(sessionStore, sessionId);
     const persistedSession = await persistClaudeSessionIfNeeded({
       shouldPersistSession,
       agentStateDir,
       session: sessionInvocation,
       sessionStore,
       sessionId,
-    });
-    toolContext.diagnostics.finish({
-      outputGate: hasDeclaredOutputs ? 'passed' : 'not_required',
     });
     return claudeHarnessResult(response, collector.snapshot(), persistedSession);
   } catch (error) {
@@ -410,6 +415,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
       agentStateDir,
       session: sessionInvocation,
       sessionStore,
+      aborted: signal.aborted,
     });
   } finally {
     messages?.close();
@@ -458,6 +464,13 @@ async function createClaudeToolContext(
     selectedToolNames,
     omissions: integrationTools.omissions,
     catalogFailures: integrationTools.catalogFailures,
+    providerTools: [
+      ...integrationTools.providerTools.map(providerFacingClaudeTool),
+      ...managedMcpServers.flatMap((server) => server.providerTools),
+    ],
+    metadataMode: invocation.session?.mode === 'resume' ? 'warm' : 'cold',
+    directToolNames: integrationTools.resolvedSdkToolNames,
+    proxyFallback: false,
     requiredOutputCount: Object.keys(invocation.outputs ?? {}).length,
   });
   return {
@@ -478,13 +491,16 @@ async function handleClaudeAgentFailure(params: {
   agentStateDir: string;
   session: HarnessInvocation['session'];
   sessionStore: ClaudeSessionStore | undefined;
+  aborted: boolean;
 }): Promise<never> {
   const failurePhase = params.diagnostics.finish({
     outputGate: outputGateForError(params.error),
     missingOutputCount: params.collector.missingRequired().length,
     executionFailed: true,
     executionCompleted: params.executionCompleted,
+    aborted: params.aborted,
   });
+  await params.diagnostics.appendToSessionStore(params.sessionStore, params.sessionId);
   return await rethrowClaudeSessionError({
     error: classifyClaudeAgentError({
       error: params.error,
@@ -666,6 +682,7 @@ interface ClaudeManagedMcpServer {
   readonly name: string;
   readonly config: ReturnType<typeof createSdkMcpServer>;
   readonly requiredToolNames: readonly string[];
+  readonly providerTools: readonly ClaudeProviderTool[];
 }
 
 interface ClaudeIntegrationMcpServer {
@@ -676,6 +693,7 @@ interface ClaudeIntegrationMcpServer {
     readonly alwaysLoad: true;
     readonly headers: Readonly<Record<string, string>>;
   };
+  readonly providerTools: readonly ClaudeProviderTool[];
   readonly resolvedToolNames: readonly string[];
   readonly listToolsFailed: boolean;
   readonly catalogFailure?: ClaudeToolCatalogFailure;
@@ -683,12 +701,24 @@ interface ClaudeIntegrationMcpServer {
 
 interface PreparedClaudeIntegrationTools {
   readonly servers: readonly ClaudeIntegrationMcpServer[];
+  readonly providerTools: readonly ClaudeProviderTool[];
   readonly resolvedToolNames: readonly string[];
   readonly resolvedSdkToolNames: readonly string[];
   readonly expectedSdkToolNames: readonly string[];
   readonly sdkToolToIntegrationTool: ReadonlyMap<string, string>;
   readonly omissions: readonly ClaudeToolOmission[];
   readonly catalogFailures: readonly ClaudeToolCatalogFailure[];
+}
+
+interface ClaudeProviderTool {
+  readonly name: string;
+  readonly description?: string | undefined;
+  readonly inputSchema: unknown;
+  readonly outputSchema?: unknown | undefined;
+}
+
+function providerFacingClaudeTool(tool: ClaudeProviderTool): ClaudeProviderTool {
+  return {...tool, name: claudeSdkToolName(tool.name)};
 }
 
 async function prepareClaudeIntegrationTools(
@@ -737,6 +767,7 @@ async function prepareClaudeIntegrationTools(
           alwaysLoad: true,
           headers: {Authorization: `Bearer ${authToken}`},
         },
+        providerTools: listed.tools,
         resolvedToolNames: listed.toolNames,
         listToolsFailed: listed.failed,
         ...(catalogFailure === undefined ? {} : {catalogFailure}),
@@ -764,6 +795,7 @@ async function prepareClaudeIntegrationTools(
   );
   return {
     servers: preparedServers,
+    providerTools: preparedServers.flatMap((server) => server.providerTools),
     resolvedToolNames,
     resolvedSdkToolNames,
     expectedSdkToolNames,
@@ -786,6 +818,7 @@ function omissionReason(
 }
 
 interface ClaudeToolCatalogResult {
+  readonly tools: readonly ClaudeProviderTool[];
   readonly toolNames: readonly string[];
   readonly failed: boolean;
   readonly failureReason?: ClaudeToolCatalogFailureReason;
@@ -815,7 +848,18 @@ async function listClaudeIntegrationToolNames(
         onTimeout: () => controller.abort(new Error(CLAUDE_MCP_METADATA_TIMEOUT_MESSAGE)),
       },
     );
-    return {toolNames: result.tools.map((tool) => tool.name), failed: false};
+    return {
+      tools: result.tools.map((tool) => ({
+        name: tool.name,
+        ...(tool.description === undefined ? {} : {description: tool.description}),
+        inputSchema: tool.inputSchema,
+        ...('outputSchema' in tool && tool.outputSchema !== undefined
+          ? {outputSchema: tool.outputSchema}
+          : {}),
+      })),
+      toolNames: result.tools.map((tool) => tool.name),
+      failed: false,
+    };
   } catch (error) {
     if (signal.aborted) throw error;
     const failureReason = catalogFailureReason(error);
@@ -832,6 +876,7 @@ async function listClaudeIntegrationToolNames(
       'Claude integration tool catalog could not be resolved before invocation',
     );
     return {
+      tools: [],
       toolNames: [],
       failed: true,
       failureReason,
@@ -919,12 +964,31 @@ function uniqueStrings(values: readonly string[]): string[] {
 
 type ClaudeMcpTools = NonNullable<Parameters<typeof createSdkMcpServer>[0]['tools']>;
 
-function outputMcpServer(collector: OutputCollector): ClaudeManagedMcpServer {
+function outputMcpServer(
+  collector: OutputCollector,
+  diagnostics: () => ClaudeToolDiagnostics | undefined,
+): ClaudeManagedMcpServer {
+  const toolDescription = 'Set one structured output value for this workflow step.';
   return managedMcpServer({
     name: OUTPUT_MCP_SERVER_NAME,
     version: '1.0.0',
     instructions: collector.guidanceText(),
-    tools: [setOutputTool(collector)],
+    tools: [setOutputTool(collector, diagnostics)],
+    providerTools: [
+      {
+        name: `mcp__${OUTPUT_MCP_SERVER_NAME}__set_output`,
+        description: toolDescription,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            key: {type: 'string'},
+            value: {type: 'string'},
+          },
+          required: ['key', 'value'],
+          additionalProperties: false,
+        },
+      },
+    ],
   });
 }
 
@@ -933,6 +997,7 @@ function managedMcpServer<Tools extends ClaudeMcpTools>(params: {
   version: string;
   instructions: string;
   tools: Tools;
+  providerTools?: readonly ClaudeProviderTool[] | undefined;
 }): ClaudeManagedMcpServer {
   return {
     name: params.name,
@@ -940,10 +1005,14 @@ function managedMcpServer<Tools extends ClaudeMcpTools>(params: {
     requiredToolNames: params.tools.map(
       (managedTool) => `mcp__${params.name}__${managedTool.name}`,
     ),
+    providerTools: params.providerTools ?? [],
   };
 }
 
-function setOutputTool(collector: OutputCollector) {
+function setOutputTool(
+  collector: OutputCollector,
+  diagnostics: () => ClaudeToolDiagnostics | undefined,
+) {
   return tool(
     'set_output',
     'Set one structured output value for this workflow step.',
@@ -951,6 +1020,24 @@ function setOutputTool(collector: OutputCollector) {
     async (args) => {
       await Promise.resolve();
       const result = collector.trySet(args.key, args.value);
+      diagnostics()?.recordOutputWrite({
+        key: args.key,
+        value: args.value,
+        result: {
+          ok: result.ok,
+          ...(result.ok && 'idempotent' in result && result.idempotent === true
+            ? {idempotent: true}
+            : {}),
+          ...(!result.ok
+            ? {
+                code: result.code,
+                ...(result.details.schemaError === undefined
+                  ? {}
+                  : {reason: result.details.schemaError}),
+              }
+            : {}),
+        },
+      });
       return {
         content: [
           {
@@ -1006,6 +1093,7 @@ async function runClaudeTurns(params: {
       missingRequired: () => params.collector.missingRequired(),
       guidanceForMissing: (missing) => params.collector.guidanceTextFor(missing),
       runTurn: async (message) => {
+        params.toolDiagnostics.recordTurnStart();
         params.messages.push(userMessage(message));
         response =
           (

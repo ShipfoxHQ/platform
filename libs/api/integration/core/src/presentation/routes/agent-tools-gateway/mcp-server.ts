@@ -37,6 +37,21 @@ export interface IntegrationToolDispatchResult {
   authorization?: IntegrationToolCallAuthorization | undefined;
 }
 
+export type IntegrationToolProtocolErrorReason =
+  | 'tool_not_found'
+  | 'arguments_not_object'
+  | 'missing_required_parameter'
+  | 'invalid_parameter_type'
+  | 'unauthorized_method';
+
+export interface IntegrationToolProtocolError {
+  readonly [key: string]: unknown;
+  readonly code: 'invalid-request';
+  readonly reason: IntegrationToolProtocolErrorReason;
+  readonly tool?: string | undefined;
+  readonly parameter?: string | undefined;
+}
+
 export interface BuildAgentToolsMcpServerParams {
   authorizedTools: AuthorizedIntegrationToolMap;
   dispatch: IntegrationToolDispatcher;
@@ -91,7 +106,11 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         outcome: 'invalid-request',
         errorCode: 'invalid-request',
       });
-      return toolError(`Unknown integration tool: ${request.params.name}`);
+      return toolError(`Unknown integration tool: ${request.params.name}`, {
+        code: 'invalid-request',
+        reason: 'tool_not_found',
+        tool: request.params.name,
+      });
     }
 
     const args = request.params.arguments ?? {};
@@ -103,7 +122,11 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         outcome: 'invalid-request',
         errorCode: 'invalid-request',
       });
-      return toolError('Tool arguments must be an object');
+      return toolError('Tool arguments must be an object', {
+        code: 'invalid-request',
+        reason: 'arguments_not_object',
+        tool: authorizedTool.tool.id,
+      });
     }
 
     const methodValidation = validateMethod(authorizedTool, args);
@@ -115,7 +138,7 @@ export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams)
         outcome: 'invalid-request',
         errorCode: 'invalid-request',
       });
-      return toolError(methodValidation.message);
+      return toolError(methodValidation.message, methodValidation.details);
     }
     const method = methodValidation.method ?? NO_METHOD_LABEL;
 
@@ -218,26 +241,49 @@ function recordToolCall(
 function validateMethod(
   authorizedTool: AuthorizedIntegrationTool,
   args: Record<string, unknown>,
-): {kind: 'ok'; method?: string | undefined} | {kind: 'error'; message: string} {
+):
+  | {kind: 'ok'; method?: string | undefined}
+  | {kind: 'error'; message: string; details: IntegrationToolProtocolError} {
   if (!authorizedTool.tool.methods) return {kind: 'ok'};
 
   const method = args.method;
   if (typeof method !== 'string') {
-    return {kind: 'error', message: 'Method-family tools require a string method argument'};
+    return {
+      kind: 'error',
+      message: 'Method-family tools require a string method argument',
+      details: {
+        code: 'invalid-request',
+        reason: Object.hasOwn(args, 'method')
+          ? 'invalid_parameter_type'
+          : 'missing_required_parameter',
+        tool: authorizedTool.tool.id,
+        parameter: 'method',
+      },
+    };
   }
 
   const allowedMethods = new Set(authorizedTool.tool.methods.map((candidate) => candidate.id));
   if (!allowedMethods.has(method)) {
-    return {kind: 'error', message: `Unauthorized integration tool method: ${method}`};
+    return {
+      kind: 'error',
+      message: `Unauthorized integration tool method: ${method}`,
+      details: {
+        code: 'invalid-request',
+        reason: 'unauthorized_method',
+        tool: authorizedTool.tool.id,
+        parameter: 'method',
+      },
+    };
   }
 
   return {kind: 'ok', method};
 }
 
-function toolError(message: string): CallToolResult {
+function toolError(message: string, details: IntegrationToolProtocolError): CallToolResult {
   return {
     isError: true,
     content: [{type: 'text', text: message}],
+    structuredContent: details,
   };
 }
 

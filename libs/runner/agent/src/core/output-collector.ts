@@ -41,6 +41,8 @@ export type SetOutputResult =
 export const MAX_OUTPUT_REPROMPTS = 2;
 
 export class RequiredOutputsMissingError extends Error {
+  readonly code = 'required_output_missing' as const;
+
   constructor(public readonly missing: readonly string[]) {
     super(`Agent step finished without required outputs: ${missing.join(', ')}`);
     this.name = 'RequiredOutputsMissingError';

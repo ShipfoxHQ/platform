@@ -75,6 +75,8 @@ describe('OutputCollector', () => {
 
     expect(result).toMatchObject({
       ok: false,
+      isError: true,
+      code: 'undeclared_output',
       feedback: expect.stringContaining(
         'Output "extra" is not declared by the step output schema. Use one of these exact keys: count.',
       ),
@@ -98,7 +100,12 @@ describe('OutputCollector', () => {
     const result = collector.trySet('bad key', 'value');
 
     expect(result.ok).toBe(false);
-    expect(result).toMatchObject({feedback: expect.stringContaining('Output key "bad key"')});
+    expect(result).toMatchObject({
+      ok: false,
+      isError: true,
+      code: 'invalid_output_key',
+      feedback: expect.stringContaining('Output key "bad key"'),
+    });
   });
 
   it('lists declared keys without repeating schemas when a typed step receives an invalid key', () => {
@@ -109,6 +116,8 @@ describe('OutputCollector', () => {
 
     expect(result).toMatchObject({
       ok: false,
+      isError: true,
+      code: 'invalid_output_key',
       feedback: expect.stringContaining(
         'Output key "bad key" is invalid. Use letters, numbers, underscores, or hyphens, and start with a letter or underscore. Use one of these exact keys: findings.',
       ),
@@ -192,6 +201,21 @@ describe('OutputCollector', () => {
     });
   });
 
+  it('accepts an identical repeated write but rejects a conflicting write', () => {
+    const collector = new OutputCollector({summary: {type: 'string'}});
+
+    expect(collector.trySet('summary', 'done')).toEqual({ok: true});
+    expect(collector.trySet('summary', 'done')).toEqual({ok: true, idempotent: true});
+    expect(collector.trySet('summary', 'changed')).toMatchObject({
+      ok: false,
+      isError: true,
+      code: 'output_conflict',
+      details: {code: 'output_conflict', key: 'summary'},
+    });
+    expect(collector.snapshot()).toEqual({summary: 'done'});
+    expect(collector.isComplete()).toBe(true);
+  });
+
   it('returns the validation error and exact JSON Schema for a rejected json output', () => {
     const schema = {
       type: 'array',
@@ -208,6 +232,8 @@ describe('OutputCollector', () => {
 
     expect(result).toMatchObject({
       ok: false,
+      isError: true,
+      code: 'output_schema_mismatch',
       feedback: expect.stringContaining('Output "findings" does not match its JSON Schema.'),
     });
     expect(result).toMatchObject({
@@ -224,7 +250,7 @@ describe('OutputCollector', () => {
 
     const result = collector.trySet('large', 'x'.repeat(measuredBytes));
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       isError: true,
       code: 'output_value_too_large',
@@ -284,7 +310,7 @@ describe('OutputCollector', () => {
       Buffer.byteLength(`overflow=${overflowValue}\n`, 'utf8');
 
     expect(first).toEqual({ok: true});
-    expect(second).toEqual({
+    expect(second).toMatchObject({
       ok: false,
       isError: true,
       code: 'output_total_too_large',
@@ -443,6 +469,7 @@ describe('runOutputTurnLoop', () => {
     expect(error).toBeInstanceOf(RequiredOutputsMissingError);
     expect(error).toMatchObject({
       message: 'Agent step finished without required outputs: findings',
+      code: 'required_output_missing',
     });
     expect(error).toMatchObject({message: expect.not.stringContaining(outputSpecification)});
     expect(error).toMatchObject({message: expect.not.stringContaining(guidance)});
