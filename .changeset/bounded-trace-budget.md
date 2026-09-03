@@ -2,4 +2,4 @@
 "@shipfox/expression": patch
 ---
 
-Bounds evaluation traces by serialized UTF-8 bytes while preserving deterministic prefixes and dropped-entry counts.
+Bounds evaluation traces to stay within the observation size budget while keeping deterministic prefixes and accurate dropped-entry counts.
