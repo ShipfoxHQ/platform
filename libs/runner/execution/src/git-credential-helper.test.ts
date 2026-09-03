@@ -45,6 +45,34 @@ describe('Git credential helper', () => {
     expect(output.value()).toBe('username=runner\npassword=token-a\n\n');
   });
 
+  it('forwards a configured socket timeout', async () => {
+    requestCredentialSocketMock.mockResolvedValue({version: 1, ok: true});
+
+    await runGitCredentialHelper({
+      argv: [
+        '/helper',
+        '--socket',
+        '/tmp/job.sock',
+        '--capability',
+        capability,
+        '--timeout-ms',
+        '60000',
+        'get',
+      ],
+      input: 'protocol=https\nhost=example.test\npath=acme/repository.git\n\n',
+    });
+
+    expect(requestCredentialSocketMock).toHaveBeenCalledWith(
+      '/tmp/job.sock',
+      {
+        operation: 'get',
+        repositoryUrl: 'https://example.test/acme/repository/',
+        capability,
+      },
+      {timeoutMs: 60_000},
+    );
+  });
+
   it.each([
     'store',
     'erase',

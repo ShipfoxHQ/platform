@@ -650,6 +650,7 @@ describe('writeAmbientGitCredential', () => {
         command: 'node /opt/runner/dist/git-credential-helper.js',
         socketPath: join(root, 'credential.sock'),
         capability: 'job-capability',
+        timeoutMs: 60_000,
       },
     });
 
@@ -660,6 +661,7 @@ describe('writeAmbientGitCredential', () => {
       '\thelper = "!node /opt/runner/dist/git-credential-helper.js --socket',
     );
     expect(content).toContain('--capability job-capability');
+    expect(content).toContain('--timeout-ms 60000');
     expect(content).not.toContain('password');
     expect(content).not.toContain('token');
   });

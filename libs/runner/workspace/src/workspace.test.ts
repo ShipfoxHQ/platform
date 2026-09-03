@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises';
+import {lstat, mkdir, mkdtemp, rm, stat, symlink, writeFile} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -411,24 +411,73 @@ describe('cleanupOrphanedJobCredentials', () => {
     const liveCapability = randomUUID();
     const deadSocketPath = runnerFallbackCredentialSocketPath(deadCapability);
     const deadOwnerPath = runnerFallbackCredentialSocketOwnerPath(deadCapability);
+    const deadLockPath = `${deadSocketPath}.lock`;
+    const deadCandidatePath = `${deadLockPath}.${randomUUID()}.tmp`;
+    const deadStalePath = `${deadLockPath}.${randomUUID()}.stale`;
     const liveSocketPath = runnerFallbackCredentialSocketPath(liveCapability);
     const liveOwnerPath = runnerFallbackCredentialSocketOwnerPath(liveCapability);
-    const paths = [deadSocketPath, deadOwnerPath, liveSocketPath, liveOwnerPath];
+    const liveLockPath = `${liveSocketPath}.lock`;
+    const liveCandidatePath = `${liveLockPath}.${randomUUID()}.tmp`;
+    const liveStalePath = `${liveLockPath}.${randomUUID()}.stale`;
+    const paths = [
+      deadSocketPath,
+      deadOwnerPath,
+      deadLockPath,
+      deadCandidatePath,
+      deadStalePath,
+      liveSocketPath,
+      liveOwnerPath,
+      liveLockPath,
+      liveCandidatePath,
+      liveStalePath,
+    ];
     await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
     await writeFile(deadSocketPath, 'stale socket placeholder');
     await writeFile(deadOwnerPath, '-1:stale-owner');
+    await writeFile(deadLockPath, '-1\n');
+    await writeFile(deadCandidatePath, 'stale candidate');
+    await writeFile(deadStalePath, 'stale quarantine');
     await writeFile(liveSocketPath, 'live socket placeholder');
     await writeFile(liveOwnerPath, `${process.pid}:live-owner`);
+    await writeFile(liveLockPath, `${process.pid}\n`);
+    await writeFile(liveCandidatePath, 'live candidate');
+    await writeFile(liveStalePath, 'live quarantine');
 
     try {
       await cleanupOrphanedJobCredentials(root);
 
       await expect(stat(deadSocketPath)).rejects.toThrow();
       await expect(stat(deadOwnerPath)).rejects.toThrow();
+      await expect(stat(deadLockPath)).rejects.toThrow();
+      await expect(stat(deadCandidatePath)).rejects.toThrow();
+      await expect(stat(deadStalePath)).rejects.toThrow();
       await expect(stat(liveSocketPath)).resolves.toBeDefined();
       await expect(stat(liveOwnerPath)).resolves.toBeDefined();
+      await expect(stat(liveLockPath)).resolves.toBeDefined();
+      await expect(stat(liveCandidatePath)).resolves.toBeDefined();
+      await expect(stat(liveStalePath)).resolves.toBeDefined();
     } finally {
       for (const path of paths) await rm(path, {force: true});
+    }
+  });
+
+  it('does not follow symlinked fallback socket owners', async () => {
+    const capability = randomUUID();
+    const socketPath = runnerFallbackCredentialSocketPath(capability);
+    const ownerPath = runnerFallbackCredentialSocketOwnerPath(capability);
+    const ownerTargetPath = join(root, 'owner-target');
+    await mkdir(RUNNER_FALLBACK_CREDENTIAL_SOCKET_DIR, {recursive: true});
+    await writeFile(socketPath, 'stale socket placeholder');
+    await writeFile(ownerTargetPath, '-1:stale-owner');
+    await symlink(ownerTargetPath, ownerPath);
+
+    try {
+      await cleanupOrphanedJobCredentials(root);
+      await expect(stat(socketPath)).resolves.toBeDefined();
+      await expect(lstat(ownerPath)).resolves.toBeDefined();
+    } finally {
+      await rm(socketPath, {force: true});
+      await rm(ownerPath, {force: true});
     }
   });
 });

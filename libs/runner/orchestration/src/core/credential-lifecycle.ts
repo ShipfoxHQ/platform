@@ -11,11 +11,13 @@ import {
 } from '@shipfox/runner-protocol';
 import {
   type BrokerCredentialInput,
+  CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS,
   type CredentialFailureEvent,
   type CredentialFailureEventSource,
   type CredentialFailureKind,
   createCredentialBroker,
   createCredentialSocketServer,
+  DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS,
   type GitCredentialHelperConfig,
   normalizeRepositoryUrl,
   type PersistedCheckoutCredential,
@@ -43,6 +45,7 @@ export function createJobCredentialLifecycle(options: {
   registerSecrets: (secrets: string[]) => void;
   replaceSecrets: (secrets: string[]) => void;
   clearSecrets: () => void;
+  renewalTimeoutMs?: number;
 }): JobCredentialLifecycle {
   const capability = randomUUID();
   const socket = credentialSocketPath(options.credentialsDir, capability);
@@ -78,7 +81,9 @@ export function createJobCredentialLifecycle(options: {
     publishSecrets: (secrets) => options.registerSecrets([...secrets]),
     replaceSecrets: (secrets) => options.replaceSecrets([...secrets]),
     clearSecrets: options.clearSecrets,
+    ...(options.renewalTimeoutMs === undefined ? {} : {renewalTimeoutMs: options.renewalTimeoutMs}),
   });
+  const socketTimeoutMs = broker.renewalTimeoutMs + CREDENTIAL_SOCKET_TIMEOUT_HEADROOM_MS;
 
   const socketServer = createCredentialSocketServer({
     socketPath: socket.socketPath,
@@ -91,6 +96,9 @@ export function createJobCredentialLifecycle(options: {
       command: GIT_CREDENTIAL_HELPER_COMMAND,
       socketPath: socket.socketPath,
       capability,
+      ...(socketTimeoutMs === DEFAULT_CREDENTIAL_SOCKET_TIMEOUT_MS
+        ? {}
+        : {timeoutMs: socketTimeoutMs}),
     },
     start: async () => {
       try {
