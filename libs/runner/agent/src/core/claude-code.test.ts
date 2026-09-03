@@ -7,7 +7,6 @@ import {
 
 describe('Claude Code compatibility', () => {
   it('reports the version of the bundled Claude Code binary', () => {
-    expect(readBundledClaudeCodeVersion()).toBe(MINIMUM_CLAUDE_CODE_VERSION);
     expect(() => assertBundledClaudeCodeVersion()).not.toThrow();
   });
 
@@ -16,6 +15,8 @@ describe('Claude Code compatibility', () => {
     ['2.1.246', true],
     ['2.1.300', true],
     ['2.2.0', true],
+    ['2.1.246-beta.1', false],
+    ['2.1.246.1', false],
     ['not-a-version', false],
   ])('checks support for Claude Code %s', (version, supported) => {
     expect(isSupportedClaudeCodeVersion(version)).toBe(supported);

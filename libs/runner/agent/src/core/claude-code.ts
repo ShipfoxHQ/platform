@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 
 const CLAUDE_AGENT_SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk';
 const MINIMUM_CLAUDE_CODE_VERSION_PARTS = [2, 1, 246] as const;
-const CLAUDE_CODE_VERSION_PATTERN = /\b(\d+)\.(\d+)\.(\d+)\b/u;
+const CLAUDE_CODE_VERSION_PATTERN = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?=\s|$|\()/u;
 const require = createRequire(import.meta.url);
 
 export const MINIMUM_CLAUDE_CODE_VERSION = MINIMUM_CLAUDE_CODE_VERSION_PARTS.join('.');
