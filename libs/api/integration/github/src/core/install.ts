@@ -1,5 +1,8 @@
 import type {UserContextMembership} from '@shipfox/api-auth-context';
-import type {IntegrationConnection} from '@shipfox/api-integration-spi';
+import type {
+  IntegrationConnection,
+  IntegrationConnectionLifecycleStatus,
+} from '@shipfox/api-integration-spi';
 import type {GithubApiClient, GithubInstallationDetails} from '#api/client.js';
 import {
   GithubInstallationAlreadyLinkedError,
@@ -13,6 +16,7 @@ export interface ConnectGithubInstallationInput {
   installationId: string;
   displayName: string;
   installerUserId: string;
+  lifecycleStatus?: IntegrationConnectionLifecycleStatus | undefined;
   installation: {
     installationId: string;
     accountLogin: string;

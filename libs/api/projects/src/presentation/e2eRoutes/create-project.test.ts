@@ -1,6 +1,6 @@
 import {closeApp, createApp} from '@shipfox/node-fastify';
 import {sql} from 'drizzle-orm';
-import {db} from '#db/index.js';
+import {db, getProjectById} from '#db/index.js';
 import {projectsOutbox} from '#db/schema/outbox.js';
 import {projectsE2eRoutes} from './index.js';
 
@@ -78,6 +78,71 @@ describe('projects E2E routes', () => {
       connection_id: sourceConnectionId,
       external_repository_id: 'e2e:explicit',
     });
+  });
+
+  test('preserves explicit source metadata for provider-backed fixtures', async () => {
+    const workspaceId = crypto.randomUUID();
+    const sourceConnectionId = crypto.randomUUID();
+    const app = await createApp({routes: [projectsE2eRoutes], swagger: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {
+        workspace_id: workspaceId,
+        name: 'GitHub E2E Project',
+        source_connection_id: sourceConnectionId,
+        source_external_repository_id: 'github:42',
+        source_repository_owner: 'shipfox',
+        source_repository_name: 'e2e',
+        source_default_branch: 'main',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      source: {
+        connection_id: sourceConnectionId,
+        external_repository_id: 'github:42',
+      },
+    });
+    await expect(getProjectById(res.json().id)).resolves.toMatchObject({
+      sourceRepositoryOwner: 'shipfox',
+      sourceRepositoryName: 'e2e',
+      sourceDefaultBranch: 'main',
+    });
+  });
+
+  test('requires source repository owner and name together', async () => {
+    const app = await createApp({routes: [projectsE2eRoutes], swagger: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {
+        workspace_id: crypto.randomUUID(),
+        name: 'GitHub E2E Project',
+        source_repository_owner: 'shipfox',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  test('requires source repository owner and name when a default branch is provided', async () => {
+    const app = await createApp({routes: [projectsE2eRoutes], swagger: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {
+        workspace_id: crypto.randomUUID(),
+        name: 'GitHub E2E Project',
+        source_default_branch: 'main',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 
   test('returns conflict for duplicate explicit source values', async () => {

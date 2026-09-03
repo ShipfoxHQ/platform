@@ -485,12 +485,7 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
-      {
-        oneOf: [
-          {required: ['owner', 'repo']},
-          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
-        ],
-      },
+      searchRepositoryPairConstraints(),
     ),
     outputSchema: objectSchema({issues: arraySchema(openObjectSchema('GitHub issue'))}, ['issues']),
   }),
@@ -667,12 +662,7 @@ export const githubAgentToolCatalog = [
         ...pageProperties,
       },
       ['query'],
-      {
-        oneOf: [
-          {required: ['owner', 'repo']},
-          {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
-        ],
-      },
+      searchRepositoryPairConstraints(),
     ),
     outputSchema: objectSchema(
       {pull_requests: arraySchema(openObjectSchema('GitHub pull request'))},
@@ -1169,6 +1159,22 @@ function objectSchema(
     properties,
     ...(required.length > 0 ? {required} : {}),
     ...extraSchema,
+  };
+}
+
+function searchRepositoryPairConstraints(): Pick<AgentToolJsonSchema, 'oneOf'> {
+  return {
+    oneOf: [
+      {properties: repositoryProperties, required: ['owner', 'repo']},
+      {
+        not: {
+          anyOf: [
+            {properties: repositoryProperties, required: ['owner']},
+            {properties: repositoryProperties, required: ['repo']},
+          ],
+        },
+      },
+    ],
   };
 }
 

@@ -53,6 +53,15 @@ export const createE2eProjectRoute = defineRoute({
 
     for (let attempt = 0; attempt < MAX_GENERATED_SLUG_ATTEMPTS; attempt += 1) {
       try {
+        const sourceRepository =
+          request.body.source_repository_owner === undefined ||
+          request.body.source_repository_name === undefined
+            ? undefined
+            : {
+                owner: request.body.source_repository_owner,
+                name: request.body.source_repository_name,
+                defaultBranch: request.body.source_default_branch ?? 'main',
+              };
         const project = await createProject({
           workspaceId: request.body.workspace_id,
           name: request.body.name,
@@ -60,6 +69,7 @@ export const createE2eProjectRoute = defineRoute({
           sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
           sourceExternalRepositoryId:
             request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),
+          sourceRepository,
         });
 
         reply.code(201);

@@ -61,6 +61,31 @@ describe('integrations E2E setup helper', () => {
     });
   });
 
+  it('can create a disabled GitHub connection for setup sequencing', async () => {
+    requestJson.mockResolvedValueOnce({id: 'connection-id'});
+    const {createGithubConnection} = await import('./index.js');
+
+    await createGithubConnection({
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      installationId: 1234,
+      accountLogin: 'shipfox-e2e',
+      displayName: 'GitHub Shipfox E2E',
+      installerUserId: '00000000-0000-4000-8000-000000000002',
+      lifecycleStatus: 'disabled',
+    });
+
+    expect(requestJson).toHaveBeenCalledWith('post', '/__e2e/integrations/github-connections', {
+      json: {
+        workspace_id: '00000000-0000-4000-8000-000000000001',
+        installation_id: 1234,
+        account_login: 'shipfox-e2e',
+        display_name: 'GitHub Shipfox E2E',
+        installer_user_id: '00000000-0000-4000-8000-000000000002',
+        lifecycle_status: 'disabled',
+      },
+    });
+  });
+
   it('creates Test VCS connections and repositories through the protected setup routes', async () => {
     requestJson.mockResolvedValueOnce({id: 'connection-id'}).mockResolvedValueOnce({
       external_repository_id: 'test-vcs:e2e-owner/repository',

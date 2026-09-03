@@ -131,7 +131,7 @@ async function loadGithubModuleParts(
             externalAccountId: input.installationId,
             slug,
             displayName: input.displayName,
-            lifecycleStatus: 'active',
+            lifecycleStatus: input.lifecycleStatus ?? 'active',
             capabilities: providerCapabilities,
           },
           {tx},
@@ -161,6 +161,9 @@ async function loadGithubModuleParts(
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,
+    repositoryAuthorization: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION
+      ? 'enforced'
+      : 'unclassified',
     invalidateRepositoryAuthorizationCache: options.invalidateRepositoryAuthorizationCache,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,

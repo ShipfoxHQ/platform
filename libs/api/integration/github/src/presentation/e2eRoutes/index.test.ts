@@ -93,6 +93,38 @@ describe('GitHub E2E routes', () => {
     expect(res.json()).toMatchObject({code: 'validation-error'});
   });
 
+  it('passes an optional disabled lifecycle status to connection setup', async () => {
+    const connectGithubInstallation = vi.fn(() => Promise.resolve(connection()));
+    const app = await createApp({
+      routes: [
+        createGithubE2eRoutes({
+          getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
+          connectGithubInstallation,
+          connectionCapabilities: ['source_control', 'agent_tools'],
+        }),
+      ],
+      swagger: false,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/integrations/github-connections',
+      payload: {
+        workspace_id: '00000000-0000-4000-8000-000000000002',
+        installation_id: 1234,
+        account_login: 'shipfox-e2e',
+        display_name: 'GitHub Shipfox E2E',
+        installer_user_id: '00000000-0000-4000-8000-000000000004',
+        lifecycle_status: 'disabled',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(connectGithubInstallation).toHaveBeenCalledWith(
+      expect.objectContaining({lifecycleStatus: 'disabled'}),
+    );
+  });
+
   it('rejects an installation connected to another workspace', async () => {
     const connectGithubInstallation = vi.fn(() => Promise.resolve(connection()));
     const app = await createApp({

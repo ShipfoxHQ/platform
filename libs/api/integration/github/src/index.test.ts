@@ -22,6 +22,26 @@ vi.mock('#core/webhook-processor.js', () => ({
 }));
 
 describe('createGithubIntegrationProvider', () => {
+  it.each([
+    ['unclassified', 'unclassified'],
+    ['enforced', 'enforced'],
+  ] as const)('preserves the composed repository authorization state: %s', (_label, state) => {
+    const provider = createGithubIntegrationProvider({
+      github: {} as never,
+      getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
+      connectGithubInstallation: vi.fn() as never,
+      coreDb: vi.fn() as never,
+      publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: false})),
+      publishSourceRepositoryUpdated: vi.fn(() => Promise.resolve({published: false})),
+      publishSourcePush: vi.fn(() => Promise.resolve({published: false})),
+      recordDeliveryOnly: vi.fn(() => Promise.resolve()),
+      getIntegrationConnectionById: vi.fn(() => Promise.resolve(undefined)),
+      repositoryAuthorization: state,
+    });
+
+    expect(provider.repositoryAuthorization).toBe(state);
+  });
+
   it('shares installation-token cleanup with the direct and composed processors', async () => {
     const deleteSecrets = vi.fn(() => Promise.resolve(1));
     const provider = createGithubIntegrationProvider({

@@ -213,6 +213,21 @@ describe('resolveAuthorizedIntegrationTools', () => {
 
     expect(narrowed).toEqual(schema);
   });
+
+  it('removes top-level oneOf from non-method tool schemas for Claude', () => {
+    const schema = {
+      type: 'object',
+      properties: {query: {type: 'string'}},
+      oneOf: [{required: ['owner', 'repo']}],
+    };
+
+    const narrowed = narrowMethodEnum(schema, []);
+
+    expect(narrowed).toEqual({
+      type: 'object',
+      properties: {query: {type: 'string'}},
+    });
+  });
 });
 
 describe('MCP tool names', () => {

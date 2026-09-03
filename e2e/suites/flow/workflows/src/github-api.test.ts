@@ -1,5 +1,7 @@
 import {
+  GITHUB_GRAPHQL_RESULT_MARKER,
   GITHUB_READ_RESULT_MARKER,
+  GITHUB_SEARCH_RESULT_MARKER,
   GITHUB_STATEFUL_INSTALLATION_TOKEN,
   GITHUB_STATELESS_INSTALLATION_TOKEN,
   GITHUB_WRITE_RESULT_MARKER,
@@ -79,6 +81,120 @@ describe('GitHub API mock', () => {
           body: {title: 'Synthetic issue'},
         },
       ]);
+    } finally {
+      await mock.stop();
+    }
+  });
+
+  it('serves repository metadata, scoped checkout mints, search, and GraphQL requests', async () => {
+    const mock = await startGithubApiMock({endpoint: new URL('http://127.0.0.1:0')});
+
+    try {
+      const mint = await fetch(new URL('/app/installations/1234/access_tokens', mock.endpoint), {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer app-jwt',
+          'content-type': 'application/json',
+          'x-github-stateless-s2s-token': 'enabled',
+        },
+        body: JSON.stringify({repository_ids: [42], permissions: {contents: 'read'}}),
+      });
+      const repository = await fetch(new URL('/repositories/42', mock.endpoint), {
+        headers: {authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`},
+      });
+      const search = await fetch(
+        new URL('/search/issues?q=is%3Aopen%20repo%3Ashipfox%2Fe2e', mock.endpoint),
+        {headers: {authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`}},
+      );
+      const graphql = await fetch(new URL('/graphql', mock.endpoint), {
+        method: 'POST',
+        headers: {
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: 'mutation ResolveReviewThread { resolveReviewThread { thread { id } } }',
+          variables: {input: {threadId: 'thread-42'}},
+        }),
+      });
+
+      expect(mint.status).toBe(201);
+      expect(repository.status).toBe(200);
+      expect(search.status).toBe(200);
+      expect(graphql.status).toBe(200);
+      await expect(mint.json()).resolves.toMatchObject({
+        repositories: [{id: 42, full_name: 'shipfox/e2e'}],
+      });
+      await expect(repository.json()).resolves.toMatchObject({id: 42, full_name: 'shipfox/e2e'});
+      await expect(search.json()).resolves.toMatchObject({
+        items: [{marker: GITHUB_SEARCH_RESULT_MARKER}],
+      });
+      await expect(graphql.json()).resolves.toMatchObject({
+        data: {
+          resolveReviewThread: {
+            thread: {id: 'thread-42', marker: GITHUB_GRAPHQL_RESULT_MARKER},
+          },
+        },
+      });
+      expect(mock.calls).toEqual([
+        {
+          kind: 'mint-token',
+          authorization: 'Bearer app-jwt',
+          tokenFormatOverride: 'enabled',
+          installationId: 1234,
+          body: {repository_ids: [42], permissions: {contents: 'read'}},
+        },
+        {
+          kind: 'resolve-repository',
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          repositoryId: 42,
+        },
+        {
+          kind: 'search-issues',
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          query: 'is:open repo:shipfox/e2e',
+        },
+        {
+          kind: 'graphql',
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          query: 'mutation ResolveReviewThread { resolveReviewThread { thread { id } } }',
+          variables: {input: {threadId: 'thread-42'}},
+        },
+      ]);
+    } finally {
+      await mock.stop();
+    }
+  });
+
+  it('serves pull request review thread queries with the expected GraphQL shape', async () => {
+    const mock = await startGithubApiMock({endpoint: new URL('http://127.0.0.1:0')});
+
+    try {
+      const response = await fetch(new URL('/graphql', mock.endpoint), {
+        method: 'POST',
+        headers: {
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: 'query GetPullRequestReviewThreads { reviewThreads { nodes { id } } }',
+          variables: {owner: 'shipfox', repo: 'platform', pullNumber: 2},
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [],
+                pageInfo: {hasNextPage: false, endCursor: null},
+              },
+            },
+          },
+        },
+      });
     } finally {
       await mock.stop();
     }

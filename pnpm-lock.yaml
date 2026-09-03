@@ -1702,6 +1702,12 @@ importers:
       '@shipfox/e2e-screens-integrations':
         specifier: workspace:*
         version: link:../../../screens/integrations
+      '@shipfox/e2e-setup-integrations':
+        specifier: workspace:*
+        version: link:../../../setup/integrations
+      '@shipfox/e2e-setup-projects':
+        specifier: workspace:*
+        version: link:../../../setup/projects
       '@shipfox/playwright':
         specifier: workspace:*
         version: link:../../../../tools/playwright
@@ -1951,6 +1957,9 @@ importers:
       '@shipfox/e2e-setup-integrations':
         specifier: workspace:*
         version: link:../../../setup/integrations
+      '@shipfox/e2e-setup-projects':
+        specifier: workspace:*
+        version: link:../../../setup/projects
       '@shipfox/e2e-setup-secrets':
         specifier: workspace:*
         version: link:../../../setup/secrets

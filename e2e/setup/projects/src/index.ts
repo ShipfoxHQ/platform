@@ -10,6 +10,9 @@ export interface CreateProjectParams {
   slug?: string | undefined;
   sourceConnectionId?: string | undefined;
   sourceExternalRepositoryId?: string | undefined;
+  sourceRepositoryOwner?: string | undefined;
+  sourceRepositoryName?: string | undefined;
+  sourceDefaultBranch?: string | undefined;
 }
 
 const DEFAULT_PROJECT_NAME = 'E2E Project';
@@ -26,6 +29,9 @@ export async function createProject(
       params.slug ?? withSlugSuffix(slugifyName(name, {fallback: 'project'}), ++projectSequence),
     source_connection_id: params.sourceConnectionId,
     source_external_repository_id: params.sourceExternalRepositoryId,
+    source_repository_owner: params.sourceRepositoryOwner,
+    source_repository_name: params.sourceRepositoryName,
+    source_default_branch: params.sourceDefaultBranch,
   };
   return await requestJson<E2eCreateProjectResponseDto>('post', '/__e2e/projects', {
     json: body,

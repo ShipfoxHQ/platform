@@ -159,7 +159,7 @@ function addAuthorizedTool(
     connection,
     // Live catalog metadata supplies dispatch classification; frozen step config remains the allowlist.
     description: catalogTool?.description ?? tool.id,
-    inputSchema: tool.methods ? toolInputSchema(tool) : tool.inputSchema,
+    inputSchema: toolInputSchema(tool),
     outputSchema: tool.outputSchema ?? catalogTool?.outputSchema,
     ...(catalogTool === undefined ? {} : {catalogEntry: catalogTool}),
   });

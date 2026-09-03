@@ -31,6 +31,13 @@ export interface CreateProjectParams {
   workspaceId: string;
   sourceConnectionId: string;
   sourceExternalRepositoryId: string;
+  sourceRepository?:
+    | {
+        owner: string;
+        name: string;
+        defaultBranch: string;
+      }
+    | undefined;
   name: string;
   slug: string;
 }
@@ -105,6 +112,13 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
             workspaceId: params.workspaceId,
             sourceConnectionId: params.sourceConnectionId,
             sourceExternalRepositoryId: params.sourceExternalRepositoryId,
+            ...(params.sourceRepository === undefined
+              ? {}
+              : {
+                  sourceRepositoryOwner: params.sourceRepository.owner,
+                  sourceRepositoryName: params.sourceRepository.name,
+                  sourceDefaultBranch: params.sourceRepository.defaultBranch,
+                }),
             name: params.name,
             slug: params.slug,
           })

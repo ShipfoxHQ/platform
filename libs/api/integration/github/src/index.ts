@@ -1,5 +1,6 @@
 import {githubEventCatalog} from '@shipfox/api-integration-github-dto';
 import type {
+  AgentToolRepositoryAuthorizationState,
   GetIntegrationConnectionByIdFn,
   IntegrationConnection,
   PublishIntegrationEventReceivedFn,
@@ -105,6 +106,8 @@ export interface CreateGithubIntegrationProviderOptions
   publishSourcePush: PublishSourcePushFn;
   recordDeliveryOnly: RecordDeliveryOnlyFn;
   getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
+  /** The composed integrations module controls when repository authorization is live. */
+  repositoryAuthorization?: AgentToolRepositoryAuthorizationState | undefined;
   /** Invalidates local repository authorization decisions after a committed webhook mutation. */
   invalidateRepositoryAuthorizationCache?: ((connectionId: string) => void) | undefined;
   getGithubInstallationByConnectionId?: typeof getGithubInstallationByConnectionId | undefined;
@@ -193,8 +196,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   return {
     provider: 'github' as const,
     displayName: 'GitHub',
-    // Classification is dark until the final repository-authorization cutover.
-    repositoryAuthorization: 'unclassified' as const,
+    repositoryAuthorization: options.repositoryAuthorization ?? 'unclassified',
     eventCatalog: githubEventCatalog,
     adapters: {
       source_control: new GithubSourceControlProvider(github, undefined, checkoutTokenCache),
