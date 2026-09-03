@@ -7,11 +7,13 @@ import {getWorkflowStatusVisual} from '#components/workflow-status/status-visual
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {
+  type BoundedExecutionCount,
   defaultJobExecution,
   deriveJobDisplayStatus,
   deriveJobExecutionDisplayStatus,
   type Job,
   type JobExecution,
+  type JobExecutionDisplayStatus,
 } from '#core/workflow-run.js';
 import {RunAnnotationCountChip} from '../workflow-run-tabs/index.js';
 import {JobExecutionSwitcher} from './job-execution-switcher.js';
@@ -28,6 +30,10 @@ export interface JobDetailHeaderProps {
   /** Counts for this job only. Renders a link into the run's Annotations section, never a body. */
   annotationSummary?: RunAnnotationSummary | undefined;
   jobContext?: ReactNode;
+  /** The compact selected-job response carries this count without materializing history. */
+  executionCount?: BoundedExecutionCount | undefined;
+  executionCountVisible?: boolean | undefined;
+  executionDisplayStatus?: JobExecutionDisplayStatus | undefined;
 }
 
 export function JobDetailHeader({
@@ -40,8 +46,11 @@ export function JobDetailHeader({
   runAttempt,
   annotationSummary,
   jobContext,
+  executionCount,
+  executionCountVisible,
+  executionDisplayStatus,
 }: JobDetailHeaderProps) {
-  const selectedStatus = selectedExecutionStatus(job, selectedJobExecution);
+  const selectedStatus = selectedExecutionStatus(job, selectedJobExecution, executionDisplayStatus);
   const jobStatus = getWorkflowStatusVisual(selectedStatus);
 
   return (
@@ -69,11 +78,12 @@ export function JobDetailHeader({
 
           {selectedJobExecution || annotationSummary?.total ? (
             <div className="flex min-w-0 flex-wrap items-center gap-inline text-foreground-neutral-muted">
-              {selectedJobExecution && job.executionCountVisible ? (
+              {selectedJobExecution && (executionCountVisible ?? job.executionCountVisible) ? (
                 <JobExecutionSwitcher
                   job={job}
                   selectedJobExecution={selectedJobExecution.id}
                   onSelectedJobExecutionChange={onSelectedJobExecutionChange}
+                  executionCount={executionCount}
                   variant="title"
                 />
               ) : null}
@@ -100,7 +110,12 @@ export function JobDetailHeader({
   );
 }
 
-function selectedExecutionStatus(job: Job, execution: JobExecution | undefined) {
+function selectedExecutionStatus(
+  job: Job,
+  execution: JobExecution | undefined,
+  knownStatus: JobExecutionDisplayStatus | undefined,
+) {
+  if (knownStatus) return knownStatus;
   if (!execution) return deriveJobDisplayStatus(job);
   const defaultExecution = defaultJobExecution(job);
   return execution.id === defaultExecution?.id

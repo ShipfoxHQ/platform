@@ -8,16 +8,29 @@ import {
 import {Icon} from '@shipfox/react-ui/icon';
 import {Text} from '@shipfox/react-ui/typography';
 import {cn} from '@shipfox/react-ui/utils';
-import {useMemo} from 'react';
+import {useMemo, useState} from 'react';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
-import {deriveJobExecutionDisplayStatus, type Job, type JobExecution} from '#core/workflow-run.js';
+import {
+  type BoundedExecutionCount,
+  deriveJobExecutionDisplayStatus,
+  type Job,
+  type JobExecution,
+  type WorkflowRunOverviewExecution,
+} from '#core/workflow-run.js';
+import {
+  flattenWorkflowJobExecutionPages,
+  useWorkflowJobExecutionsInfiniteQuery,
+} from '#hooks/api/workflow-job-detail.js';
 import {formatJobExecutionTime, JobExecutionTimeText} from './job-execution-time-text.js';
+
+type JobExecutionOption = JobExecution | WorkflowRunOverviewExecution;
 
 export interface JobExecutionSwitcherProps {
   job: Job;
   selectedJobExecution: string | null;
   onSelectedJobExecutionChange: (jobExecutionId: string) => void;
+  executionCount?: BoundedExecutionCount | undefined;
   variant?: 'compact' | 'title' | undefined;
   className?: string | undefined;
 }
@@ -26,21 +39,23 @@ export function JobExecutionSwitcher({
   job,
   selectedJobExecution,
   onSelectedJobExecutionChange,
+  executionCount,
   variant = 'compact',
   className,
 }: JobExecutionSwitcherProps) {
-  const executions = useMemo(
+  const fallbackExecutions = useMemo(
     () => [...job.jobExecutions].sort((left, right) => right.sequence - left.sequence),
     [job.jobExecutions],
   );
   const selected =
-    executions.find((jobExecution) => jobExecution.id === selectedJobExecution) ??
-    executions[0] ??
+    fallbackExecutions.find((jobExecution) => jobExecution.id === selectedJobExecution) ??
+    fallbackExecutions[0] ??
     null;
 
   if (selected === null) return null;
 
-  if (!job.executionCountVisible) {
+  const historyVisible = executionCountVisible(job, executionCount);
+  if (!historyVisible) {
     return (
       <div
         className={cn(
@@ -54,7 +69,53 @@ export function JobExecutionSwitcher({
   }
 
   return (
-    <DropdownMenu>
+    <JobExecutionSwitcherMenu
+      job={job}
+      selectedJobExecution={selectedJobExecution}
+      onSelectedJobExecutionChange={onSelectedJobExecutionChange}
+      executionCount={executionCount}
+      fallbackExecutions={fallbackExecutions}
+      variant={variant}
+      className={className}
+    />
+  );
+}
+
+function JobExecutionSwitcherMenu({
+  job,
+  selectedJobExecution,
+  onSelectedJobExecutionChange,
+  executionCount,
+  fallbackExecutions,
+  variant,
+  className,
+}: JobExecutionSwitcherProps & {fallbackExecutions: JobExecution[]}) {
+  const [open, setOpen] = useState(false);
+  const executionsQuery = useWorkflowJobExecutionsInfiniteQuery({
+    jobId: job.id,
+    enabled: open,
+  });
+  const historyExecutions = useMemo(
+    () => flattenWorkflowJobExecutionPages(executionsQuery.data),
+    [executionsQuery.data],
+  );
+  const executions = useMemo(() => {
+    const options: JobExecutionOption[] =
+      historyExecutions.length > 0 ? [...historyExecutions] : [...fallbackExecutions];
+    for (const fallback of fallbackExecutions) {
+      if (!options.some((execution) => execution.id === fallback.id)) options.push(fallback);
+    }
+    return options.sort((left, right) => right.sequence - left.sequence);
+  }, [fallbackExecutions, historyExecutions]);
+  const selected =
+    executions.find((jobExecution) => jobExecution.id === selectedJobExecution) ??
+    executions[0] ??
+    null;
+
+  if (selected === null) return null;
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         className={cn(
           'inline-flex min-w-0 max-w-full items-center rounded-6 text-left transition-colors focus-visible:shadow-border-interactive-with-active focus-visible:outline-none',
@@ -63,7 +124,7 @@ export function JobExecutionSwitcher({
             : 'min-h-28 gap-inline px-tight py-[4px] text-sm leading-20 text-foreground-neutral-subtle hover:bg-background-components-hover',
           className,
         )}
-        aria-label={`Switch job execution, currently execution ${selected.sequence}: ${selected.displayName}`}
+        aria-label={`Switch job execution, currently execution ${selected.sequence}: ${executionDisplayName(selected)}`}
       >
         {variant === 'title' ? (
           <TitleExecutionSummary execution={selected} />
@@ -73,9 +134,7 @@ export function JobExecutionSwitcher({
         <Icon name="arrowDownSLine" className="size-14 shrink-0 text-foreground-neutral-muted" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" size="lg" className="max-h-[320px] overflow-y-auto">
-        <DropdownMenuLabel>
-          {executions.length} execution{executions.length === 1 ? '' : 's'}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel>{executionCountLabel(executions, executionCount)}</DropdownMenuLabel>
         {executions.map((jobExecution) => {
           const isSelected = jobExecution.id === selected.id;
 
@@ -92,7 +151,7 @@ export function JobExecutionSwitcher({
                 className="w-full text-left"
               >
                 <WorkflowStatusIcon
-                  status={deriveJobExecutionDisplayStatus(jobExecution)}
+                  status={executionDisplayStatus(jobExecution)}
                   size={14}
                   tooltip={false}
                 />
@@ -100,7 +159,7 @@ export function JobExecutionSwitcher({
                   #{jobExecution.sequence}
                 </span>
                 <span className="min-w-0 truncate text-xs leading-20 text-foreground-neutral-base">
-                  {jobExecution.displayName}
+                  {executionDisplayName(jobExecution)}
                 </span>
                 {!isSelected && jobExecution.statusReason ? (
                   <span className="min-w-0 flex-1 truncate text-xs leading-20 text-foreground-neutral-muted">
@@ -120,15 +179,45 @@ export function JobExecutionSwitcher({
             </DropdownMenuItem>
           );
         })}
+        {executionsQuery.isError && historyExecutions.length === 0 ? (
+          <DropdownMenuItem closeOnSelect={false} onSelect={() => void executionsQuery.refetch()}>
+            <Text as="span" size="sm" className="text-foreground-highlight-error">
+              Could not load execution history. Retry
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
+        {executionsQuery.isFetchNextPageError ? (
+          <DropdownMenuItem
+            closeOnSelect={false}
+            onSelect={() => void executionsQuery.fetchNextPage()}
+          >
+            <Text as="span" size="sm" className="text-foreground-highlight-error">
+              Could not load older executions. Retry
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
+        {executionsQuery.hasNextPage ? (
+          <DropdownMenuItem
+            closeOnSelect={false}
+            disabled={executionsQuery.isFetchingNextPage}
+            onSelect={() => void executionsQuery.fetchNextPage()}
+          >
+            <Text as="span" size="sm" className="text-foreground-neutral-muted">
+              {executionsQuery.isFetchingNextPage
+                ? 'Loading older executions...'
+                : 'Load older executions'}
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function executionAccessibleLabel(execution: JobExecution): string {
-  const status = getWorkflowStatusVisual(deriveJobExecutionDisplayStatus(execution));
+function executionAccessibleLabel(execution: JobExecutionOption): string {
+  const status = getWorkflowStatusVisual(executionDisplayStatus(execution));
   return [
-    `Execution #${execution.sequence}: ${execution.displayName}`,
+    `Execution #${execution.sequence}: ${executionDisplayName(execution)}`,
     status.label,
     execution.statusReason ?? undefined,
     execution.displayDuration
@@ -139,21 +228,21 @@ function executionAccessibleLabel(execution: JobExecution): string {
     .join(', ');
 }
 
-function TitleExecutionSummary({execution}: {execution: JobExecution}) {
+function TitleExecutionSummary({execution}: {execution: JobExecutionOption}) {
   return (
     <span className="flex min-w-0 items-center gap-inline">
       <Text as="span" size="sm" bold className="shrink-0 text-foreground-neutral-base">
         #{execution.sequence}
       </Text>
       <Text as="span" size="sm" bold className="min-w-0 truncate text-foreground-neutral-base">
-        {execution.displayName}
+        {executionDisplayName(execution)}
       </Text>
     </span>
   );
 }
 
-function ExecutionSummary({execution}: {execution: JobExecution}) {
-  const displayStatus = deriveJobExecutionDisplayStatus(execution);
+function ExecutionSummary({execution}: {execution: JobExecutionOption}) {
+  const displayStatus = executionDisplayStatus(execution);
 
   return (
     <span className="flex min-w-0 items-center gap-inline">
@@ -178,7 +267,7 @@ function JobExecutionDuration({
   execution,
   className,
 }: {
-  execution: JobExecution;
+  execution: JobExecutionOption;
   className?: string | undefined;
 }) {
   const duration = execution.displayDuration;
@@ -189,4 +278,27 @@ function JobExecutionDuration({
       <JobExecutionTimeText time={duration} />
     </span>
   );
+}
+
+function executionDisplayStatus(execution: JobExecutionOption) {
+  return 'displayStatus' in execution
+    ? execution.displayStatus
+    : deriveJobExecutionDisplayStatus(execution);
+}
+
+function executionDisplayName(execution: JobExecutionOption): string {
+  return execution.name;
+}
+
+function executionCountVisible(job: Job, count: BoundedExecutionCount | undefined): boolean {
+  if (count === undefined) return job.executionCountVisible;
+  return count === '100+' || job.mode === 'listening' || count > 1;
+}
+
+function executionCountLabel(
+  executions: readonly JobExecutionOption[],
+  count: BoundedExecutionCount | undefined,
+): string {
+  const value = count ?? executions.length;
+  return `${value} execution${value === 1 ? '' : 's'}`;
 }

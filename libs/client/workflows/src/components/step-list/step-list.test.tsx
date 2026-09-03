@@ -531,6 +531,43 @@ describe('StepList', () => {
     expect(screen.queryByText('Gate failed')).not.toBeInTheDocument();
   });
 
+  test('renders a step footer only after the final non-contiguous attempt', () => {
+    const buildFirstAttempt = makeAttempt({
+      id: 'build-attempt-first',
+      execution_order: 1,
+    });
+    const deployAttempt = makeAttempt({
+      id: 'deploy-attempt',
+      execution_order: 2,
+    });
+    const buildLastAttempt = makeAttempt({
+      id: 'build-attempt-last',
+      attempt: 2,
+      execution_order: 3,
+    });
+    render(
+      <StepList
+        job={makeJob({
+          steps: [
+            makeStep({
+              name: 'build',
+              attempts: [buildFirstAttempt, buildLastAttempt],
+            }),
+            makeStep({
+              name: 'deploy',
+              position: 1,
+              attempts: [deployAttempt],
+            }),
+          ],
+        })}
+        renderStepFooter={(step) => <Text size="sm">footer {step.name}</Text>}
+      />,
+    );
+
+    expect(screen.getAllByText('footer build')).toHaveLength(1);
+    expect(screen.getAllByText('footer deploy')).toHaveLength(1);
+  });
+
   test('renders finished attempt duration from the step attempt model', () => {
     render(
       <StepList

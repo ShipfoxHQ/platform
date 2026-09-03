@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 const PAGE_HARNESS_ALLOWLIST = [
   'src/components/workflow-run-summary/workflow-run-attempt-switcher.test.tsx',
   'src/components/workflow-run-view/workflow-run-view.test.tsx',
+  'src/hooks/api/workflow-job-detail.test.tsx',
   'src/pages/project-workflows-page.test.tsx',
   'src/pages/workflow-job-detail-page.test.tsx',
   'src/pages/workflow-run-pages.test.tsx',

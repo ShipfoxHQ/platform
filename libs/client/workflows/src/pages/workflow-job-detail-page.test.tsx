@@ -1,14 +1,17 @@
+import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
+import {workflowJobQueryKeys} from '#hooks/api/workflow-job-detail.js';
 import type {WorkflowJobSearch, WorkflowRunsSearch} from '#routes/inputs.js';
 import {
   runAttemptsResponseDto,
+  workflowJobDetailResponseDto,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
   workflowRunDetailDto,
+  workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -21,6 +24,10 @@ const JOB_ID = '88888888-8888-4888-8888-888888888888';
 const EXECUTION_ID = '77777777-7777-4777-8777-777777777777';
 const STEP_ID = '99999999-9999-4999-8999-999999999999';
 const ATTEMPT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const PREVIOUS_EXECUTION_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const OLDER_STEP_ID = '12121212-1212-4121-8121-121212121212';
+const OLDER_STEP_ATTEMPT_ID = '13131313-1313-4131-8131-131313131313';
+const OLDER_ATTEMPT_ID = '14141414-1414-4141-8141-141414141414';
 const LIVE_JOB_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const LIVE_EXECUTION_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const LIVE_BUILD_STEP_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -32,9 +39,11 @@ const SIBLING_JOB_ID = '33333333-4444-4555-8666-777777777777';
 const BACK_TO_SUMMARY_PATTERN = /Back to run summary/;
 const RUN_MOVED_ON_PATTERN = /Run moved on to/;
 const LINT_LINK_PATTERN = /lint/;
+const EXECUTION_1_PATTERN = /Execution #1: release/u;
 const RELEASE_LINK_PATTERN = /release/;
 const ANNOTATION_LINK_PATTERN = /annotation/;
 const ANNOTATIONS_LINK_PATTERN = /Annotations/;
+const JOB_DETAIL_PATH_RE = /^\/workflows\/runs\/jobs\/([^/]+)$/u;
 
 describe('WorkflowJobDetailPage', () => {
   beforeEach(() => {
@@ -153,37 +162,126 @@ describe('WorkflowJobDetailPage', () => {
     expect(screen.getAllByText('1m 10s')).not.toHaveLength(0);
   });
 
-  test('shows a retarget notice when polling advances to the next running step', async () => {
-    let detailRequestCount = 0;
+  test('loads execution history only when the switcher opens', async () => {
+    const user = userEvent.setup();
+    const historyRequests: URL[] = [];
+    const legacyDetailRequests: URL[] = [];
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL((input as Request).url);
-      if (url.pathname.includes('/logs')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+        historyRequests.push(url);
       }
-      if (url.pathname.endsWith('/head')) {
-        return Promise.resolve(
-          jsonResponse({
-            current_attempt: 1,
-            latest_attempt: 1,
-            current_status: 'running',
-            updated_at: '2026-06-21T12:01:00.000Z',
-          }),
-        );
-      }
-      if (url.pathname.endsWith('/overview')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      detailRequestCount += 1;
-      return Promise.resolve(
-        jsonResponse(
-          detailRequestCount === 1 ? liveInitialJobDetailDto() : liveAdvancedJobDetailDto(),
-        ),
-      );
+      if (url.pathname === `/workflows/runs/${RUN_ID}`) legacyDetailRequests.push(url);
+      return jobDetailFetch(input);
     });
-    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+    configureApiClient({fetchImpl});
+
+    renderJobPath();
+    await screen.findByRole('heading', {name: 'release'});
+    expect(historyRequests).toHaveLength(0);
+    expect(legacyDetailRequests).toHaveLength(0);
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Switch job execution, currently execution 2: release',
+      }),
+    );
+
+    await waitFor(() => expect(historyRequests).toHaveLength(1));
+    expect(historyRequests[0]?.searchParams.get('limit')).toBe('25');
+    expect(legacyDetailRequests).toHaveLength(0);
+  });
+
+  test('shows an execution history retry row when the history request fails', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const url = new URL((input as Request).url);
+        if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+          return Promise.resolve(jsonResponse({code: 'history-error'}, {status: 500}));
+        }
+        return jobDetailFetch(input);
+      }),
+    });
+
+    renderJobPath();
+    await screen.findByRole('heading', {name: 'release'});
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Switch job execution, currently execution 2: release',
+      }),
+    );
+
+    expect(
+      await screen.findByRole('menuitem', {name: 'Could not load execution history. Retry'}),
+    ).toBeInTheDocument();
+  });
+
+  test('loads older execution history from the switcher menu', async () => {
+    const user = userEvent.setup();
+    const historyRequests: URL[] = [];
+    configureApiClient({
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const url = new URL((input as Request).url);
+        if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+          historyRequests.push(url);
+          return Promise.resolve(
+            jsonResponse(paginatedExecutionHistoryResponseDto(url.searchParams.get('cursor'))),
+          );
+        }
+        return jobDetailFetch(input);
+      }),
+    });
+
+    renderJobPath();
+    await screen.findByRole('heading', {name: 'release'});
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Switch job execution, currently execution 2: release',
+      }),
+    );
+    const loadOlder = await screen.findByRole('menuitem', {name: 'Load older executions'});
+
+    await user.click(loadOlder);
+
+    expect(await screen.findByRole('menuitem', {name: EXECUTION_1_PATTERN})).toBeInTheDocument();
+    expect(historyRequests).toHaveLength(2);
+    expect(historyRequests[1]?.searchParams.get('cursor')).toBe('execution-cursor');
+  });
+
+  test('loads older selected-job steps and attempts from their cursor controls', async () => {
+    const user = userEvent.setup();
+    const resourceRequests: URL[] = [];
+    configureApiClient({
+      fetchImpl: vi.fn((input) => paginatedSelectedJobDetailFetch(input, resourceRequests)),
+    });
+
+    renderJobPath();
+    await screen.findByRole('heading', {name: 'release'});
+
+    await user.click(await screen.findByRole('button', {name: 'Load older attempts'}));
+    await waitFor(() => expect(resourceRequests).toHaveLength(1));
+    expect(
+      await screen.findByRole('button', {name: 'tests, Succeeded, attempt 1'}),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', {name: 'Load older steps'}));
+    expect(
+      await screen.findByRole('button', {name: 'lint, Succeeded, attempt 1'}),
+    ).toBeInTheDocument();
+    expect(resourceRequests.map((url) => url.search)).toEqual([
+      '?limit=25&cursor=attempt-cursor',
+      '?limit=100&cursor=step-cursor',
+    ]);
+  });
+
+  test('shows a retarget notice when polling advances to the next running step', async () => {
+    const fetchImpl = liveJobDetailFetch({
+      jobId: LIVE_JOB_ID,
+      initial: liveInitialJobDetailDto(),
+      advanced: liveAdvancedJobDetailDto(),
+    });
+    configureApiClient({fetchImpl});
 
     const {queryClient} = renderJobPath('?runAttempt=1', LIVE_JOB_ID);
     expect(
@@ -191,7 +289,7 @@ describe('WorkflowJobDetailPage', () => {
     ).toBeInTheDocument();
 
     await act(async () => {
-      await queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(RUN_ID, 1)});
+      await queryClient.invalidateQueries({queryKey: workflowJobQueryKeys.detail(LIVE_JOB_ID)});
     });
 
     expect(await screen.findByText(RUN_MOVED_ON_PATTERN)).toBeInTheDocument();
@@ -199,38 +297,12 @@ describe('WorkflowJobDetailPage', () => {
   });
 
   test('shows a retarget notice when polling advances the running attempt', async () => {
-    let detailRequestCount = 0;
-    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL((input as Request).url);
-      if (url.pathname.includes('/logs')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname.endsWith('/head')) {
-        return Promise.resolve(
-          jsonResponse({
-            current_attempt: 1,
-            latest_attempt: 1,
-            current_status: 'running',
-            updated_at: '2026-06-21T12:01:00.000Z',
-          }),
-        );
-      }
-      if (url.pathname.endsWith('/overview')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      detailRequestCount += 1;
-      return Promise.resolve(
-        jsonResponse(
-          detailRequestCount === 1
-            ? liveRetriedInitialJobDetailDto()
-            : liveRetriedAdvancedJobDetailDto(),
-        ),
-      );
+    const fetchImpl = liveJobDetailFetch({
+      jobId: LIVE_JOB_ID,
+      initial: liveRetriedInitialJobDetailDto(),
+      advanced: liveRetriedAdvancedJobDetailDto(),
     });
-    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+    configureApiClient({fetchImpl});
 
     const {queryClient} = renderJobPath('?runAttempt=1', LIVE_JOB_ID);
     expect(
@@ -238,7 +310,7 @@ describe('WorkflowJobDetailPage', () => {
     ).toBeInTheDocument();
 
     await act(async () => {
-      await queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(RUN_ID, 1)});
+      await queryClient.invalidateQueries({queryKey: workflowJobQueryKeys.detail(LIVE_JOB_ID)});
     });
 
     expect(await screen.findByText(RUN_MOVED_ON_PATTERN)).toBeInTheDocument();
@@ -246,9 +318,7 @@ describe('WorkflowJobDetailPage', () => {
 
   test('moves focus to the heading after navigating from the job rail', async () => {
     const user = userEvent.setup();
-    configureApiClient({
-      fetchImpl: vi.fn(() => Promise.resolve(jsonResponse(multiJobDetailDto()))),
-    });
+    configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
 
     renderJobPath();
     await screen.findByRole('heading', {name: 'release'});
@@ -264,7 +334,10 @@ describe('WorkflowJobDetailPage', () => {
     renderJobPath();
 
     expect(await screen.findByText('A newer run attempt is available.')).toBeInTheDocument();
-    expect(screen.getByRole('link', {name: 'View attempt #2'})).toBeInTheDocument();
+    expect(screen.getByRole('link', {name: 'View attempt #2'})).toHaveAttribute(
+      'href',
+      expect.stringContaining(NEWER_JOB_ID),
+    );
   });
 
   test('renders the job-not-found state for a job outside the run', async () => {
@@ -344,9 +417,7 @@ describe('WorkflowJobDetailPage', () => {
   });
 
   test('explains a failure that happened before the first step started', async () => {
-    configureApiClient({
-      fetchImpl: vi.fn(() => Promise.resolve(jsonResponse(failedBeforeStepsDetailDto()))),
-    });
+    configureApiClient({fetchImpl: vi.fn(failedBeforeStepsJobDetailFetch)});
 
     renderJobPath();
 
@@ -457,7 +528,163 @@ function jobDetailFetch(input: RequestInfo | URL) {
     );
   }
 
+  if (url.pathname.endsWith('/head')) {
+    return Promise.resolve(
+      jsonResponse({
+        current_attempt: 1,
+        latest_attempt: 1,
+        current_status: 'succeeded',
+        updated_at: '2026-06-21T12:01:00.000Z',
+      }),
+    );
+  }
+
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+    return Promise.resolve(jsonResponse(executionHistoryResponseDto()));
+  }
+
+  if (url.pathname.endsWith('/overview')) {
+    return Promise.resolve(jsonResponse(workflowRunOverviewResponseDto(multiJobDetailDto())));
+  }
+
+  const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
+  if (jobMatch?.[1]) {
+    if (jobMatch[1] === 'missing-job') {
+      return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+    }
+    const detail = jobMatch[1] === SIBLING_JOB_ID ? multiJobDetailDto() : jobDetailDto();
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail,
+          jobId: jobMatch[1],
+          executionId: url.searchParams.has('execution_id')
+            ? url.searchParams.get('execution_id')
+            : undefined,
+        }),
+      ),
+    );
+  }
+
   return Promise.resolve(jsonResponse(jobDetailDto()));
+}
+
+function executionHistoryResponseDto() {
+  return {
+    items: [
+      executionHistoryItem(EXECUTION_ID, 2, 'succeeded'),
+      executionHistoryItem(PREVIOUS_EXECUTION_ID, 1, 'failed'),
+    ],
+    next_cursor: null,
+    total: 2,
+  };
+}
+
+function paginatedExecutionHistoryResponseDto(cursor: string | null) {
+  return {
+    items: cursor
+      ? [executionHistoryItem(PREVIOUS_EXECUTION_ID, 1, 'failed')]
+      : Array.from({length: 25}, (_unused, index) => {
+          const sequence = 26 - index;
+          return executionHistoryItem(
+            sequence === 2 ? EXECUTION_ID : historyExecutionId(sequence),
+            sequence,
+            'succeeded',
+          );
+        }),
+    next_cursor: cursor ? null : 'execution-cursor',
+    total: 26,
+  };
+}
+
+function executionHistoryItem(id: string, sequence: number, status: 'succeeded' | 'failed') {
+  return {
+    id,
+    sequence,
+    name: 'release',
+    status,
+    display_status: status,
+    status_reason: null,
+    status_reason_message: null,
+    queued_at: '2026-06-21T12:00:00.000Z',
+    started_at: '2026-06-21T12:00:05.000Z',
+    finished_at: '2026-06-21T12:01:15.000Z',
+    timed_out_at: null,
+    updated_at: '2026-06-21T12:01:15.000Z',
+  };
+}
+
+function historyExecutionId(sequence: number): string {
+  const suffix = String(sequence).padStart(12, '0');
+  return `${String(sequence).padStart(8, '0')}-aaaa-4aaa-8aaa-${suffix}`;
+}
+
+function olderStepPageResponseDto() {
+  const attempt = workflowStepAttemptDto({
+    id: OLDER_STEP_ATTEMPT_ID,
+    step_id: OLDER_STEP_ID,
+    attempt: 1,
+    status: 'succeeded',
+    gate_result: {kind: 'unknown', data: {}},
+  });
+  const step = workflowStepDto({
+    id: OLDER_STEP_ID,
+    key: 'lint',
+    name: 'lint',
+    position: 1,
+    status: 'succeeded',
+    attempts: [attempt],
+  });
+  const {attempts: _attempts, ...stepSummary} = step;
+  return {
+    items: [
+      {
+        ...stepSummary,
+        attempts: {items: [attempt], next_cursor: null, total: 1},
+      },
+    ],
+    next_cursor: null,
+    total: 2,
+  };
+}
+
+function olderAttemptPageResponseDto() {
+  return {
+    items: [
+      workflowStepAttemptDto({
+        id: OLDER_ATTEMPT_ID,
+        step_id: STEP_ID,
+        attempt: 1,
+        status: 'succeeded',
+        gate_result: {kind: 'unknown', data: {}},
+      }),
+    ],
+    next_cursor: null,
+    total: 2,
+  };
+}
+
+function paginatedSelectedJobDetailFetch(input: RequestInfo | URL, resourceRequests: URL[]) {
+  const request = input as Request;
+  const url = new URL(request.url);
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions/${EXECUTION_ID}/steps`) {
+    resourceRequests.push(url);
+    return Promise.resolve(jsonResponse(olderStepPageResponseDto()));
+  }
+  if (url.pathname === `/workflows/runs/steps/${STEP_ID}/attempts`) {
+    resourceRequests.push(url);
+    return Promise.resolve(jsonResponse(olderAttemptPageResponseDto()));
+  }
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}`) {
+    const response = workflowJobDetailResponseDto({detail: jobDetailDto(), jobId: JOB_ID});
+    if (response.selected_execution) {
+      response.selected_execution.steps.next_cursor = 'step-cursor';
+      const firstStep = response.selected_execution.steps.items[0];
+      if (firstStep) firstStep.attempts.next_cursor = 'attempt-cursor';
+    }
+    return Promise.resolve(jsonResponse(response));
+  }
+  return jobDetailFetch(input);
 }
 
 function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
@@ -476,6 +703,32 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 1, status: 'succeeded'}),
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 2, status: 'succeeded'}),
           ],
+        }),
+      ),
+    );
+  }
+
+  if (url.pathname.endsWith('/head')) {
+    return Promise.resolve(
+      jsonResponse({
+        current_attempt: 1,
+        latest_attempt: 2,
+        current_status: 'succeeded',
+        updated_at: '2026-06-21T12:01:00.000Z',
+      }),
+    );
+  }
+
+  const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
+  if (jobMatch?.[1]) {
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail: jobDetailDto(),
+          jobId: JOB_ID,
+          executionId: url.searchParams.has('execution_id')
+            ? url.searchParams.get('execution_id')
+            : undefined,
         }),
       ),
     );
@@ -508,6 +761,66 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
   }
 
   return Promise.resolve(jsonResponse(jobDetailDto()));
+}
+
+function failedBeforeStepsJobDetailFetch(input: RequestInfo | URL) {
+  const request = input as Request;
+  const url = new URL(request.url);
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}`) {
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail: failedBeforeStepsDetailDto(),
+          jobId: JOB_ID,
+        }),
+      ),
+    );
+  }
+  return Promise.resolve(jsonResponse(failedBeforeStepsDetailDto()));
+}
+
+function liveJobDetailFetch({
+  jobId,
+  initial,
+  advanced,
+}: {
+  jobId: string;
+  initial: WorkflowRunDetailResponseDto;
+  advanced: WorkflowRunDetailResponseDto;
+}) {
+  let jobDetailRequestCount = 0;
+  let runDetailRequestCount = 0;
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL((input as Request).url);
+    const staticResponse = liveJobStaticResponse(url);
+    if (staticResponse) return Promise.resolve(staticResponse);
+
+    if (url.pathname === `/workflows/runs/jobs/${jobId}`) {
+      const detail = jobDetailRequestCount++ === 0 ? initial : advanced;
+      return Promise.resolve(jsonResponse(workflowJobDetailResponseDto({detail, jobId})));
+    }
+    if (url.pathname === `/workflows/runs/${RUN_ID}`) {
+      const detail = runDetailRequestCount++ === 0 ? initial : advanced;
+      return Promise.resolve(jsonResponse(detail));
+    }
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function liveJobStaticResponse(url: URL): Response | undefined {
+  if (url.pathname.includes('/logs')) return jsonResponse({code: 'not-found'}, {status: 404});
+  if (url.pathname.endsWith('/head')) {
+    return jsonResponse({
+      current_attempt: 1,
+      latest_attempt: 1,
+      current_status: 'running',
+      updated_at: '2026-06-21T12:01:00.000Z',
+    });
+  }
+  if (url.pathname.endsWith('/overview')) {
+    return jsonResponse({code: 'not-found'}, {status: 404});
+  }
+  return undefined;
 }
 
 function liveInitialJobDetailDto() {
