@@ -1538,6 +1538,10 @@ describe('runner container entrypoint', () => {
     );
 
     expect(dockerfile).toContain('RUN node ./dist/verify-installation.js');
+    expect(verifyInstallation).toContain(
+      "import {assertBundledClaudeCodeVersion} from '@shipfox/runner-agent/claude-code';",
+    );
+    expect(verifyInstallation).toContain('assertBundledClaudeCodeVersion();');
     expect(verifyInstallation).toContain("'@shipfox/runner-execution/git-credential-helper'");
     expect(verifyInstallation).toContain("'./git-credential-helper.js'");
     expect(dockerfile).toContain('ENV SHIPFOX_RUNNER_ENABLE_RENEWABLE_GIT=true');

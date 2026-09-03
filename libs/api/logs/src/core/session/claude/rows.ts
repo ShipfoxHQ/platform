@@ -24,6 +24,8 @@ export const PURE_PROGRESS_CLAUDE_SYSTEM_SUBTYPES = new Set<string>([
   'thinking_tokens',
   'status',
   'session_state_changed',
+  'background_tasks_changed',
+  'control_request_progress',
   'task_progress',
   'hook_progress',
   'hook_started',

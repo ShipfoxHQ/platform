@@ -2,7 +2,7 @@ catalogMode: strict
 
 catalog:
   "@actions/core": "^3.0.0"
-  "@anthropic-ai/claude-agent-sdk": "0.3.200"
+  "@anthropic-ai/claude-agent-sdk": "0.3.246"
   "@anthropic-ai/sdk": "0.110.0"
   "@argos-ci/cli": "^5.0.0"
   "@argos-ci/playwright": "^7.0.0"
