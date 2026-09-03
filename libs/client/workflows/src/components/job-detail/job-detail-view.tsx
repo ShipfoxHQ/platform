@@ -142,6 +142,7 @@ export function JobDetailView({
   const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
   const selectedJobResources = useSelectedJobDetailPresentation({
     data: query.data,
+    selectedDetailUpdatedAt: query.dataUpdatedAt,
     selectedJobQuery,
     jobId,
   });
@@ -509,10 +510,12 @@ function normalizeJobDetailData(
 
 function useSelectedJobDetailPresentation({
   data,
+  selectedDetailUpdatedAt,
   selectedJobQuery,
   jobId,
 }: {
   data: JobDetailQuery['data'];
+  selectedDetailUpdatedAt: number;
   selectedJobQuery: boolean;
   jobId: string;
 }) {
@@ -546,10 +549,13 @@ function useSelectedJobDetailPresentation({
     () => flattenWorkflowExecutionStepsPages(stepsQuery.data),
     [stepsQuery.data],
   );
-  const presentedSteps = useMemo(
-    () => mergeWorkflowJobStepSummaries([loadedSteps, selectedDetailExecution?.steps.items ?? []]),
-    [loadedSteps, selectedDetailExecution?.steps.items],
-  );
+  const stepsResourceIsNewer = stepsQuery.dataUpdatedAt >= selectedDetailUpdatedAt;
+  const presentedSteps = useMemo(() => {
+    const embeddedSteps = selectedDetailExecution?.steps.items ?? [];
+    return mergeWorkflowJobStepSummaries(
+      stepsResourceIsNewer ? [embeddedSteps, loadedSteps] : [loadedSteps, embeddedSteps],
+    );
+  }, [loadedSteps, selectedDetailExecution?.steps.items, stepsResourceIsNewer]);
   const presentedStepById = useMemo(
     () => new Map(presentedSteps.map((step) => [step.id, step] as const)),
     [presentedSteps],
@@ -564,15 +570,21 @@ function useSelectedJobDetailPresentation({
     () => flattenWorkflowStepAttemptPages(attemptsQuery.data),
     [attemptsQuery.data],
   );
+  const attemptsResourceIsNewer = attemptsQuery.dataUpdatedAt >= selectedDetailUpdatedAt;
   const presentedAttemptsByStepId = useMemo(() => {
     if (!attemptsStepId) return undefined;
+    const embeddedAttempts = attemptsStep?.attempts.items ?? [];
     return new Map([
       [
         attemptsStepId,
-        mergeWorkflowJobStepAttempts([loadedAttempts, attemptsStep?.attempts.items ?? []]),
+        mergeWorkflowJobStepAttempts(
+          attemptsResourceIsNewer
+            ? [embeddedAttempts, loadedAttempts]
+            : [loadedAttempts, embeddedAttempts],
+        ),
       ],
     ]);
-  }, [attemptsStep?.attempts.items, attemptsStepId, loadedAttempts]);
+  }, [attemptsResourceIsNewer, attemptsStep?.attempts.items, attemptsStepId, loadedAttempts]);
 
   useEffect(() => {
     if (

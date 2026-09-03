@@ -266,7 +266,10 @@ function StepListContent({
             <ol>
               {model.entries.map((entry, index) => {
                 const selected = selectedAttemptIds.includes(entry.id);
-                const isLastAttemptForStep = model.entries[index + 1]?.step.id !== entry.step.id;
+                const isLastAttemptForStep = !model.entries.some(
+                  (candidate, candidateIndex) =>
+                    candidateIndex > index && candidate.step.id === entry.step.id,
+                );
                 return (
                   <StepRow
                     key={entry.id}

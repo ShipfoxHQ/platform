@@ -212,6 +212,20 @@ describe('selected-job API hooks', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  test('prefers refreshed resource summaries over embedded selected-job summaries', () => {
+    const detail = toWorkflowJobDetail(selectedJobDetailResponseDto());
+    const selectedExecution = detail.selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const embeddedStep = selectedExecution.steps.items[0];
+    if (!embeddedStep) throw new Error('Expected an embedded step');
+    const refreshedStep = {...embeddedStep, status: 'running' as const};
+
+    const mergedSteps = mergeWorkflowJobStepSummaries([[embeddedStep], [refreshedStep]]);
+
+    expect(mergedSteps).toHaveLength(1);
+    expect(mergedSteps[0]).toBe(refreshedStep);
+  });
+
   test('invalidates only the selected job detail and its history', async () => {
     const queryClient = new QueryClient();
     const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
