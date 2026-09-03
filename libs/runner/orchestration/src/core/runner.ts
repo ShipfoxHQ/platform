@@ -542,6 +542,7 @@ export async function runJob(
   } finally {
     heartbeatLoop.stop();
     if (currentJobAbortController === ac) currentJobAbortController = undefined;
+    replaceInferenceSecrets([]);
     await credentialLifecycle?.close().catch((error) => {
       logger().warn({err: error, jobId: job.job_id}, 'Failed to close job credential broker');
     });

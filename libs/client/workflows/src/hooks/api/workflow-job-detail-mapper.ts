@@ -5,6 +5,7 @@ import type {
   StepSummaryDto,
   WorkflowExecutionStepsResponseDto,
   WorkflowJobDetailDto,
+  WorkflowJobExecutionContextResponseDto,
   WorkflowJobExecutionDetailDto,
   WorkflowJobExecutionSummariesResponseDto,
   WorkflowStepAttemptSummariesResponseDto,
@@ -12,6 +13,7 @@ import type {
 import type {
   WorkflowExecutionStepsPage,
   WorkflowJobDetail,
+  WorkflowJobExecutionContext,
   WorkflowJobExecutionDetail,
   WorkflowJobExecutionPage,
   WorkflowJobStepAttemptSummary,
@@ -26,7 +28,13 @@ import {
   type StepError,
   type StepGateResult,
 } from '#core/workflow-run.js';
-import {toWorkflowRunOverviewExecution, toWorkflowRunOverviewJob} from './workflow-run-mapper.js';
+import {toWorkflowDiagnosticUnavailableField} from './workflow-diagnostic-mapper.js';
+import {
+  toEvaluationTrace,
+  toWorkflowExecutionEvent,
+  toWorkflowRunOverviewExecution,
+  toWorkflowRunOverviewJob,
+} from './workflow-run-mapper.js';
 
 export function toWorkflowJobDetail(dto: WorkflowJobDetailDto): WorkflowJobDetail {
   return {
@@ -36,6 +44,26 @@ export function toWorkflowJobDetail(dto: WorkflowJobDetailDto): WorkflowJobDetai
     selectedExecution: dto.selected_execution
       ? toWorkflowJobExecutionDetail(dto.job.id, dto.selected_execution)
       : null,
+  };
+}
+
+export function toWorkflowJobExecutionContext(
+  dto: WorkflowJobExecutionContextResponseDto,
+): WorkflowJobExecutionContext {
+  return {
+    workflowRunId: dto.workflow_run_id,
+    workflowRunAttempt: dto.workflow_run_attempt,
+    jobId: dto.job_id,
+    jobExecutionId: dto.job_execution_id,
+    jobRunner: dto.job_runner,
+    executionRunner: dto.execution_runner,
+    jobOutputs: dto.job_outputs,
+    executionOutputs: dto.execution_outputs,
+    triggerEvents: dto.trigger_events.map(toWorkflowExecutionEvent),
+    jobEvaluationTrace: toEvaluationTrace(dto.job_evaluation_trace),
+    executionEvaluationTrace: toEvaluationTrace(dto.execution_evaluation_trace),
+    condition: dto.condition,
+    oversizedFields: dto.oversized_fields.map(toWorkflowDiagnosticUnavailableField),
   };
 }
 

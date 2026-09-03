@@ -22,6 +22,9 @@ const architecturePackages = {
     runners: ['libs/api/runners'],
     secrets: ['libs/api/secrets'],
     triggers: ['libs/api/triggers'],
+    // Usage is a bounded context under docs/adr/0015-usage-context-and-application-seams.md.
+    // Classify it here as `usage: ['libs/api/usage']` when the package lands; the
+    // inventory check rejects a classified path that does not exist yet.
     workflows: ['libs/api/workflows'],
     workspaces: ['libs/api/workspaces'],
   },
@@ -47,6 +50,7 @@ const architecturePackages = {
     runners: ['libs/api/runners-dto'],
     secrets: ['libs/api/secrets-dto'],
     triggers: ['libs/api/triggers-dto'],
+    // Usage DTO package under ADR 0015: `usage: ['libs/api/usage-dto']` when it lands.
     workflows: ['libs/api/workflows-dto'],
     workspaces: ['libs/api/workspaces-dto'],
   },

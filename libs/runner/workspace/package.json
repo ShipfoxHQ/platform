@@ -38,6 +38,16 @@
         "types": "./dist/credential-socket.d.ts",
         "default": "./dist/credential-socket.js"
       }
+    },
+    "./credential-socket-transport": {
+      "workspace-source": {
+        "types": "./src/credential-socket-transport.ts",
+        "default": "./src/credential-socket-transport.ts"
+      },
+      "default": {
+        "types": "./dist/credential-socket-transport.d.ts",
+        "default": "./dist/credential-socket-transport.js"
+      }
     }
   },
   "scripts": {

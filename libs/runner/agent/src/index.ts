@@ -1,3 +1,7 @@
+export type {
+  InferenceCredential,
+  InferenceCredentialSource,
+} from '#core/harness.js';
 export {
   assertPiHarnessExtensionsAvailable,
   isPiExtensionAvailable,

@@ -31,11 +31,17 @@ import type {
   StepAttemptDetail,
   StepAttemptInvocation,
   StepError,
+  WorkflowDiagnosticUnavailableField,
 } from '#core/workflow-run.js';
+import {presentStepAttemptDiagnostics} from '#core/workflow-run.js';
 import {useStepAttemptDetailQuery} from '#hooks/api/step-attempt-detail.js';
 import {workflowRunSearchParams} from '#routes/inputs.js';
 import {humanizeStatus, type StepListEntryModel} from '../step-list/step-list-model.js';
 import {AgentConfigFailureCallout} from './agent-config-failure-callout.js';
+import {
+  DiagnosticUnavailableAnnouncement,
+  DiagnosticUnavailableField,
+} from './diagnostic-unavailable.js';
 import {toSelectedAttemptError} from './job-empty-states.js';
 import {JsonCode, type JsonCodeEntry, JsonCodeTabs} from './json-code.js';
 
@@ -67,6 +73,7 @@ export function StepInspectorSheet({
   const error = selectedStepError(entry.step, entry.error);
   const inspectorQuery = useStepAttemptDetailQuery(entry.step.id, entry.attempt, {
     enabled: open,
+    polling: open && entry.status === 'running',
   });
 
   return (
@@ -285,7 +292,7 @@ function InspectorQueryContent({
   hasAnnotations: boolean;
 }) {
   if (query.isPending) return <InspectorLoading />;
-  if (query.isError) {
+  if (query.isError && detail === undefined) {
     return (
       <Callout
         role="alert"
@@ -301,6 +308,7 @@ function InspectorQueryContent({
               type="button"
               size="2xs"
               variant="secondary"
+              isLoading={query.isFetching}
               onClick={() => void query.refetch()}
             >
               Retry
@@ -314,13 +322,41 @@ function InspectorQueryContent({
     return showFailure || hasAnnotations ? null : <EmptyInspector />;
   }
   return (
-    <InspectorDetailContent
-      detail={detail}
-      step={step}
-      attempt={attempt}
-      showFailure={showFailure}
-      hasAnnotations={hasAnnotations}
-    />
+    <div className="flex min-w-0 flex-col gap-group">
+      {query.isError ? <InspectorStaleError query={query} /> : null}
+      <InspectorDetailContent
+        detail={detail}
+        step={step}
+        attempt={attempt}
+        showFailure={showFailure}
+        hasAnnotations={hasAnnotations}
+      />
+    </div>
+  );
+}
+
+function InspectorStaleError({query}: {query: ReturnType<typeof useStepAttemptDetailQuery>}) {
+  return (
+    <Callout
+      role="status"
+      aria-live="polite"
+      type="warning"
+      variant="secondary"
+      className="rounded-8 border border-tag-warning-border p-panel-compact shadow-none"
+    >
+      <CalloutContent className="flex items-center justify-between gap-inline">
+        <Text size="xs">Could not refresh troubleshooting details.</Text>
+        <Button
+          type="button"
+          size="2xs"
+          variant="secondary"
+          isLoading={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          Retry
+        </Button>
+      </CalloutContent>
+    </Callout>
   );
 }
 
@@ -339,35 +375,138 @@ function InspectorDetailContent({
 }) {
   const trace = detail.evaluationTrace ?? null;
   const resolvedConfig = detail.config ?? null;
+  const presentedAttempt = presentStepAttemptDiagnostics(attempt, detail);
+  const unavailableFields = detail.oversizedFields ?? [];
   const isToolStep = step.type === 'tool';
-  const hasInputs =
-    countConfigValues(detail.authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0;
-  const hasOutputs =
-    attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
-  const hasTrace = trace !== null && trace.length > 0;
-  const detailCount = Number(hasInputs) + Number(hasOutputs) + Number(hasTrace);
+  const hasInputValues = inspectorHasInputValues(detail.authoredConfig, resolvedConfig);
+  const hasOutputValues = inspectorHasOutputValues(presentedAttempt);
+  const hasTraceValues = Boolean(trace?.length);
+  const hasAttemptDiagnostics = hasVisibleAttemptDiagnostics(detail);
+  const hasDetails =
+    hasInputValues ||
+    hasOutputValues ||
+    hasTraceValues ||
+    unavailableFields.length > 0 ||
+    hasAttemptDiagnostics;
   return (
     <div className="flex min-w-0 flex-col gap-group">
       {detail.session ? <SessionChip session={detail.session} /> : null}
       {isToolStep ? (
-        <ToolStepDetails detail={detail} attempt={attempt} showFailure={showFailure} />
+        <ToolStepDetails detail={detail} attempt={presentedAttempt} showFailure={showFailure} />
       ) : null}
-      {!isToolStep && hasInputs ? (
+      {!isToolStep && hasInputValues ? (
         <InspectorSection title="Inputs">
           <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
         </InspectorSection>
       ) : null}
-      {!isToolStep && hasOutputs ? <InspectorOutputs attempt={attempt} /> : null}
-      {hasTrace ? (
+      {!isToolStep && hasOutputValues ? <InspectorOutputs attempt={presentedAttempt} /> : null}
+      {hasTraceValues ? (
         <InspectorSection title="Evaluation">
           <EvaluationTrace trace={trace ?? []} />
         </InspectorSection>
       ) : null}
-      {!isToolStep && detailCount === 0 && !showFailure && !hasAnnotations ? (
-        <EmptyInspector />
-      ) : null}
+      <UnavailableDiagnosticsSection fields={unavailableFields} />
+      <AttemptDiagnostics detail={detail} />
+      <InspectorEmptyState
+        isToolStep={isToolStep}
+        hasDetails={hasDetails}
+        showFailure={showFailure}
+        hasAnnotations={hasAnnotations}
+      />
     </div>
   );
+}
+
+function inspectorHasInputValues(
+  authoredConfig: Record<string, unknown> | null,
+  resolvedConfig: Record<string, unknown> | null,
+): boolean {
+  return countConfigValues(authoredConfig) > 0 || countConfigValues(resolvedConfig) > 0;
+}
+
+function inspectorHasOutputValues(attempt: StepAttempt): boolean {
+  return attempt.outputs !== null || attempt.output !== null || attempt.response !== null;
+}
+
+function UnavailableDiagnosticsSection({
+  fields,
+}: {
+  fields: readonly WorkflowDiagnosticUnavailableField[];
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <InspectorSection title="Unavailable diagnostics">
+      {fields.map((field) => (
+        <DiagnosticUnavailableField
+          key={`${field.field}-${field.storedBytes}`}
+          field={field.field}
+          storedBytes={field.storedBytes}
+        />
+      ))}
+      <DiagnosticUnavailableAnnouncement count={fields.length} />
+    </InspectorSection>
+  );
+}
+
+function AttemptDiagnostics({detail}: {detail: StepAttemptDetail}) {
+  if (!hasVisibleAttemptDiagnostics(detail)) return null;
+
+  return (
+    <InspectorSection title="Attempt diagnostics">
+      {hasDiagnosticObject(detail.error) ? (
+        <JsonCode title="failure.json" value={detail.error} />
+      ) : null}
+      {hasVisibleGateResult(detail.gateResult) ? (
+        <JsonCode title="gate-result.json" value={detail.gateResult} />
+      ) : null}
+      {detail.restartFeedback ? (
+        <div className="flex min-w-0 flex-col gap-tight">
+          <Text size="xs" className="text-foreground-neutral-muted">
+            Restart feedback
+          </Text>
+          <Text size="xs" className="whitespace-pre-wrap text-foreground-neutral-base">
+            {detail.restartFeedback}
+          </Text>
+        </div>
+      ) : null}
+    </InspectorSection>
+  );
+}
+
+function hasDiagnosticObject(value: Record<string, unknown> | null | undefined): boolean {
+  return value !== null && value !== undefined && Object.keys(value).length > 0;
+}
+
+function hasVisibleGateResult(gateResult: StepAttemptDetail['gateResult']): boolean {
+  return (
+    gateResult !== undefined &&
+    gateResult !== null &&
+    gateResult.kind !== 'none' &&
+    gateResult.kind !== 'not_evaluated'
+  );
+}
+
+function hasVisibleAttemptDiagnostics(detail: StepAttemptDetail): boolean {
+  return (
+    hasDiagnosticObject(detail.error) ||
+    hasVisibleGateResult(detail.gateResult) ||
+    Boolean(detail.restartFeedback)
+  );
+}
+
+function InspectorEmptyState({
+  isToolStep,
+  hasDetails,
+  showFailure,
+  hasAnnotations,
+}: {
+  isToolStep: boolean;
+  hasDetails: boolean;
+  showFailure: boolean;
+  hasAnnotations: boolean;
+}) {
+  if (isToolStep || hasDetails || showFailure || hasAnnotations) return null;
+  return <EmptyInspector />;
 }
 
 function ToolStepDetails({
@@ -383,6 +522,11 @@ function ToolStepDetails({
   const mappedOutputs = toolMappedOutputs(attempt);
   return (
     <>
+      {countConfigValues(detail.authoredConfig) > 0 ? (
+        <InspectorSection title="Authored configuration">
+          <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={null} />
+        </InspectorSection>
+      ) : null}
       <InspectorSection title="Arguments">
         <JsonCode
           title="arguments.json"
@@ -403,6 +547,7 @@ function ToolStepDetails({
           <JsonCode value={mappedOutputs} />
         </InspectorSection>
       ) : null}
+      {attempt.response !== null ? <InspectorResponse response={attempt.response} /> : null}
     </>
   );
 }
@@ -558,17 +703,21 @@ function InspectorOutputs({attempt}: {attempt: StepAttempt}) {
           emptyMessage="No outputs declared; the `outputs:` mapping is empty."
         />
       ) : null}
-      {attempt.response !== null ? (
-        <div className="flex min-w-0 flex-col gap-tight">
-          <Text size="xs" className="text-foreground-neutral-muted">
-            Response
-          </Text>
-          <pre className="max-h-160 min-w-0 overflow-auto rounded-6 border border-border-neutral-base bg-background-neutral-subtle p-tight font-code text-xs leading-18 text-foreground-neutral-muted scrollbar">
-            {attempt.response}
-          </pre>
-        </div>
-      ) : null}
+      {attempt.response !== null ? <InspectorResponse response={attempt.response} /> : null}
     </InspectorSection>
+  );
+}
+
+function InspectorResponse({response}: {response: string}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-tight">
+      <Text size="xs" className="text-foreground-neutral-muted">
+        Response
+      </Text>
+      <pre className="max-h-160 min-w-0 overflow-auto rounded-6 border border-border-neutral-base bg-background-neutral-subtle p-tight font-code text-xs leading-18 text-foreground-neutral-muted scrollbar">
+        {response}
+      </pre>
+    </div>
   );
 }
 

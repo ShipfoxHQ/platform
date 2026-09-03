@@ -56,10 +56,17 @@ export type {
   StepAttemptSession,
   StepGateResult,
 } from './entities/step-attempt.js';
-export {StepAttempt} from './entities/step-attempt.js';
+export {
+  isTerminalStepAttemptStatus,
+  presentStepAttemptDiagnostics,
+  StepAttempt,
+} from './entities/step-attempt.js';
 export type {
+  WorkflowDiagnosticField,
+  WorkflowDiagnosticUnavailableField,
   WorkflowExecutionStepsPage,
   WorkflowJobDetail,
+  WorkflowJobExecutionContext,
   WorkflowJobExecutionDetail,
   WorkflowJobExecutionPage,
   WorkflowJobExecutionSummary,

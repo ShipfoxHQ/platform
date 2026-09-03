@@ -301,7 +301,7 @@ export function workflowJobDetailResponseDto({
     workflow_run_id: detail.id,
     workflow_run_attempt: detail.run_attempt.attempt,
     job: workflowJobOverviewDto(job, defaultExecution),
-    selected_execution: selectedExecution ? compactJobExecutionDto(selectedExecution) : null,
+    selected_execution: selectedExecution ? compactJobExecutionDto(job, selectedExecution) : null,
   };
 }
 
@@ -367,13 +367,18 @@ function jobExecutionSummaryDto(
 }
 
 function compactJobExecutionDto(
+  job: WorkflowRunJobDetailDto,
   execution: WorkflowRunJobExecutionDetailDto,
 ): NonNullable<WorkflowJobDetailDto['selected_execution']> {
   return {
     ...jobExecutionSummaryDto(execution),
     has_context: Boolean(
-      execution.runner ||
-        execution.outputs ||
+      job.runner?.length ||
+        Object.keys(job.outputs ?? {}).length > 0 ||
+        job.evaluation_trace?.length ||
+        job.success ||
+        execution.runner?.length ||
+        Object.keys(execution.outputs ?? {}).length > 0 ||
         execution.trigger_events.length ||
         execution.evaluation_trace?.length,
     ),

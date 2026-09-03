@@ -25,6 +25,22 @@ export interface RequestedIntegrationTool {
 /** How an agent may reach tools exposed by an MCP bridge. */
 export type HarnessToolSurface = 'strict-direct' | 'discovery';
 
+export interface InferenceCredential {
+  readonly token: string;
+  readonly generation: string;
+}
+
+/**
+ * Runner-owned source for a managed inference credential. Harness adapters may resolve it for
+ * each model request without receiving the job lease or owning renewal state.
+ */
+export interface InferenceCredentialSource {
+  resolve(options?: {
+    readonly rejectedGeneration?: string | undefined;
+  }): Promise<InferenceCredential>;
+  close(): void;
+}
+
 export interface HarnessInvocation {
   /** Workflow execution identity used to correlate runner diagnostics. */
   readonly jobExecutionId?: string | undefined;
@@ -45,6 +61,7 @@ export interface HarnessInvocation {
   readonly toolSurface?: HarnessToolSurface | undefined;
   /** Materialized integration tool IDs requested by this step, without schemas or secrets. */
   readonly requestedIntegrationTools?: readonly RequestedIntegrationTool[] | undefined;
+  readonly credentialSource?: InferenceCredentialSource | undefined;
   /** Deterministic runtime facts required before an output-complete Pi turn may stop. */
   readonly prerequisites?: AgentPrerequisiteContract | undefined;
   readonly outputs?: OutputDeclarations | undefined;

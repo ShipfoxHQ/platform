@@ -128,7 +128,7 @@ import {
   AgentInvocationError,
   AgentSessionUnavailableError,
 } from '#core/errors.js';
-import type {HarnessInvocation} from '#core/harness.js';
+import type {HarnessInvocation, InferenceCredentialSource} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 import {piHarnessAdapter} from '#core/pi-adapter.js';
 import {piExtensionDirectories} from '#core/pi-extensions.js';
@@ -1418,6 +1418,234 @@ describe('piHarnessAdapter', () => {
       key: 'sk-runtime-secret',
     });
     expect(createAgentSessionMock).toHaveBeenCalledWith(expect.objectContaining({model}));
+  });
+
+  it('resolves renewable credentials per read while keeping listing metadata-only', async () => {
+    const model = {provider: 'shipfox', id: 'managed-gpt'};
+    findMock.mockReturnValue(model);
+    const resolve = vi
+      .fn<InferenceCredentialSource['resolve']>()
+      .mockResolvedValueOnce({token: 'managed-token-1', generation: 'generation-1'})
+      .mockResolvedValueOnce({token: 'managed-token-2', generation: 'generation-2'});
+    const credentialSource: InferenceCredentialSource = {resolve, close: vi.fn()};
+
+    await piHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        model: 'managed-gpt',
+        credentials: {api_key: 'initial-managed-token'},
+        customProvider: customProvider({
+          base_url: 'https://gateway.example.test/inference/v1',
+          requires_api_key: true,
+        }),
+        credentialSource,
+      }),
+    );
+
+    const store = modelRuntimeCreateMock.mock.calls[0]?.[0].credentials;
+    await expect(store.list()).resolves.toEqual([{providerId: 'shipfox', type: 'api_key'}]);
+    await expect(store.read('shipfox')).resolves.toEqual({
+      type: 'api_key',
+      key: 'managed-token-1',
+    });
+    await expect(store.read('shipfox')).resolves.toEqual({
+      type: 'api_key',
+      key: 'managed-token-2',
+    });
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes and re-prompts once after a confirmed managed gateway 401', async () => {
+    const model = {provider: 'shipfox', id: 'managed-gpt'};
+    findMock.mockReturnValue(model);
+    let current = {token: 'managed-token-1', generation: 'generation-1'};
+    const resolve = vi.fn<InferenceCredentialSource['resolve']>((options) => {
+      if (options?.rejectedGeneration === 'generation-1') {
+        current = {token: 'managed-token-2', generation: 'generation-2'};
+      }
+      return Promise.resolve(current);
+    });
+    const credentialSource: InferenceCredentialSource = {resolve, close: vi.fn()};
+    const messages: unknown[] = [];
+    createAgentSessionMock.mockImplementation(() =>
+      Promise.resolve({
+        session: {
+          agent: {},
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          getLastAssistantText: getLastAssistantTextMock,
+          messages,
+        },
+      }),
+    );
+    promptMock.mockImplementation(async () => {
+      await runtimeCredential('shipfox');
+      messages.splice(0, messages.length);
+      if (promptMock.mock.calls.length === 1) {
+        messages.push({
+          role: 'assistant',
+          stopReason: 'error',
+          errorMessage: 'OpenAI API error (401): {"code":"unauthorized"}',
+        });
+        getLastAssistantTextMock.mockReturnValue('');
+      } else {
+        messages.push({role: 'assistant', stopReason: 'stop'});
+        getLastAssistantTextMock.mockReturnValue('recovered');
+      }
+    });
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({
+          provider: 'shipfox',
+          model: 'managed-gpt',
+          credentials: {api_key: 'initial-managed-token'},
+          customProvider: customProvider({
+            base_url: 'https://gateway.example.test/inference/v1',
+            requires_api_key: true,
+          }),
+          credentialSource,
+        }),
+      ),
+    ).resolves.toEqual({response: 'recovered'});
+
+    expect(promptMock).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenNthCalledWith(2, {rejectedGeneration: 'generation-1'});
+    await expect(runtimeCredential('shipfox')).resolves.toEqual({
+      type: 'api_key',
+      key: 'managed-token-2',
+    });
+  });
+
+  it('fails the resumable session when the single managed gateway retry fails', async () => {
+    const model = {provider: 'shipfox', id: 'managed-gpt'};
+    findMock.mockReturnValue(model);
+    let current = {token: 'managed-token-1', generation: 'generation-1'};
+    const resolve = vi.fn<InferenceCredentialSource['resolve']>((options) => {
+      if (options?.rejectedGeneration === 'generation-1') {
+        current = {token: 'managed-token-2', generation: 'generation-2'};
+      }
+      return Promise.resolve(current);
+    });
+    const credentialSource: InferenceCredentialSource = {resolve, close: vi.fn()};
+    const messages: unknown[] = [];
+    createAgentSessionMock.mockImplementation(() =>
+      Promise.resolve({
+        session: {
+          agent: {},
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          getLastAssistantText: getLastAssistantTextMock,
+          messages,
+          sessionFile: '/runner/agent-sessions/managed.json',
+          sessionId: 'managed-session',
+        },
+      }),
+    );
+    promptMock.mockImplementation(async () => {
+      await runtimeCredential('shipfox');
+      messages.splice(0, messages.length, {
+        role: 'assistant',
+        stopReason: 'error',
+        errorMessage: 'OpenAI API error (401): {"message":"expired","code":"unauthorized"}',
+      });
+      getLastAssistantTextMock.mockReturnValue('');
+    });
+
+    const result = piHarnessAdapter.run(
+      invocation({
+        provider: 'shipfox',
+        model: 'managed-gpt',
+        session: {mode: 'resume', file: '/runner/agent-sessions/managed.json'},
+        credentials: {api_key: 'initial-managed-token'},
+        customProvider: customProvider({
+          base_url: 'https://gateway.example.test/inference/v1',
+          requires_api_key: true,
+        }),
+        credentialSource,
+      }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: 'AgentInvocationError',
+      message: 'OpenAI API error (401): {"message":"expired","code":"unauthorized"}',
+      response: '',
+      sessionFile: '/runner/agent-sessions/managed.json',
+      sessionId: 'managed-session',
+    });
+    expect(promptMock).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenNthCalledWith(2, {rejectedGeneration: 'generation-1'});
+  });
+
+  it.each([
+    {
+      name: 'a managed gateway 403',
+      error: 'OpenAI API error (403): {"message":"forbidden","code":"unauthorized"}',
+      response: '',
+    },
+    {
+      name: 'an upstream authentication body',
+      error: 'OpenAI API error (401): {"message":"invalid key","code":"invalid_api_key"}',
+      response: '',
+    },
+    {
+      name: 'a nested authentication body',
+      error: 'OpenAI API error (401): {"error":{"message":"expired","code":"unauthorized"}}',
+      response: '',
+    },
+    {
+      name: 'a named authentication error after partial output',
+      error: 'OpenAI API error (401): {"message":"expired","code":"unauthorized"}',
+      response: 'partial response',
+    },
+  ])('$name does not trigger a managed credential retry', async ({error, response}) => {
+    const model = {provider: 'shipfox', id: 'managed-gpt'};
+    findMock.mockReturnValue(model);
+    const resolve = vi
+      .fn<InferenceCredentialSource['resolve']>()
+      .mockResolvedValue({token: 'managed-token', generation: 'generation-1'});
+    const credentialSource: InferenceCredentialSource = {resolve, close: vi.fn()};
+    const messages: unknown[] = [];
+    createAgentSessionMock.mockImplementation(() =>
+      Promise.resolve({
+        session: {
+          agent: {},
+          prompt: promptMock,
+          abort: abortMock,
+          bindExtensions: bindExtensionsMock,
+          getLastAssistantText: getLastAssistantTextMock,
+          messages,
+        },
+      }),
+    );
+    promptMock.mockImplementation(async () => {
+      await runtimeCredential('shipfox');
+      messages.splice(0, messages.length, {
+        role: 'assistant',
+        stopReason: 'error',
+        errorMessage: error,
+      });
+      getLastAssistantTextMock.mockReturnValue(response);
+    });
+
+    await expect(
+      piHarnessAdapter.run(
+        invocation({
+          provider: 'shipfox',
+          model: 'managed-gpt',
+          credentials: {api_key: 'initial-managed-token'},
+          customProvider: customProvider({
+            base_url: 'https://gateway.example.test/inference/v1',
+            requires_api_key: true,
+          }),
+          credentialSource,
+        }),
+      ),
+    ).rejects.toMatchObject({name: 'AgentInvocationError', message: error, response});
+    expect(promptMock).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
   });
 
   it('registers a keyed custom provider with empty auth storage and merged headers', async () => {

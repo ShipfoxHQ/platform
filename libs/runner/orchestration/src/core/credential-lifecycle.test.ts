@@ -160,6 +160,24 @@ describe('createJobCredentialLifecycle', () => {
     expect(clearSecrets).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards a custom renewal timeout to the credential helper', async () => {
+    const lifecycle = createJobCredentialLifecycle({
+      credentialsDir,
+      leaseClient: LEASE_CLIENT,
+      signal: new AbortController().signal,
+      registerSecrets: vi.fn(),
+      replaceSecrets: vi.fn(),
+      clearSecrets: vi.fn(),
+      renewalTimeoutMs: 60_000,
+    });
+
+    try {
+      expect(lifecycle.helper.timeoutMs).toBe(65_000);
+    } finally {
+      await lifecycle.close();
+    }
+  });
+
   it('renews a refresh-at credential during a get after its refresh deadline', async () => {
     const replaceSecrets = vi.fn();
     const lifecycle = createJobCredentialLifecycle({

@@ -1,6 +1,7 @@
 import type {
   WorkflowExecutionStepsResponseDto,
   WorkflowJobDetailDto,
+  WorkflowJobExecutionContextResponseDto,
   WorkflowJobExecutionSummariesResponseDto,
   WorkflowStepAttemptSummariesResponseDto,
 } from '@shipfox/api-workflows-dto';
@@ -17,12 +18,16 @@ import {
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import {jsonResponse} from '#test/pages.js';
+import {stepAttemptDetailQueryOptions} from './step-attempt-detail.js';
 import {
   invalidateWorkflowJobResources,
   useWorkflowExecutionStepsInfiniteQuery,
+  useWorkflowJobDiagnosticInvalidation,
+  useWorkflowJobExecutionContextQuery,
   useWorkflowJobExecutionsInfiniteQuery,
   useWorkflowStepAttemptsInfiniteQuery,
   workflowJobDetailQueryOptions,
+  workflowJobExecutionContextQueryOptions,
 } from './workflow-job-detail.js';
 import {
   mergeWorkflowJobStepAttempts,
@@ -109,6 +114,170 @@ describe('selected-job API hooks', () => {
     expect(observer.options.refetchInterval(query)).toBe(false);
     if (typeof observer.options.refetchOnWindowFocus !== 'function') return;
     expect(observer.options.refetchOnWindowFocus(query)).toBe(false);
+  });
+
+  test('keeps context disabled until requested and polls only while active', () => {
+    const disabledOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      enabled: false,
+    });
+    expect(disabledOptions.enabled).toBe(false);
+
+    const terminalOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      polling: false,
+    });
+    if (
+      typeof terminalOptions.staleTime !== 'function' ||
+      typeof terminalOptions.refetchOnWindowFocus !== 'function'
+    ) {
+      throw new Error('Expected status-aware context query options');
+    }
+    const terminalQuery = {state: {data: {}, error: null}} as never;
+    expect(terminalOptions.staleTime(terminalQuery)).toBe(Infinity);
+    expect(terminalOptions.refetchOnWindowFocus(terminalQuery)).toBe(false);
+    if (typeof terminalOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware context query options');
+    }
+    expect(terminalOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(false);
+
+    const activeOptions = workflowJobExecutionContextQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+      polling: true,
+    });
+    if (
+      typeof activeOptions.staleTime !== 'function' ||
+      typeof activeOptions.refetchOnWindowFocus !== 'function' ||
+      typeof activeOptions.refetchInterval !== 'function'
+    ) {
+      throw new Error('Expected status-aware context query options');
+    }
+    const activeQuery = {state: {data: {}, error: null}} as never;
+    expect(activeOptions.staleTime(activeQuery)).toBe(2_000);
+    expect(activeOptions.refetchOnWindowFocus(activeQuery)).toBe(true);
+    expect(activeOptions.refetchInterval(activeQuery)).toBe(4_000);
+    expect(
+      activeOptions.refetchInterval({
+        state: {data: {}, error: new Error('failed')},
+      } as never),
+    ).toBe(false);
+
+    const stepOptions = stepAttemptDetailQueryOptions(STEP_ID, 1, {polling: true});
+    if (typeof stepOptions.refetchInterval !== 'function') {
+      throw new Error('Expected status-aware step detail query options');
+    }
+    expect(
+      stepOptions.refetchInterval({
+        state: {data: {}, error: new Error('failed')},
+      } as never),
+    ).toBe(false);
+    expect(stepOptions.refetchInterval({state: {data: {}, error: null}} as never)).toBe(4_000);
+  });
+
+  test('invalidates lazy diagnostics once when compact resources become terminal', async () => {
+    const selectedExecution = toWorkflowJobDetail(selectedJobDetailResponseDto()).selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const running = withAttemptStatus(selectedExecution, 'running');
+    const terminal = withAttemptStatus(selectedExecution, 'succeeded');
+    const queryClient = new QueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const {rerender} = renderHook(
+      ({execution, steps}: {execution: typeof running; steps: typeof running.steps.items}) =>
+        useWorkflowJobDiagnosticInvalidation({execution, steps}),
+      {wrapper, initialProps: {execution: running, steps: running.steps.items}},
+    );
+
+    rerender({execution: terminal, steps: terminal.steps.items});
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
+    expect(invalidateQueries).toHaveBeenNthCalledWith(1, {
+      queryKey: ['workflow-executions', 'context', EXECUTION_ID],
+    });
+    expect(invalidateQueries).toHaveBeenNthCalledWith(2, {
+      queryKey: ['workflow-step-attempt-details', STEP_ID, 1],
+    });
+
+    const terminalAgain = withAttemptStatus(selectedExecution, 'succeeded');
+    rerender({execution: terminalAgain, steps: terminalAgain.steps.items});
+    expect(invalidateQueries).toHaveBeenCalledTimes(2);
+  });
+
+  test('invalidates cached diagnostics first observed after terminal transition', async () => {
+    const selectedExecution = toWorkflowJobDetail(selectedJobDetailResponseDto()).selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const terminal = withAttemptStatus(selectedExecution, 'succeeded');
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['workflow-executions', 'context', EXECUTION_ID], {});
+    queryClient.setQueryData(['workflow-step-attempt-details', STEP_ID, 1], {});
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    renderHook(
+      ({execution, steps}: {execution: typeof terminal; steps: typeof terminal.steps.items}) =>
+        useWorkflowJobDiagnosticInvalidation({execution, steps}),
+      {wrapper, initialProps: {execution: terminal, steps: terminal.steps.items}},
+    );
+
+    await waitFor(() => expect(invalidateQueries).toHaveBeenCalledTimes(2));
+    expect(invalidateQueries).toHaveBeenNthCalledWith(1, {
+      queryKey: ['workflow-executions', 'context', EXECUTION_ID],
+    });
+    expect(invalidateQueries).toHaveBeenNthCalledWith(2, {
+      queryKey: ['workflow-step-attempt-details', STEP_ID, 1],
+    });
+  });
+
+  test('fetches and maps context only through its bounded route', async () => {
+    const context = workflowJobExecutionContextResponseDto();
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL) => jsonResponse(context));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const disabled = renderWithQueryClient(() =>
+      useWorkflowJobExecutionContextQuery({
+        jobId: JOB_ID,
+        executionId: EXECUTION_ID,
+        enabled: false,
+      }),
+    );
+    expect(disabled.result.current.fetchStatus).toBe('idle');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    cleanup();
+
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowJobExecutionContextQuery({
+        jobId: JOB_ID,
+        executionId: EXECUTION_ID,
+        enabled: true,
+      }),
+    );
+    await waitFor(() => expect(result.current.data?.jobExecutionId).toBe(EXECUTION_ID));
+
+    expect(requestUrl(fetchImpl.mock.calls[0]?.[0] as RequestInfo)).toBe(
+      `https://api.example.test/workflows/runs/jobs/${JOB_ID}/executions/${EXECUTION_ID}/context`,
+    );
+    expect(result.current.data).toMatchObject({
+      workflowRunId: RUN_ID,
+      jobRunner: ['shared-runner'],
+      executionRunner: ['execution-runner'],
+      jobOutputs: {build: 'complete'},
+      triggerEvents: [{event: 'push', data: {branch: 'main'}}],
+      condition: 'inputs.enabled',
+      oversizedFields: [
+        {
+          field: 'job_outputs',
+          storedBytes: 70_000,
+          reason: 'legacy_value_exceeds_inline_limit',
+        },
+      ],
+    });
   });
 
   test('uses bounded cursor resources for execution, step, and attempt history', async () => {
@@ -287,6 +456,62 @@ function selectedJobDetailResponseDto(): WorkflowJobDetailDto {
     jobId: JOB_ID,
     executionId: EXECUTION_ID,
   });
+}
+
+function withAttemptStatus(
+  execution: NonNullable<ReturnType<typeof toWorkflowJobDetail>['selectedExecution']>,
+  status: 'running' | 'succeeded',
+) {
+  return {
+    ...execution,
+    status,
+    steps: {
+      ...execution.steps,
+      items: execution.steps.items.map((step) => ({
+        ...step,
+        attempts: {
+          ...step.attempts,
+          items: step.attempts.items.map((attempt) => ({...attempt, status})),
+        },
+      })),
+    },
+  };
+}
+
+function workflowJobExecutionContextResponseDto(): WorkflowJobExecutionContextResponseDto {
+  return {
+    workflow_run_id: RUN_ID,
+    workflow_run_attempt: 1,
+    job_id: JOB_ID,
+    job_execution_id: EXECUTION_ID,
+    job_runner: ['shared-runner'],
+    execution_runner: ['execution-runner'],
+    job_outputs: {build: 'complete'},
+    execution_outputs: {release: 'published'},
+    trigger_events: [
+      {
+        source: 'github',
+        event: 'push',
+        delivery_id: 'delivery-1',
+        received_at: '2026-06-21T12:00:00.000Z',
+        project: {id: '22222222-2222-4222-8222-222222222222'},
+        repository: 'shipfox/platform-v1',
+        ref: 'refs/heads/main',
+        commit: 'abcdef',
+        data: {branch: 'main'},
+      },
+    ],
+    job_evaluation_trace: null,
+    execution_evaluation_trace: null,
+    condition: 'inputs.enabled',
+    oversized_fields: [
+      {
+        field: 'job_outputs',
+        stored_bytes: 70_000,
+        reason: 'legacy_value_exceeds_inline_limit',
+      },
+    ],
+  };
 }
 
 function executionPage(cursor: string | null): WorkflowJobExecutionSummariesResponseDto {

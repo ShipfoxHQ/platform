@@ -24,6 +24,7 @@ documentation model and other engineering sources, start with the
 | [0012: Client route frames](0012-client-route-frames.md) | Accepted; amends ADR 0001 | Shell-owned content, data, and focused frame declarations and validation for composed routes. |
 | [0013: Workspace setup composition seams](0013-workspace-setup-composition-seams.md) | Accepted; amends ADR 0001 | Workspace-setup chrome slots, client analytics isolation, and shared dismissal ownership. |
 | [0014: Admin user impersonation](0014-admin-user-impersonation.md) | Accepted; amends ADR 0001; supersedes the private 2026-07-27 "User impersonation" non-goal by reference | The access-token-only session model, renewal semantics, the administrator-authority and durable-artefact hardening rules, and capability placement. |
+| [0015: Usage context and application seams](0015-usage-context-and-application-seams.md) | Accepted; amends ADR 0001 and ADR 0002 | The Usage bounded context and its per-entity scope, the `usagePricing` client seam, the workflow admission policy seam, and the server-only admission decision. |
 
 When a decision changes, add a new ADR that supersedes or amends the earlier
 record. Keep the original record intact so readers can understand why the

@@ -7,6 +7,7 @@ import {promisify} from 'node:util';
 import type {CheckoutTokenAuthDto} from '@shipfox/api-workflows-dto';
 import {normalizeRepositoryUrl} from '#credential-broker.js';
 import {assertCredentialSocketCapability} from '#credential-socket.js';
+import {assertCredentialSocketTimeout} from '#credential-socket-transport.js';
 
 const execFileAsync = promisify(execFile);
 const URL_CREDENTIAL_RE = /(https?:\/\/)[^/@\s]+@/gi;
@@ -282,6 +283,7 @@ export type GitCredentialHelperConfig = {
   command: string;
   socketPath: string;
   capability: string;
+  timeoutMs?: number;
 };
 
 /**
@@ -321,6 +323,7 @@ function validateGitCredentialHelper(helper: GitCredentialHelperConfig): void {
   assertSingleLineGitConfigValue(helper.command);
   assertSingleLineGitConfigValue(helper.socketPath);
   assertCredentialSocketCapability(helper.capability);
+  if (helper.timeoutMs !== undefined) assertCredentialSocketTimeout(helper.timeoutMs);
   if (helper.command.length === 0 || helper.socketPath.length === 0) {
     throw new TypeError('Git credential helper command, socket path, and capability are required');
   }
@@ -352,7 +355,7 @@ async function updateGitCredentialHelperConfig(params: {
   const helperLines = [
     ...(hasGitCredentialHttpPath(current) ? [] : ['[credential]', '\tuseHttpPath = true']),
     `[credential "${gitConfigSubsection(params.repositoryUrl)}"]`,
-    `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)} --capability ${shellQuote(params.helper.capability)}`)}`,
+    `\thelper = ${gitConfigQuotedValue(`!${params.helper.command} --socket ${shellQuote(params.helper.socketPath)} --capability ${shellQuote(params.helper.capability)}${params.helper.timeoutMs === undefined ? '' : ` --timeout-ms ${shellQuote(String(params.helper.timeoutMs))}`}`)}`,
   ];
 
   await writeAmbientGitConfigFile(params.configPath, async (temporaryConfigPath) => {

@@ -12,7 +12,7 @@ without a cloud account. For a production deployment, see
 <Steps>
   <Step>
 
-    **Prerequisites**
+    ### Prepare your machine for local Shipfox evaluation
 
     Make sure the following are installed and available on your `PATH` before continuing:
 
@@ -29,7 +29,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Install dependencies**
+    ### Install the Shipfox development dependencies
 
     Install runtime tooling with `mise` and then install Node dependencies with `pnpm`:
 
@@ -41,7 +41,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Build packages**
+    ### Build the Shipfox API and dashboard packages
 
     Build the packages the API and dashboard depend on. Run these two commands in order:
 
@@ -54,7 +54,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Start infrastructure services**
+    ### Start the Shipfox infrastructure services
 
     Bring up the Docker Compose stack:
 
@@ -84,7 +84,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Start the API and dashboard**
+    ### Start the Shipfox API and dashboard
 
     Open two terminal windows and start the API and dashboard processes:
 
@@ -100,7 +100,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Create your account and workspace**
+    ### Create a local Shipfox account and workspace
 
     Open `http://localhost:5173` and sign up with any name, email, and password.
 
@@ -124,7 +124,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Register a runner**
+    ### Register a local Shipfox runner
 
     A runner is required to execute jobs. Follow these steps to register one:
 
@@ -150,7 +150,7 @@ without a cloud account. For a production deployment, see
   </Step>
   <Step>
 
-    **Fire your first run**
+    ### Create and fire your first Shipfox workflow
 
     Create a workflow file in the `shipfox/demo` repository that uses a manual
     trigger. This is a complete workflow:
