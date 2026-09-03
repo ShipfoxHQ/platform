@@ -29,6 +29,7 @@ export type {
   ToolStepConfig,
   WorkflowDiagnosticField,
   WorkflowDiagnosticUnavailableField,
+  WorkflowDiagnosticUnavailableReason,
   WorkflowDisplayStatus,
   WorkflowExecutionStepsPage,
   WorkflowJobDetail,

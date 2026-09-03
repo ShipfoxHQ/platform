@@ -64,6 +64,7 @@ export {
 export type {
   WorkflowDiagnosticField,
   WorkflowDiagnosticUnavailableField,
+  WorkflowDiagnosticUnavailableReason,
   WorkflowExecutionStepsPage,
   WorkflowJobDetail,
   WorkflowJobExecutionContext,
