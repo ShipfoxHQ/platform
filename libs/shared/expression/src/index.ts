@@ -66,6 +66,7 @@ export {evaluatePlannedPredicateAtSite} from './plan/evaluate-planned-predicate.
 export {
   capTraceEntries,
   capTraceValue,
+  EVALUATION_TRACE_MAX_BYTES,
   EVALUATION_TRACE_MAX_ENTRIES,
   EVALUATION_TRACE_VALUE_CAP_BYTES,
   type EvaluationTraceEntry,

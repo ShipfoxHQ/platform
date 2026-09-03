@@ -3,6 +3,7 @@ import type {RoutedExpression} from './route-expression.js';
 
 export const EVALUATION_TRACE_VALUE_CAP_BYTES = 1024;
 export const EVALUATION_TRACE_MAX_ENTRIES = 256;
+export const EVALUATION_TRACE_MAX_BYTES = 64 * 1024;
 
 const TRACE_TRUNCATION_MARKER = '...[truncated]';
 const textEncoder = new TextEncoder();
@@ -93,10 +94,16 @@ export function predicateTraceEntry(input: PredicateTraceEntryInput): Evaluation
   });
 }
 
+/**
+ * Keeps the largest deterministic prefix that fits the entry and serialized UTF-8 byte limits.
+ * Existing dropped markers are folded into the final marker so repeated capping remains idempotent.
+ */
 export function capTraceEntries<Entry extends EvaluationTraceRowEntry>(
   entries: readonly Entry[],
+  maxBytes = EVALUATION_TRACE_MAX_BYTES,
 ): readonly (Exclude<Entry, EvaluationTraceLimitEntry> | EvaluationTraceLimitEntry)[] {
   const traceEntries: Exclude<Entry, EvaluationTraceLimitEntry>[] = [];
+  const traceEntryBytes: number[] = [];
   let dropped = 0;
 
   for (const entry of entries) {
@@ -106,17 +113,54 @@ export function capTraceEntries<Entry extends EvaluationTraceRowEntry>(
     }
 
     traceEntries.push(entry as Exclude<Entry, EvaluationTraceLimitEntry>);
+    traceEntryBytes.push(serializedJsonByteLength(entry));
   }
+
+  let traceBytes = 2;
+  for (const entryBytes of traceEntryBytes) {
+    traceBytes = appendSerializedEntryBytes(traceBytes, entryBytes);
+  }
+
+  const noMarkerFits =
+    dropped === 0 && traceEntries.length <= EVALUATION_TRACE_MAX_ENTRIES && traceBytes <= maxBytes;
+  if (noMarkerFits) return traceEntries;
 
   const keepCount = EVALUATION_TRACE_MAX_ENTRIES - 1;
-  if (traceEntries.length + (dropped > 0 ? 1 : 0) <= EVALUATION_TRACE_MAX_ENTRIES) {
-    return dropped === 0 ? traceEntries : [...traceEntries, {truncated: true, dropped}];
+  const retained: Exclude<Entry, EvaluationTraceLimitEntry>[] = [];
+  let retainedBytes = 2;
+  for (let index = 0; index < Math.min(keepCount, traceEntries.length); index += 1) {
+    const entry = traceEntries[index];
+    const entryBytes = traceEntryBytes[index];
+    if (entry === undefined || entryBytes === undefined) break;
+
+    const candidateBytes = appendSerializedEntryBytes(retainedBytes, entryBytes);
+    const candidateDropped = dropped + traceEntries.length - (index + 1);
+    if (traceWithDroppedMarkerBytes(candidateBytes, candidateDropped) > maxBytes) break;
+
+    retained.push(entry);
+    retainedBytes = candidateBytes;
   }
 
-  return [
-    ...traceEntries.slice(0, keepCount),
-    {truncated: true, dropped: dropped + traceEntries.length - keepCount},
-  ];
+  dropped += traceEntries.length - retained.length;
+  if (traceWithDroppedMarkerBytes(retainedBytes, dropped) > maxBytes) return [];
+
+  return [...retained, {truncated: true, dropped}];
+}
+
+function serializedJsonByteLength(value: unknown): number {
+  const serialized = JSON.stringify(value);
+  return textEncoder.encode(serialized ?? '').byteLength;
+}
+
+function appendSerializedEntryBytes(currentBytes: number, entryBytes: number): number {
+  return currentBytes + entryBytes + (currentBytes === 2 ? 0 : 1);
+}
+
+function traceWithDroppedMarkerBytes(prefixBytes: number, dropped: number): number {
+  return appendSerializedEntryBytes(
+    prefixBytes,
+    serializedJsonByteLength({truncated: true, dropped}),
+  );
 }
 
 function isEvaluationTraceLimitEntry(
