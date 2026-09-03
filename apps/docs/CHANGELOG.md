@@ -1,5 +1,12 @@
 # @shipfox/docs
 
+## 0.0.13
+
+### Patch Changes
+
+- Updated dependencies [e225f5e]
+  - @shipfox/workflow-document@3.5.0
+
 ## 0.0.12
 
 ### Patch Changes

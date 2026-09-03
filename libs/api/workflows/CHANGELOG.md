@@ -1,5 +1,35 @@
 # @shipfox/api-workflows
 
+## 21.0.0
+
+### Minor Changes
+
+- 12f7b10: Exposes bounded workflow-run diagnostics through the Workflows inter-module contract.
+- ff45d70: Adds optional `projectId`, `jobId`, `jobExecutionId`, `stepId`, and `attempt` fields to managed provider credential resolution.
+- e225f5e: Adds strict direct integration-tool surfaces and explicit discovery mode to Pi workflow configuration.
+
+### Patch Changes
+
+- 32e9fa0: Carries named agent sessions into failed-job reruns.
+- Updated dependencies [8825c23]
+- Updated dependencies [12f7b10]
+- Updated dependencies [ff45d70]
+- Updated dependencies [b6298b8]
+- Updated dependencies [e225f5e]
+- Updated dependencies [879f227]
+- Updated dependencies [cffa62d]
+- Updated dependencies [5886bf2]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+  - @shipfox/expression@2.6.1
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-agent-dto@21.0.0
+  - @shipfox/api-integration-core-dto@21.0.0
+  - @shipfox/api-definitions-dto@21.0.0
+  - @shipfox/workflow-document@3.5.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-runners-dto@21.0.0
+
 ## 20.4.0
 
 ### Minor Changes

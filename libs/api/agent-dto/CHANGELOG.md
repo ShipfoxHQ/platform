@@ -1,5 +1,18 @@
 # @shipfox/api-agent-dto
 
+## 21.0.0
+
+### Minor Changes
+
+- ff45d70: Adds optional `projectId`, `jobId`, `jobExecutionId`, `stepId`, and `attempt` fields to managed provider credential resolution.
+- e225f5e: Adds strict direct integration-tool surfaces and explicit discovery mode to Pi workflow configuration.
+- b5d02d1: Adds renewable inference credential metadata, capability, and failure-reason contracts while preserving legacy behavior.
+
+### Patch Changes
+
+- Updated dependencies [e225f5e]
+  - @shipfox/workflow-document@3.5.0
+
 ## 20.1.0
 
 ### Minor Changes

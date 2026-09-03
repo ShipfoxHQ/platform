@@ -1,5 +1,21 @@
 # @shipfox/api-integration-github-dto
 
+## 21.0.0
+
+### Major Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+
+### Minor Changes
+
+- 879f227: Adds GitHub authorization state for selected and all repository access.
+
+### Patch Changes
+
+- Updated dependencies [b6298b8]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-integration-core-dto@21.0.0
+
 ## 20.1.0
 
 ### Patch Changes

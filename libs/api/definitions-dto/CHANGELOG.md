@@ -1,5 +1,18 @@
 # @shipfox/api-definitions-dto
 
+## 21.0.0
+
+### Minor Changes
+
+- e225f5e: Adds strict direct integration-tool surfaces and explicit discovery mode to Pi workflow configuration.
+
+### Patch Changes
+
+- Updated dependencies [8825c23]
+- Updated dependencies [e225f5e]
+  - @shipfox/expression@2.6.1
+  - @shipfox/workflow-document@3.5.0
+
 ## 20.3.0
 
 ### Patch Changes

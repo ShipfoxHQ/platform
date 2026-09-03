@@ -1,5 +1,40 @@
 # @shipfox/api-server
 
+## 21.0.0
+
+### Patch Changes
+
+- Updated dependencies [12f7b10]
+- Updated dependencies [ff45d70]
+- Updated dependencies [b6298b8]
+- Updated dependencies [e225f5e]
+- Updated dependencies [a6b393f]
+- Updated dependencies [e3afd72]
+- Updated dependencies [879f227]
+- Updated dependencies [6e746e2]
+- Updated dependencies [cffa62d]
+- Updated dependencies [5886bf2]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+- Updated dependencies [f3df1e5]
+  - @shipfox/api-workflows@21.0.0
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-agent@21.0.0
+  - @shipfox/api-agent-dto@21.0.0
+  - @shipfox/api-integration-core@21.0.0
+  - @shipfox/api-integration-core-dto@21.0.0
+  - @shipfox/api-definitions-dto@21.0.0
+  - @shipfox/api-definitions@21.0.0
+  - @shipfox/api-logs@21.0.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-projects@21.0.0
+  - @shipfox/api-runners-dto@21.0.0
+  - @shipfox/api-triggers@21.0.0
+  - @shipfox/api-runners@21.0.0
+  - @shipfox/api-dispatcher@20.2.0
+  - @shipfox/api-secrets@21.0.0
+  - @shipfox/api-workspaces@21.0.0
+
 ## 20.4.0
 
 ### Patch Changes

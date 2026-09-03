@@ -1,5 +1,15 @@
 # @shipfox/api-integration-core-dto
 
+## 21.0.0
+
+### Major Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+
+### Minor Changes
+
+- b6298b8: Adds Test VCS credential invalidation, refresh controls, and shared E2E setup DTOs.
+
 ## 20.1.0
 
 ### Minor Changes

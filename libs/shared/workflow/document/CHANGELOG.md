@@ -1,5 +1,11 @@
 # @shipfox/workflow-document
 
+## 3.5.0
+
+### Minor Changes
+
+- e225f5e: Adds strict direct integration-tool surfaces and explicit discovery mode to Pi workflow configuration.
+
 ## 3.4.0
 
 ### Minor Changes

@@ -1,5 +1,30 @@
 # @shipfox/client-workflows
 
+## 33.0.0
+
+### Minor Changes
+
+- cffa62d: Adds bounded workflow-run overviews with API-provided status, duration, and
+  `has_started_job_execution`, plus pinned-attempt workspace navigation and
+  attempt/source reads.
+- 86c7c40: Adds selected-job navigation and bounded execution-history queries to the workflow client.
+
+### Patch Changes
+
+- Updated dependencies [12f7b10]
+- Updated dependencies [e225f5e]
+- Updated dependencies [cffa62d]
+- Updated dependencies [5886bf2]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+- Updated dependencies [f3df1e5]
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-definitions-dto@21.0.0
+  - @shipfox/client-integrations@33.0.0
+  - @shipfox/api-triggers-dto@21.0.0
+  - @shipfox/client-projects@33.0.0
+  - @shipfox/client-triggers@33.0.0
+
 ## 32.0.0
 
 ### Patch Changes

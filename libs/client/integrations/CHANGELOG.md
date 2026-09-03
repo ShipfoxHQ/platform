@@ -1,5 +1,25 @@
 # @shipfox/client-integrations
 
+## 33.0.0
+
+### Major Changes
+
+- 5886bf2: Make selected repository access project-only and remove manual repository grants.
+
+### Patch Changes
+
+- Updated dependencies [b6298b8]
+- Updated dependencies [879f227]
+- Updated dependencies [5886bf2]
+  - @shipfox/api-integration-core-dto@21.0.0
+  - @shipfox/api-integration-github-dto@21.0.0
+  - @shipfox/api-integration-gitea-dto@21.0.0
+  - @shipfox/api-integration-jira-dto@21.0.0
+  - @shipfox/api-integration-linear-dto@21.0.0
+  - @shipfox/api-integration-sentry-dto@21.0.0
+  - @shipfox/api-integration-slack-dto@21.0.0
+  - @shipfox/api-integration-webhook-dto@21.0.0
+
 ## 32.0.0
 
 ### Patch Changes

@@ -1,5 +1,25 @@
 # @shipfox/api-agent
 
+## 21.0.0
+
+### Minor Changes
+
+- ff45d70: Adds optional `projectId`, `jobId`, `jobExecutionId`, `stepId`, and `attempt` fields to managed provider credential resolution.
+- b5d02d1: Adds renewable inference credential metadata, capability, and failure-reason contracts while preserving legacy behavior.
+
+### Patch Changes
+
+- e3afd72: Allows forked agent steps to continue sessions with their pinned harness when the step omits `harness`.
+- Updated dependencies [12f7b10]
+- Updated dependencies [ff45d70]
+- Updated dependencies [e225f5e]
+- Updated dependencies [cffa62d]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-agent-dto@21.0.0
+  - @shipfox/workflow-document@3.5.0
+
 ## 20.4.0
 
 ### Patch Changes

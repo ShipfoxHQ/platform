@@ -1,5 +1,27 @@
 # @shipfox/api-agent-access
 
+## 21.0.0
+
+### Minor Changes
+
+- f3df1e5: Add bounded Agent Access trigger-event detail and facet discovery tools.
+
+### Patch Changes
+
+- Updated dependencies [12f7b10]
+- Updated dependencies [e225f5e]
+- Updated dependencies [879f227]
+- Updated dependencies [cffa62d]
+- Updated dependencies [5886bf2]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+- Updated dependencies [f3df1e5]
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/api-definitions-dto@21.0.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-agent-access-dto@21.0.0
+  - @shipfox/api-triggers-dto@21.0.0
+
 ## 20.4.0
 
 ### Minor Changes

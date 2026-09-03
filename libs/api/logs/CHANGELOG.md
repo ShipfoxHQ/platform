@@ -1,5 +1,18 @@
 # @shipfox/api-logs
 
+## 21.0.0
+
+### Patch Changes
+
+- a6b393f: Updates Claude session parsing for system events introduced by Claude Agent SDK 0.3.246.
+- Updated dependencies [12f7b10]
+- Updated dependencies [e225f5e]
+- Updated dependencies [cffa62d]
+- Updated dependencies [b5d02d1]
+- Updated dependencies [32e9fa0]
+  - @shipfox/api-workflows-dto@21.0.0
+  - @shipfox/workflow-document@3.5.0
+
 ## 20.4.0
 
 ### Patch Changes
