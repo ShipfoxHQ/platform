@@ -25,7 +25,10 @@ const utf8CappedString = (maxBytes: number) =>
 
 const textSchema = utf8CappedString(AGENT_ACCESS_TEXT_MAX_BYTES);
 const shortTextSchema = utf8CappedString(AGENT_ACCESS_CONNECTION_NAME_MAX_BYTES);
-const serializedJsonSchema = utf8CappedString(AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES);
+const serializedJsonSchema = utf8CappedString(AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES).refine(
+  isSerializedJson,
+  {message: 'String must contain valid serialized JSON'},
+);
 
 export const getTriggerEventInputSchema = z.object({event_id: idSchema}).strict();
 
@@ -112,6 +115,7 @@ const shortText = {
 const serializedJson = {
   type: 'string',
   maxLength: AGENT_ACCESS_SERIALIZED_JSON_MAX_BYTES,
+  contentMediaType: 'application/json',
 } as const;
 const nullable = (schema: Record<string, unknown>) => ({anyOf: [schema, {type: 'null'}]}) as const;
 
@@ -121,6 +125,15 @@ export const getTriggerEventInputJsonSchema = {
   required: ['event_id'],
   additionalProperties: false,
 } as const satisfies AgentAccessObjectSchema;
+
+function isSerializedJson(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export const getTriggerEventFacetsInputJsonSchema = {
   type: 'object',

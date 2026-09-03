@@ -9,7 +9,7 @@ import type {
   TriggerReceivedEvent,
   TriggerReceivedEventSummary,
 } from '#core/entities/received-event.js';
-import {db, type Tx} from './db.js';
+import {db, type Executor} from './db.js';
 import {toTriggerDecision, triggersDecisions} from './schema/decisions.js';
 import {
   toTriggerReceivedEvent,
@@ -147,29 +147,7 @@ export async function listReplaysOfTriggerEvent(
   eventId: string,
   workspaceId: string,
 ): Promise<TriggerEventReplay[]> {
-  const rows = await db()
-    .select({
-      id: triggersReceivedEvents.id,
-      receivedAt: triggersReceivedEvents.receivedAt,
-      outcome: triggersReceivedEvents.outcome,
-      runId: triggersDecisions.runId,
-    })
-    .from(triggersReceivedEvents)
-    .leftJoin(
-      triggersDecisions,
-      and(
-        eq(triggersDecisions.receivedEventId, triggersReceivedEvents.id),
-        eq(triggersDecisions.subscriptionKind, 'dev'),
-      ),
-    )
-    .where(
-      and(
-        eq(triggersReceivedEvents.replayOfEventId, eventId),
-        eq(triggersReceivedEvents.workspaceId, workspaceId),
-        eq(triggersReceivedEvents.origin, 'dev'),
-      ),
-    )
-    .orderBy(desc(triggersReceivedEvents.receivedAt), desc(triggersReceivedEvents.id));
+  const rows = await selectReplayRows(db(), {eventId, workspaceId});
 
   return rows.map((row) => ({
     id: row.id,
@@ -196,13 +174,7 @@ export function listReplaysOfTriggerEventPage(params: {
       const [countRow] = await tx
         .select({value: count()})
         .from(triggersReceivedEvents)
-        .where(
-          and(
-            eq(triggersReceivedEvents.replayOfEventId, params.eventId),
-            eq(triggersReceivedEvents.workspaceId, params.workspaceId),
-            eq(triggersReceivedEvents.origin, 'dev'),
-          ),
-        );
+        .where(replayConditions(params.eventId, params.workspaceId));
       return {
         items: rows.map((row) => ({
           id: row.id,
@@ -241,7 +213,7 @@ export function listDecisionsByReceivedEventIdPage(params: {
         .select()
         .from(triggersDecisions)
         .where(eq(triggersDecisions.receivedEventId, params.receivedEventId))
-        .orderBy(desc(triggersDecisions.createdAt), asc(triggersDecisions.id))
+        .orderBy(desc(triggersDecisions.createdAt), desc(triggersDecisions.id))
         .limit(params.limit);
       const [countRow] = await tx
         .select({value: count()})
@@ -256,8 +228,19 @@ export function listDecisionsByReceivedEventIdPage(params: {
   );
 }
 
-function selectReplayRows(tx: Tx, params: {eventId: string; workspaceId: string; limit: number}) {
-  return tx
+function replayConditions(eventId: string, workspaceId: string) {
+  return and(
+    eq(triggersReceivedEvents.replayOfEventId, eventId),
+    eq(triggersReceivedEvents.workspaceId, workspaceId),
+    eq(triggersReceivedEvents.origin, 'dev'),
+  );
+}
+
+function selectReplayRows(
+  tx: Executor,
+  params: {eventId: string; workspaceId: string; limit?: number},
+) {
+  const query = tx
     .select({
       id: triggersReceivedEvents.id,
       receivedAt: triggersReceivedEvents.receivedAt,
@@ -272,13 +255,7 @@ function selectReplayRows(tx: Tx, params: {eventId: string; workspaceId: string;
         eq(triggersDecisions.subscriptionKind, 'dev'),
       ),
     )
-    .where(
-      and(
-        eq(triggersReceivedEvents.replayOfEventId, params.eventId),
-        eq(triggersReceivedEvents.workspaceId, params.workspaceId),
-        eq(triggersReceivedEvents.origin, 'dev'),
-      ),
-    )
-    .orderBy(desc(triggersReceivedEvents.receivedAt), asc(triggersReceivedEvents.id))
-    .limit(params.limit);
+    .where(replayConditions(params.eventId, params.workspaceId))
+    .orderBy(desc(triggersReceivedEvents.receivedAt), desc(triggersReceivedEvents.id));
+  return params.limit === undefined ? query : query.limit(params.limit);
 }
