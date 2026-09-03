@@ -84,12 +84,13 @@ export function createAgentRuntimeConfigRoute(params: {
     },
     handler: async (request, reply) => {
       const {step_id: stepId, attempt} = request.query;
-      const {step, workspaceId, projectId} = await loadRunningLeasedStep({
+      const loadedStep = await loadRunningLeasedStep({
         runners: params.runners,
         request,
         stepId,
         attempt,
       });
+      const {step, workspaceId, projectId, renewableInference} = loadedStep;
 
       if (step.type !== 'agent') {
         throw new ClientError('Step is not an agent step', 'step-not-agent', {status: 409});
@@ -128,6 +129,14 @@ export function createAgentRuntimeConfigRoute(params: {
         provider: agentConfig.provider,
         model: agentConfig.model,
         thinking: agentConfig.thinking,
+        ...(renewableInference === undefined ? {} : {renewableInference}),
+      });
+
+      await loadRunningLeasedStep({
+        runners: params.runners,
+        request,
+        stepId,
+        attempt,
       });
 
       reply.header('cache-control', 'no-store');

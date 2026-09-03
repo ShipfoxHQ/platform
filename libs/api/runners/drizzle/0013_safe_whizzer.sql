@@ -1,0 +1,1 @@
+ALTER TABLE "runners_running_jobs" ADD COLUMN "renewable_inference" boolean;

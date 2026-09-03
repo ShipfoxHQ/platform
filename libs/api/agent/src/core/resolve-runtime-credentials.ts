@@ -31,6 +31,7 @@ export interface ResolveRuntimeCredentialsParams {
   runId: string;
   stepAttemptId: string;
   jobIdentity?: ManagedProviderJobIdentity | undefined;
+  renewableInference?: boolean | undefined;
   harness: Harness;
   provider: ModelProviderRef;
   model: string;
@@ -98,6 +99,9 @@ async function resolveManagedCredentials(
     stepAttemptId: params.stepAttemptId,
     ...(params.jobIdentity === undefined ? {} : {jobIdentity: params.jobIdentity}),
     model: params.model,
+    ...(params.renewableInference === undefined
+      ? {}
+      : {renewableInference: params.renewableInference}),
   });
   recordRuntimeConfigResolution(params, {source: 'instance', outcome: 'resolved'});
   return toResponse(params, managedRuntimeConfig.credentials, undefined, {

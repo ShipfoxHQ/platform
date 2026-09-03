@@ -513,6 +513,7 @@ interface ClaimPendingJobExecutionParams {
 interface ClaimRunnerContext {
   provisionerId: string | null;
   providerRunnerId: string | null;
+  renewableInference: boolean | null;
   runnerInstanceCondition: ReturnType<typeof eq> | undefined;
 }
 
@@ -531,14 +532,20 @@ export async function claimPendingJobExecution(
   let queueTimeObservation: JobExecutionQueueTimeObservation | null = null;
   let firstClaimReservationReleaseCount = 0;
   const result = await db().transaction(async (tx) => {
-    const {provisionerId, providerRunnerId, runnerInstanceCondition} =
+    const {provisionerId, providerRunnerId, renewableInference, runnerInstanceCondition} =
       await loadClaimRunnerContextTx(tx, params);
 
     // `id` is a uuidv7 (time-ordered), so it is a deterministic FIFO tiebreaker
     // for rows sharing a created_at within a batch. Lock only the FIFO candidate before
     // attempting its execution advisory lock; putting pg_try_advisory_xact_lock in this
     // predicate would evaluate it while scanning and temporarily lock many queue entries.
-    const pendingClaim = await claimPendingCandidateTx(tx, params, provisionerId, providerRunnerId);
+    const pendingClaim = await claimPendingCandidateTx(
+      tx,
+      params,
+      provisionerId,
+      providerRunnerId,
+      renewableInference,
+    );
     if (!pendingClaim) return null;
     const {row, claimed} = pendingClaim;
 
@@ -609,25 +616,31 @@ async function loadClaimRunnerContextTx(
   let runnerInstanceId: string | null = null;
   let provisionerId: string | null = null;
   let providerRunnerId: string | null = null;
+  const sessionQuery = tx
+    .select({
+      maxClaims: runnerSessions.maxClaims,
+      claimsUsed: runnerSessions.claimsUsed,
+      revokedAt: runnerSessions.revokedAt,
+      runnerInstanceId: runnerSessions.runnerInstanceId,
+      provisionerId: runnerSessions.provisionerId,
+      providerRunnerId: runnerSessions.providerRunnerId,
+      toolCapabilities: runnerSessions.toolCapabilities,
+    })
+    .from(runnerSessions)
+    .where(eq(runnerSessions.id, params.runnerSessionId))
+    .limit(1);
+  const [session] =
+    params.maxClaims === null ? await sessionQuery : await sessionQuery.for('update');
+  let renewableInference: boolean | null = null;
   if (params.maxClaims !== null) {
-    const [session] = await tx
-      .select({
-        maxClaims: runnerSessions.maxClaims,
-        claimsUsed: runnerSessions.claimsUsed,
-        revokedAt: runnerSessions.revokedAt,
-        runnerInstanceId: runnerSessions.runnerInstanceId,
-        provisionerId: runnerSessions.provisionerId,
-        providerRunnerId: runnerSessions.providerRunnerId,
-      })
-      .from(runnerSessions)
-      .where(eq(runnerSessions.id, params.runnerSessionId))
-      .limit(1)
-      .for('update');
     assertClaimSessionAvailable(session, params.runnerSessionId);
     runnerInstanceId = session.runnerInstanceId;
     provisionerId = session.provisionerId;
     providerRunnerId = session.providerRunnerId;
   }
+  // The execution owns this claim-time value. Do not derive it from report freshness.
+  if (session)
+    renewableInference = session.toolCapabilities?.features?.renewable_inference === true;
   const runnerInstanceCondition = claimRunnerInstanceCondition(
     runnerInstanceId,
     provisionerId,
@@ -636,7 +649,7 @@ async function loadClaimRunnerContextTx(
   if (runnerInstanceCondition && provisionerId) {
     await lockClaimRunnerReservationIdsTx(tx, provisionerId, runnerInstanceCondition);
   }
-  return {provisionerId, providerRunnerId, runnerInstanceCondition};
+  return {provisionerId, providerRunnerId, renewableInference, runnerInstanceCondition};
 }
 
 function assertClaimSessionAvailable<
@@ -694,6 +707,7 @@ async function claimPendingCandidateTx(
   params: ClaimPendingJobExecutionParams,
   provisionerId: string | null,
   providerRunnerId: string | null,
+  renewableInference: boolean | null,
 ): Promise<{
   row: typeof pendingJobExecutions.$inferSelect;
   claimed: {claimedAt: Date};
@@ -731,6 +745,7 @@ async function claimPendingCandidateTx(
       jobExecutionId: row.jobExecutionId,
       projectId: row.projectId,
       runnerSessionId: params.runnerSessionId,
+      renewableInference,
       provisionerId,
       providerRunnerId,
       requiredLabels: row.requiredLabels,
@@ -1164,8 +1179,25 @@ export async function isJobLeaseActive(params: {
   jobExecutionId: string;
   runnerSessionId: string;
 }): Promise<boolean> {
+  const state = await getJobLeaseState(params);
+  return state.active;
+}
+
+export interface JobLeaseState {
+  active: boolean;
+  renewableInference?: boolean;
+}
+
+export async function getJobLeaseState(params: {
+  jobId?: string;
+  jobExecutionId: string;
+  runnerSessionId: string;
+}): Promise<JobLeaseState> {
   const [row] = await db()
-    .select({id: runningJobExecutions.id})
+    .select({
+      id: runningJobExecutions.id,
+      renewableInference: runningJobExecutions.renewableInference,
+    })
     .from(runningJobExecutions)
     .where(
       and(
@@ -1176,7 +1208,11 @@ export async function isJobLeaseActive(params: {
     )
     .limit(1);
 
-  return row !== undefined;
+  if (!row) return {active: false};
+  return {
+    active: true,
+    ...(row.renewableInference === null ? {} : {renewableInference: row.renewableInference}),
+  };
 }
 
 export async function recordHeartbeat(params: {

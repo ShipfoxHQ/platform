@@ -46,6 +46,7 @@ describe('agentInterModuleContract', () => {
       provider: 'shipfox' as const,
       model: 'managed-model',
       thinking: 'high' as const,
+      renewableInference: true,
     };
 
     const parsed = agentInterModuleContract.methods.resolveRuntimeCredentials.input.parse(input);

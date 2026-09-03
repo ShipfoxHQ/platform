@@ -23,6 +23,7 @@ export {
   enqueueJobExecution,
   expireStuckJobExecutions,
   getJobExecutionCleanupStats,
+  getJobLeaseState,
   getWorkspaceJobCounts,
   isJobLeaseActive,
   listActiveRunningJobExecutions,

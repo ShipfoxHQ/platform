@@ -20,20 +20,23 @@ export interface LoadedRunningLeasedStep {
   run: WorkflowRunOriginState;
   /** The server-frozen subject for a successful persisted checkout renewal. */
   checkoutRenewalSubject?: CheckoutRenewalSubject;
+  /** The capability snapshot captured when the runner claimed this execution. */
+  renewableInference?: boolean;
 }
 
 export async function assertLeasedJobActive(
   runners: RunnersInterModuleClient,
   leasedJob: Pick<LeasedJobContext, 'jobId' | 'jobExecutionId' | 'runnerSessionId'>,
-): Promise<void> {
-  const {active: leaseIsActive} = await runners.getLeaseState({
+): Promise<Awaited<ReturnType<RunnersInterModuleClient['getLeaseState']>>> {
+  const leaseState = await runners.getLeaseState({
     jobId: leasedJob.jobId,
     jobExecutionId: leasedJob.jobExecutionId,
     runnerSessionId: leasedJob.runnerSessionId,
   });
-  if (!leaseIsActive) {
+  if (!leaseState.active) {
     throw new ClientError('Job lease is no longer active', 'lease-not-active', {status: 404});
   }
+  return leaseState;
 }
 
 export async function loadRunningLeasedStep(params: {
@@ -45,7 +48,11 @@ export async function loadRunningLeasedStep(params: {
 }): Promise<LoadedRunningLeasedStep> {
   const leasedJob = requireLeasedJobContext(params.request);
 
-  await assertLeasedJobActive(params.runners, leasedJob);
+  const leaseState = await assertLeasedJobActive(params.runners, leasedJob);
+  const renewableInference =
+    leaseState.renewableInference === undefined
+      ? {}
+      : {renewableInference: leaseState.renewableInference};
 
   const step = await getStepByIdForJobExecution({
     stepId: params.stepId,
@@ -78,6 +85,7 @@ export async function loadRunningLeasedStep(params: {
           triggerReference: scope.triggerReference,
           run: scope.run,
           checkoutRenewalSubject,
+          ...renewableInference,
         };
       }
     }
@@ -91,5 +99,6 @@ export async function loadRunningLeasedStep(params: {
     projectId: scope.projectId,
     triggerReference: scope.triggerReference,
     run: scope.run,
+    ...renewableInference,
   };
 }
