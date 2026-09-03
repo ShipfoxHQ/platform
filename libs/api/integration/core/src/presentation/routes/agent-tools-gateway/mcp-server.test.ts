@@ -383,6 +383,103 @@ describe('buildAgentToolsMcpServer', () => {
     });
   });
 
+  it('keeps output schema references rooted when adding an error branch', async () => {
+    const authorizedTools = defaultAuthorizedTools();
+    const authorizedTool = authorizedTools.get('github_main__issue_read');
+    if (!authorizedTool) throw new Error('Expected default authorized tool');
+    const outputSchema = {
+      $id: 'urn:shipfox:integration-tool-output',
+      $defs: {
+        issue: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {id: {type: 'string'}},
+          required: ['id'],
+        },
+      },
+      type: 'object',
+      additionalProperties: false,
+      properties: {issue: {$ref: '#/$defs/issue'}},
+      required: ['issue'],
+    };
+    authorizedTools.set('github_main__issue_read', {
+      ...authorizedTool,
+      outputSchema,
+    });
+    const dispatch = vi.fn(async () => ({
+      content: [{type: 'text' as const, text: 'issue returned'}],
+      structuredContent: {issue: {id: 'issue-1'}},
+    }));
+    const {client, close} = await connectClient(dispatch, authorizedTools);
+
+    const tools = await client.listTools();
+    const result = await client.callTool(
+      {
+        name: 'github_main__issue_read',
+        arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+      },
+      CallToolResultSchema,
+    );
+    await close();
+
+    expect(tools.tools[0]?.outputSchema).toEqual(
+      expect.objectContaining({
+        $id: outputSchema.$id,
+        $defs: outputSchema.$defs,
+        anyOf: expect.arrayContaining([
+          expect.objectContaining({
+            properties: outputSchema.properties,
+            required: outputSchema.required,
+          }),
+        ]),
+      }),
+    );
+    expect(result).toMatchObject({structuredContent: {issue: {id: 'issue-1'}}});
+  });
+
+  it('validates error projections emitted by the integration dispatcher', async () => {
+    const entry = catalogTool();
+    const mcpName = 'github_main__issue_read';
+    const authorizedTool = authorizedToolForCatalog(mcpName, 'github', entry, 0);
+    const errorCases = [
+      {
+        providerResult: toolResult({code: 'provider-rejected'}, true),
+        expected: {code: 'provider-rejected'},
+      },
+      {
+        providerResult: toolResult({code: 'provider-rejected', status: 422}, true),
+        expected: {code: 'provider-rejected', status: 422},
+      },
+      {
+        providerResult: toolResult(
+          {code: 'provider-timeout', status: 503, retryAfterSeconds: 3},
+          true,
+        ),
+        expected: {code: 'provider-timeout', status: 503, retryAfterSeconds: 3},
+      },
+    ];
+
+    for (const {providerResult, expected} of errorCases) {
+      const dispatch = createIntegrationToolDispatcher({
+        registry: registryWithAgentTools([entry], {result: providerResult}),
+        lease: leaseContext({workspaceId: 'workspace-1'}),
+      });
+      const {client, close} = await connectClient(dispatch, new Map([[mcpName, authorizedTool]]));
+
+      await client.listTools();
+      const result = await client.callTool(
+        {
+          name: mcpName,
+          arguments: {method: 'get', owner: 'shipfox', repo: 'platform', issue_number: 1},
+        },
+        CallToolResultSchema,
+      );
+      await close();
+
+      expect(result).toMatchObject({isError: true, structuredContent: expected});
+    }
+  });
+
   it('accepts success and structured error projections for every declared provider output schema', async () => {
     const catalogTools = declaredOutputSchemaTools();
     expect(catalogTools.length).toBeGreaterThan(0);

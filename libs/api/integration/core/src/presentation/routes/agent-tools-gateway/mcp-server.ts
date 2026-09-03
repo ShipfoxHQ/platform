@@ -54,6 +54,7 @@ const integrationToolErrorOutputSchema = {
   },
   required: ['code'],
 } as const;
+const outputSchemaRootKeywords = ['$defs', 'definitions', '$id', '$schema'] as const;
 
 export function buildAgentToolsMcpServer(params: BuildAgentToolsMcpServerParams): Server {
   const server = new Server(
@@ -168,9 +169,19 @@ function outputSchemaWithIntegrationToolError(
   outputSchema: Record<string, unknown>,
 ): Record<string, unknown> {
   // MCP clients validate structuredContent even when the tool result is an error.
+  const rootSchemaKeywords = Object.fromEntries(
+    outputSchemaRootKeywords
+      .filter((keyword) => Object.hasOwn(outputSchema, keyword))
+      .map((keyword) => [keyword, outputSchema[keyword]]),
+  );
+  const successSchema = {...outputSchema};
+  for (const keyword of outputSchemaRootKeywords) {
+    delete successSchema[keyword];
+  }
   return {
+    ...rootSchemaKeywords,
     type: 'object',
-    anyOf: [outputSchema, integrationToolErrorOutputSchema],
+    anyOf: [successSchema, integrationToolErrorOutputSchema],
   };
 }
 

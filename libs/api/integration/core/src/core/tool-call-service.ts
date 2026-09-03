@@ -640,13 +640,13 @@ const credentialErrorNamePattern = /Token|Credential|Secret|AccessToken/;
 
 function errorResult(error: unknown): IntegrationToolCallError {
   if (error instanceof IntegrationProviderError) {
+    const retryAfterSeconds = retryAfterSecondsValue(error.retryAfterSeconds);
+    const status = statusCode(error.status);
     return {
       code: error.reason,
       message: error.message,
-      ...(error.retryAfterSeconds === undefined
-        ? {}
-        : {retryAfterSeconds: error.retryAfterSeconds}),
-      ...(error.status === undefined ? {} : {status: error.status}),
+      ...(retryAfterSeconds === undefined ? {} : {retryAfterSeconds}),
+      ...(status === undefined ? {} : {status}),
     };
   }
 
