@@ -3262,6 +3262,7 @@ describe('runJobSteps', () => {
   it('redacts runtime credential values from agent failures and responses', async () => {
     const agent = buildAgentStep();
     const hexCredential = Buffer.from('sk-runtime-secret').toString('hex');
+    const replaceInferenceSecrets = vi.fn();
     executeAgentStepMock.mockResolvedValue({
       success: false,
       response: 'provider echoed sk-runtime-secret',
@@ -3283,6 +3284,7 @@ describe('runJobSteps', () => {
       leaseClient,
       leaseToken: leaseTokenSource,
       secrets: [],
+      replaceInferenceSecrets,
       signal: ac.signal,
       workspacePrepared: true,
       gitConfigPath: GIT_CONFIG_PATH,
@@ -3299,6 +3301,7 @@ describe('runJobSteps', () => {
       },
       exit_code: null,
     });
+    expect(replaceInferenceSecrets).toHaveBeenCalledWith(['sk-runtime-secret']);
   });
 
   it('redacts runtime credential values from successful agent response and outputs', async () => {

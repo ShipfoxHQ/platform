@@ -1030,6 +1030,7 @@ async function executeAgentStepBranch(params: {
     ...Object.values(runtimeConfig.credentials),
     ...(runtimeConfig.claude !== undefined ? [runtimeConfig.claude.auth_token] : []),
   ];
+  input.replaceInferenceSecrets?.(runtimeSecretValues);
   const agentSecrets = [...input.secrets, ...runtimeSecretValues];
   params.secretState.crashSecrets = [...input.secrets];
   params.secretState.inferenceSecrets = [...new Set(runtimeSecretValues)];
