@@ -243,7 +243,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  test('returns 409 without creating an attempt for an oversized legacy config', async () => {
+  test('does not reject a config that only exceeds the inline diagnostic limit', async () => {
     const source = await createTerminalRun('failed');
     const [job] = await getJobsByWorkflowRunId(source.id);
     if (!job) throw new Error('Expected workflow job');
@@ -261,12 +261,12 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       payload: {mode: 'all'},
     });
 
-    expect(res.statusCode).toBe(409);
-    expect(res.json().code).toBe('diagnostic-too-large');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({current_attempt: 2, status: 'pending'});
     await expect(getWorkflowRunById(source.id)).resolves.toMatchObject({
-      currentAttempt: 1,
-      status: 'failed',
-      version: source.version,
+      currentAttempt: 2,
+      status: 'pending',
+      version: source.version + 1,
     });
   });
 

@@ -5,6 +5,7 @@ import {
   isPermanentRunWorkflowError,
   JobOutputTooLargeError,
   ProjectMismatchError,
+  WorkflowExecutionPayloadTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
 } from './errors.js';
 
@@ -39,6 +40,14 @@ describe('isPermanentRunWorkflowError', () => {
     expect(result).toBe(true);
   });
 
+  test('is true for an oversized execution payload', () => {
+    const result = isPermanentRunWorkflowError(
+      new WorkflowExecutionPayloadTooLargeError('resolved_config', 100, 125),
+    );
+
+    expect(result).toBe(true);
+  });
+
   test('is false for a plain error treated as transient', () => {
     const result = isPermanentRunWorkflowError(new Error('database unavailable'));
 
@@ -49,6 +58,22 @@ describe('isPermanentRunWorkflowError', () => {
     const result = isPermanentRunWorkflowError('boom');
 
     expect(result).toBe(false);
+  });
+});
+
+describe('WorkflowExecutionPayloadTooLargeError', () => {
+  test('reports the owning field, limit, measurement, and overshoot', () => {
+    const error = new WorkflowExecutionPayloadTooLargeError('resolved_config', 100, 175);
+
+    expect(error).toMatchObject({
+      name: 'WorkflowExecutionPayloadTooLargeError',
+      field: 'resolved_config',
+      limitBytes: 100,
+      measuredBytes: 175,
+      overshootBytes: 75,
+      code: 'workflow-execution-payload-too-large',
+    });
+    expect(error.message).toContain('measured 175 bytes; overshoot 75 bytes');
   });
 });
 

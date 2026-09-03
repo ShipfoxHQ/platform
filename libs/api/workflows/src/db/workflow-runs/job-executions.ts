@@ -2,7 +2,7 @@ import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import {canonicalizeLabels} from '@shipfox/runner-labels';
 import {and, asc, desc, eq, isNull, notInArray, sql} from 'drizzle-orm';
-import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
+import {assertWorkflowProductOutputSize} from '#core/diagnostics.js';
 import type {JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution, JobExecutionStatus} from '#core/entities/job-execution.js';
 import {
@@ -11,7 +11,6 @@ import {
   JobOutputNotJsonSafeError,
   JobOutputTooLargeError,
   JobOutputTooManyEntriesError,
-  WorkflowDiagnosticTooLargeError,
 } from '#core/errors.js';
 import {deriveJobExecutionOutputs} from '#core/job-transition/index.js';
 import {deriveCompletion, isTerminal} from '#core/step-transition/decide-step-transition.js';
@@ -128,7 +127,7 @@ export type JobOutputFailure = {
 };
 
 export function classifyJobOutputFailure(error: unknown): JobOutputFailure | null {
-  if (error instanceof JobOutputTooLargeError || error instanceof WorkflowDiagnosticTooLargeError) {
+  if (error instanceof JobOutputTooLargeError) {
     return {
       statusReason: 'output_too_large',
       statusReasonMessage: boundedStatusReasonMessage(error.message),
@@ -226,7 +225,7 @@ async function resolveJobExecutionOutputs(
       secrets: params.secrets,
     }),
   });
-  assertWorkflowDiagnosticSize('execution_outputs', outputs);
+  assertWorkflowProductOutputSize('execution_outputs', outputs);
   return outputs;
 }
 

@@ -325,6 +325,15 @@ describe('workflowsInterModuleContract', () => {
       },
     ],
     ['invalid-job-runner-labels', {labels: ['linux', 'gpu']}],
+    [
+      'workflow-execution-payload-too-large',
+      {
+        field: 'resolved_config',
+        limitBytes: 868_928,
+        measuredBytes: 900_000,
+        overshootBytes: 31_072,
+      },
+    ],
   ] as const)('defines the %s start-run failure', (code, details) => {
     const schema = workflowsInterModuleContract.methods.startRunFromTrigger.errors[code];
     const parsed = schema.parse(details);

@@ -86,6 +86,28 @@ describe('stepErrorDtoSchema', () => {
     });
   });
 
+  it('accepts bounded execution-size failure details', () => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Workflow execution payload is too large.',
+      code: 'step_result_too_large',
+      reason: 'step_result_too_large',
+      field: 'response',
+      source: 'workflows',
+      retryable: false,
+      limit_bytes: 8 * 1024,
+      measured_bytes: 12 * 1024,
+      overshoot_bytes: 4 * 1024,
+    });
+
+    expect(result).toMatchObject({
+      reason: 'step_result_too_large',
+      retryable: false,
+      limit_bytes: 8 * 1024,
+      measured_bytes: 12 * 1024,
+      overshoot_bytes: 4 * 1024,
+    });
+  });
+
   it.each([
     'checkout_path_invalid',
     'checkout_destination_occupied',

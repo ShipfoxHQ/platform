@@ -105,6 +105,18 @@ const STEP_FAILURE_CASES = [
       'Review the declared outputs and the values returned by this step before trying again.',
   },
   {
+    reason: 'execution_payload_too_large',
+    type: 'run',
+    title: 'Step execution payload is too large',
+    description: 'Reduce the workflow value required to execute this step before trying again.',
+  },
+  {
+    reason: 'step_result_too_large',
+    type: 'run',
+    title: 'Step result is too large',
+    description: 'Reduce the value returned by this step before trying again.',
+  },
+  {
     reason: 'agent_invocation_failed',
     type: 'agent',
     title: 'Agent step failed',
@@ -275,6 +287,50 @@ describe('failure annotations', () => {
         originStepAttempt: payload.attempt,
         context: `failure:step:${payload.stepId}`,
         annotation: expect.objectContaining({op: 'replace', style: 'error'}),
+      }),
+    );
+  });
+
+  it('includes bounded size details in a size-failure annotation', async () => {
+    const payload = stepAttemptTerminatedPayload();
+    const step = stepEntity({
+      id: payload.stepId,
+      jobExecutionId: JOB_EXECUTION_ID,
+      status: 'failed',
+    });
+    const attempt = stepAttemptEntity({
+      stepId: step.id,
+      status: 'failed',
+      error: {
+        reason: 'step_result_too_large',
+        message: 'bounded failure',
+        measuredBytes: 12_345,
+        limitBytes: 8_192,
+      },
+    });
+    dbMocks.getStepAttemptDetail.mockResolvedValue({
+      workflowRunId: payload.workflowRunId,
+      workflowRunAttemptId: payload.workflowRunAttemptId,
+      step,
+      attempt,
+    });
+    dbMocks.getWorkflowRunAttemptById.mockResolvedValue({attempt: 1});
+
+    await onStepAttemptTerminatedFailureAnnotation(annotations)(payload);
+
+    expect(replaceOrRemoveAnnotation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        annotation: {
+          op: 'replace',
+          style: 'error',
+          body: [
+            '**Step result is too large**',
+            '',
+            'Reduce the value returned by this step before trying again.',
+            '',
+            'Measured 12345 bytes; limit 8192 bytes.',
+          ].join('\n'),
+        },
       }),
     );
   });

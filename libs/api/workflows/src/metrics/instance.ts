@@ -1,5 +1,7 @@
 import {
   WORKFLOW_RUN_DETAIL_REQUEST_KINDS,
+  type WorkflowDiagnosticFieldDto,
+  type WorkflowExecutionPayloadFieldDto,
   type WorkflowRunDetailRequestKind,
 } from '@shipfox/api-workflows-dto';
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
@@ -127,6 +129,30 @@ const listenerBatchPartitions = meter.createCounter<{
   reason: 'byte_limit' | 'count_limit';
 }>('workflows_listener_batch_partitions', {
   description: 'Listener firing batch partitions by bounded limit',
+});
+
+const executionPayloadBytes = meter.createHistogram<{
+  field: WorkflowExecutionPayloadFieldDto;
+}>('workflows_execution_payload_bytes', {
+  description: 'Workflow execution payload sizes by bounded owning field',
+  unit: 'By',
+  advice: {
+    explicitBucketBoundaries: [1_024, 10_240, 65_536, 256_000, 512_000, 868_928, 1_000_000],
+  },
+});
+
+const executionPayloadLimit = meter.createCounter<{
+  field: WorkflowExecutionPayloadFieldDto;
+  outcome: 'accepted' | 'rejected';
+}>('workflows_execution_payload_limit', {
+  description: 'Workflow execution payload limit decisions by bounded field and outcome',
+});
+
+const diagnosticOversized = meter.createCounter<{
+  field: WorkflowDiagnosticFieldDto;
+  reason: 'current_value_exceeds_inline_limit' | 'value_truncated_at_write_limit';
+}>('workflows_diagnostic_oversized', {
+  description: 'Workflow diagnostic values exceeding their bounded inline read limit',
 });
 
 const toolInvocationDuration = meter.createHistogram<{
@@ -281,6 +307,25 @@ export function recordListenerEventsCoalesced(batchSize: number): void {
 
 export function recordListenerBatchPartition(reason: 'byte_limit' | 'count_limit'): void {
   listenerBatchPartitions.add(1, {reason});
+}
+
+export function recordWorkflowExecutionPayloadSize(
+  field: WorkflowExecutionPayloadFieldDto,
+  bytes: number,
+  outcome: 'accepted' | 'rejected',
+): void {
+  if (!Number.isFinite(bytes) || bytes < 0) return;
+  recordMetric(() => {
+    executionPayloadBytes.record(bytes, {field});
+    executionPayloadLimit.add(1, {field, outcome});
+  });
+}
+
+export function recordWorkflowDiagnosticOversized(
+  field: WorkflowDiagnosticFieldDto,
+  reason: 'current_value_exceeds_inline_limit' | 'value_truncated_at_write_limit',
+): void {
+  recordMetric(() => diagnosticOversized.add(1, {field, reason}));
 }
 
 export function recordWorkflowToolInvocationDuration(

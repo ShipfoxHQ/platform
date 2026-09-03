@@ -52,6 +52,10 @@ export function toStepErrorDto(
     ...(reason.success ? {reason: reason.data} : {}),
     ...toStepErrorSourceFields(field, source),
     ...(agentConfigIssue.success ? {agent_config_issue: agentConfigIssue.data} : {}),
+    ...(typeof error.retryable === 'boolean' ? {retryable: error.retryable} : {}),
+    ...(typeof error.limitBytes === 'number' ? {limit_bytes: error.limitBytes} : {}),
+    ...(typeof error.measuredBytes === 'number' ? {measured_bytes: error.measuredBytes} : {}),
+    ...(typeof error.overshootBytes === 'number' ? {overshoot_bytes: error.overshootBytes} : {}),
     category,
   };
 }
@@ -104,6 +108,10 @@ export function fromStepErrorDto(error: StepErrorDto | undefined): Record<string
     ...(error.field === undefined ? {} : {field: error.field}),
     ...(error.source === undefined ? {} : {source: error.source}),
     ...(error.agent_config_issue === undefined ? {} : {agentConfigIssue: error.agent_config_issue}),
+    ...(error.retryable === undefined ? {} : {retryable: error.retryable}),
+    ...(error.limit_bytes === undefined ? {} : {limitBytes: error.limit_bytes}),
+    ...(error.measured_bytes === undefined ? {} : {measuredBytes: error.measured_bytes}),
+    ...(error.overshoot_bytes === undefined ? {} : {overshootBytes: error.overshoot_bytes}),
   };
 }
 

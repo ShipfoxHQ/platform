@@ -40,6 +40,8 @@ export const stepErrorReasonSchema = z.enum([
   'agent_session_held',
   'agent_session_harness_mismatch',
   'agent_session_unavailable',
+  'execution_payload_too_large',
+  'step_result_too_large',
   'diagnostic_too_large',
   'tool_error',
   'tool_config_invalid',
@@ -116,6 +118,10 @@ export const stepErrorDtoSchema = z
     source: z.string().optional(),
     agent_config_issue: agentConfigIssueSchema.optional(),
     category: stepErrorCategorySchema.optional(),
+    retryable: z.boolean().optional(),
+    limit_bytes: z.number().int().positive().optional(),
+    measured_bytes: z.number().int().positive().optional(),
+    overshoot_bytes: z.number().int().positive().optional(),
   })
   .refine(
     (error) => error.agent_config_issue === undefined || error.reason === 'agent_config_invalid',

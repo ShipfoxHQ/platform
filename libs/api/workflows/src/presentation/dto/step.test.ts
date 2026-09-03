@@ -98,6 +98,40 @@ describe('fromStepErrorDto', () => {
     });
   });
 
+  it('round-trips measured size details for a bounded step result', () => {
+    const persisted = fromStepErrorDto({
+      message: 'Workflow step result is too large.',
+      code: 'step_result_too_large',
+      reason: 'step_result_too_large',
+      field: 'response',
+      source: 'workflows',
+      retryable: false,
+      limit_bytes: 8 * 1024,
+      measured_bytes: 12 * 1024,
+      overshoot_bytes: 4 * 1024,
+    });
+
+    expect(persisted).toMatchObject({
+      code: 'step_result_too_large',
+      reason: 'step_result_too_large',
+      field: 'response',
+      retryable: false,
+      limitBytes: 8 * 1024,
+      measuredBytes: 12 * 1024,
+      overshootBytes: 4 * 1024,
+    });
+
+    expect(toStepDto(step({type: 'run', error: persisted})).error).toMatchObject({
+      code: 'step_result_too_large',
+      reason: 'step_result_too_large',
+      field: 'response',
+      retryable: false,
+      limit_bytes: 8 * 1024,
+      measured_bytes: 12 * 1024,
+      overshoot_bytes: 4 * 1024,
+    });
+  });
+
   it('ignores a runner-supplied category (the server derives it on read)', () => {
     const persisted = fromStepErrorDto({
       message: 'mkdir denied',

@@ -89,6 +89,14 @@ const STEP_FAILURE_COPY: Readonly<
     title: 'Step diagnostic is too large',
     description: 'Reduce the step diagnostic before trying again.',
   },
+  execution_payload_too_large: {
+    title: 'Step execution payload is too large',
+    description: 'Reduce the workflow value required to execute this step before trying again.',
+  },
+  step_result_too_large: {
+    title: 'Step result is too large',
+    description: 'Reduce the value returned by this step before trying again.',
+  },
   agent_invocation_failed: {
     title: 'Agent step failed',
     description:
@@ -351,7 +359,28 @@ function failureContext(kind: 'job' | 'step', id: string): string {
 
 function stepFailureBody(step: Step, attempt: StepAttempt): string {
   const copy = stepFailureCopy(step, attempt);
-  return [`**${copy.title}**`, '', copy.description].join('\n');
+  const details = stepFailureSizeDetails(attempt.error ?? step.error);
+  return [
+    `**${copy.title}**`,
+    '',
+    copy.description,
+    ...(details === undefined ? [] : ['', details]),
+  ].join('\n');
+}
+
+function stepFailureSizeDetails(error: Record<string, unknown> | null): string | undefined {
+  if (!error) return undefined;
+  const measuredBytes = error.measuredBytes;
+  const limitBytes = error.limitBytes;
+  if (
+    typeof measuredBytes !== 'number' ||
+    !Number.isFinite(measuredBytes) ||
+    typeof limitBytes !== 'number' ||
+    !Number.isFinite(limitBytes)
+  ) {
+    return undefined;
+  }
+  return `Measured ${measuredBytes} bytes; limit ${limitBytes} bytes.`;
 }
 
 function jobFailureBody(

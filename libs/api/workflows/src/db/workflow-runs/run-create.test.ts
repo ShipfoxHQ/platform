@@ -1,6 +1,6 @@
 import type {WorkflowFieldTemplate} from '@shipfox/api-definitions-dto';
 import {
-  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  MAX_RESOLVED_STEP_CONFIG_BYTES,
   WORKFLOW_SOURCE_SNAPSHOT_MAX_BYTES,
   WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
 } from '@shipfox/api-workflows-dto';
@@ -1964,7 +1964,7 @@ describe('workflow run queries', () => {
           projectId,
           definitionId,
           model: buildModel({
-            jobs: {build: {steps: [{run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES)}]}},
+            jobs: {build: {steps: [{run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES)}]}},
           }),
           triggerPayload: {
             source: 'manual',
@@ -1974,8 +1974,8 @@ describe('workflow run queries', () => {
           },
         }),
       ).rejects.toMatchObject({
-        name: 'WorkflowDiagnosticTooLargeError',
-        field: 'config',
+        name: 'WorkflowExecutionPayloadTooLargeError',
+        field: 'resolved_config',
       });
 
       await expect(

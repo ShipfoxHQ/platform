@@ -14,7 +14,10 @@ import {
   type AgentToolMaterializationContext,
   loadAgentToolMaterializationContext,
 } from '#core/agent-tools.js';
-import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
+import {
+  assertWorkflowExecutionPayloadSize,
+  observeWorkflowDiagnosticSize,
+} from '#core/diagnostics.js';
 import {isJobTerminal, type JobStatus, type ResolutionReason} from '#core/entities/job.js';
 import type {
   JobExecution,
@@ -22,7 +25,10 @@ import type {
   WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
 import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
-import {InterpolationUnresolvableError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
+import {
+  InterpolationUnresolvableError,
+  WorkflowExecutionPayloadTooLargeError,
+} from '#core/errors.js';
 import {type DeriveJobSuccessResult, deriveJobSuccess} from '#core/job-transition/index.js';
 import {
   createListenerEventBatchPacker,
@@ -767,15 +773,19 @@ async function persistMaterializedListenerExecution(
   },
 ): Promise<JobExecutionDb> {
   try {
-    assertWorkflowDiagnosticSize('execution_evaluation_trace', params.materialized.evaluationTrace);
+    assertWorkflowExecutionPayloadSize('listener_batch', params.materialized.triggerEvents);
+    observeWorkflowDiagnosticSize(
+      'execution_evaluation_trace',
+      params.materialized.evaluationTrace,
+    );
     for (const step of params.materialized.steps) {
-      assertWorkflowDiagnosticSize('config', step.config);
-      assertWorkflowDiagnosticSize('authored_config', step.authoredConfig);
-      assertWorkflowDiagnosticSize('condition', step.condition);
-      assertWorkflowDiagnosticSize('config', step.configPlan);
+      assertWorkflowExecutionPayloadSize('resolved_config', step.config);
+      assertWorkflowExecutionPayloadSize('authored_config', step.authoredConfig);
+      assertWorkflowExecutionPayloadSize('condition', step.condition);
+      assertWorkflowExecutionPayloadSize('config_plan', step.configPlan);
     }
   } catch (error) {
-    if (!(error instanceof WorkflowDiagnosticTooLargeError)) throw error;
+    if (!(error instanceof WorkflowExecutionPayloadTooLargeError)) throw error;
     return persistRejectedMaterializedListenerExecution(tx, params, error);
   }
 
@@ -840,7 +850,7 @@ async function persistRejectedMaterializedListenerExecution(
     readonly bufferedEventIds: readonly string[];
     readonly materialized: MaterializedListenerExecution;
   },
-  error: WorkflowDiagnosticTooLargeError,
+  error: WorkflowExecutionPayloadTooLargeError,
 ): Promise<JobExecutionDb> {
   const [execution] = await tx
     .insert(jobExecutions)

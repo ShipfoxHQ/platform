@@ -206,3 +206,63 @@ describe('workflow-run detail measurement metrics', () => {
     expect(metric('workflows_run_detail_returned_rows').record).not.toHaveBeenCalled();
   });
 });
+
+describe('workflow payload metrics', () => {
+  test('defines bounded execution and diagnostic metrics', () => {
+    const executionBytesCall = (
+      metricMocks.createHistogram.mock.calls as unknown as Array<
+        [string, {unit?: string; advice?: {explicitBucketBoundaries?: number[]}}]
+      >
+    ).find(([name]) => name === 'workflows_execution_payload_bytes');
+    expect(executionBytesCall).toEqual([
+      'workflows_execution_payload_bytes',
+      expect.objectContaining({
+        unit: 'By',
+        advice: {
+          explicitBucketBoundaries: [1_024, 10_240, 65_536, 256_000, 512_000, 868_928, 1_000_000],
+        },
+      }),
+    ]);
+
+    expect(
+      metricMocks.createCounter.mock.calls.find(
+        ([name]) => name === 'workflows_execution_payload_limit',
+      ),
+    ).toEqual(['workflows_execution_payload_limit', expect.any(Object)]);
+    expect(
+      metricMocks.createCounter.mock.calls.find(
+        ([name]) => name === 'workflows_diagnostic_oversized',
+      ),
+    ).toEqual(['workflows_diagnostic_oversized', expect.any(Object)]);
+  });
+
+  test('records bounded field, outcome, and reason labels', () => {
+    metrics.recordWorkflowExecutionPayloadSize('resolved_config', 123, 'accepted');
+    metrics.recordWorkflowExecutionPayloadSize('condition', 456, 'rejected');
+    metrics.recordWorkflowDiagnosticOversized('config', 'current_value_exceeds_inline_limit');
+    metrics.recordWorkflowDiagnosticOversized('response', 'value_truncated_at_write_limit');
+
+    expect(histogramRecord('workflows_execution_payload_bytes')).toHaveBeenNthCalledWith(1, 123, {
+      field: 'resolved_config',
+    });
+    expect(histogramRecord('workflows_execution_payload_bytes')).toHaveBeenNthCalledWith(2, 456, {
+      field: 'condition',
+    });
+    expect(counterAdd('workflows_execution_payload_limit')).toHaveBeenNthCalledWith(1, 1, {
+      field: 'resolved_config',
+      outcome: 'accepted',
+    });
+    expect(counterAdd('workflows_execution_payload_limit')).toHaveBeenNthCalledWith(2, 1, {
+      field: 'condition',
+      outcome: 'rejected',
+    });
+    expect(counterAdd('workflows_diagnostic_oversized')).toHaveBeenNthCalledWith(1, 1, {
+      field: 'config',
+      reason: 'current_value_exceeds_inline_limit',
+    });
+    expect(counterAdd('workflows_diagnostic_oversized')).toHaveBeenNthCalledWith(2, 1, {
+      field: 'response',
+      reason: 'value_truncated_at_write_limit',
+    });
+  });
+});

@@ -1,11 +1,8 @@
 import {readPersistedWorkflowModel} from '@shipfox/api-definitions-dto';
-import {
-  WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
-  WORKFLOWS_JOB_TERMINATED,
-} from '@shipfox/api-workflows-dto';
+import {WORKFLOWS_JOB_TERMINATED} from '@shipfox/api-workflows-dto';
 import type {ExpressionType} from '@shipfox/expression';
 import {and, asc, desc, eq, inArray, notInArray, sql} from 'drizzle-orm';
-import {assertWorkflowDiagnosticSize} from '#core/diagnostics.js';
+import {assertWorkflowProductOutputSize, observeWorkflowDiagnosticSize} from '#core/diagnostics.js';
 import {isJobTerminal, type Job, type JobStatus, type JobStatusReason} from '#core/entities/job.js';
 import type {JobExecution} from '#core/entities/job-execution.js';
 import type {PersistedEvaluationTraceEntry} from '#core/entities/step.js';
@@ -13,7 +10,7 @@ import type {
   WorkflowRunOriginState,
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
-import {JobNotFoundError, WorkflowDiagnosticTooLargeError} from '#core/errors.js';
+import {JobNotFoundError, JobOutputTooLargeError} from '#core/errors.js';
 import {
   type DeriveJobSuccessResult,
   decideJobActivation,
@@ -21,6 +18,7 @@ import {
   runtimeCompletionStatusForJob,
 } from '#core/job-transition/index.js';
 import type {JobContextInput} from '#core/step-config/assemble-run-context.js';
+import {MAX_JOB_OUTPUTS_TOTAL_BYTES} from '#core/step-config/job-output-limits.js';
 import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
 import {recordWorkflowJobStatusChanged} from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
@@ -350,8 +348,8 @@ export async function updateJobStatusAtVersion(
   const outputs = isJobTerminal(params.status)
     ? await reduceJobOutputs(tx, {jobId: params.jobId, status: params.status})
     : undefined;
-  assertWorkflowDiagnosticSize('job_outputs', outputs);
-  assertWorkflowDiagnosticSize('job_evaluation_trace', params.evaluationTrace);
+  assertWorkflowProductOutputSize('job_outputs', outputs);
+  observeWorkflowDiagnosticSize('job_evaluation_trace', params.evaluationTrace);
   const rows = await tx
     .update(jobs)
     .set({
@@ -417,7 +415,7 @@ async function reduceJobOutputs(
       outputs: sql<Record<string, unknown> | null>`case
         when ${jobExecutions.outputs} is null then null
         when jsonb_typeof(${jobExecutions.outputs}) = 'object'
-          and octet_length(${jobExecutions.outputs}::text) <= ${WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES}
+          and octet_length(${jobExecutions.outputs}::text) <= ${MAX_JOB_OUTPUTS_TOTAL_BYTES}
         then ${jobExecutions.outputs}
         else null
       end`,
@@ -436,12 +434,13 @@ async function reduceJobOutputs(
   if (
     row?.outputBytes !== null &&
     row?.outputBytes !== undefined &&
-    row.outputBytes > WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES
+    row.outputBytes > MAX_JOB_OUTPUTS_TOTAL_BYTES
   ) {
-    throw new WorkflowDiagnosticTooLargeError(
+    throw new JobOutputTooLargeError(
       'job_outputs',
-      WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+      MAX_JOB_OUTPUTS_TOTAL_BYTES,
       row.outputBytes,
+      'total',
     );
   }
   return row?.outputs ? {...row.outputs} : null;
