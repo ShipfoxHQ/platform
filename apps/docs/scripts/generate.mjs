@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import {mkdirSync, writeFileSync} from 'node:fs';
+import {randomUUID} from 'node:crypto';
+import {existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {listHarnessDescriptors, MODEL_PROVIDER_CATALOG_SEED} from '@shipfox/api-agent-dto';
@@ -33,6 +34,8 @@ import {
   workflowContextNames,
 } from '@shipfox/expression';
 import {buildWorkflowJsonSchema, thinkingLevelsForHarness} from '@shipfox/workflow-document';
+import {GENERATED_MANIFEST_FILE} from '@/lib/generated-artifacts';
+import {inlineCode, tableValue} from '@/lib/markdown';
 import {registeredIntegrationProviders} from '@/lib/registered-integration-providers';
 import {
   contextFieldRows,
@@ -75,30 +78,40 @@ const integrationCatalogProviders = registeredIntegrationProviders
   .filter((provider) => provider.kind === 'catalog')
   .map((provider) => ({...provider, ...dtoCatalogBySlug[provider.slug]}));
 const regions = [
-  ['content/generated/reference/model-providers.mdx', renderModelProvidersTable],
+  {file: 'content/generated/reference/model-providers.mdx', render: renderModelProvidersTable},
   ...integrationCatalogProviders.flatMap((provider) => [
     ...(provider.eventCatalog
       ? [
-          [
-            `content/generated/integrations/${provider.slug}/events.mdx`,
-            () => renderEventCatalog(provider.eventCatalog),
-          ],
+          {
+            file: `content/generated/integrations/${provider.slug}/events.mdx`,
+            render: () => renderEventCatalog(provider.eventCatalog),
+          },
         ]
       : []),
     ...(provider.toolCatalog
       ? [
-          [
-            `content/generated/integrations/${provider.slug}/tools.mdx`,
-            () => renderToolCatalog(provider.toolCatalog, provider.toolSelectionCatalog),
-          ],
+          {
+            file: `content/generated/integrations/${provider.slug}/tools.mdx`,
+            render: () => renderToolCatalog(provider.toolCatalog, provider.toolSelectionCatalog),
+          },
         ]
       : []),
   ]),
-  ['content/generated/integrations/catalog.json', renderIntegrationCatalogData],
-  ['content/generated/reference/workflow-schema.mdx', renderWorkflowSchemaReference],
-  ['content/generated/reference/context-roots.mdx', renderContextRoots],
-  ['content/generated/reference/context-availability.mdx', renderContextAvailability],
-  ['content/generated/reference/context-properties.mdx', renderContextProperties],
+  {file: 'content/generated/integrations/catalog.json', render: renderIntegrationCatalogData},
+  {
+    file: 'content/generated/reference/workflow-schema.mdx',
+    render: renderWorkflowSchemaArtifact,
+    machineReadable: {
+      format: 'json',
+      file: 'content/generated/reference/workflow-schema.llm.json',
+    },
+  },
+  {file: 'content/generated/reference/context-roots.mdx', render: renderContextRoots},
+  {
+    file: 'content/generated/reference/context-availability.mdx',
+    render: renderContextAvailability,
+  },
+  {file: 'content/generated/reference/context-properties.mdx', render: renderContextProperties},
 ];
 
 const contextShapeDeps = {
@@ -370,8 +383,13 @@ function objects(value) {
   return Array.isArray(value) ? value.map(object) : [];
 }
 
-function renderWorkflowSchemaReference() {
-  const schema = buildWorkflowJsonSchema();
+function renderWorkflowSchemaArtifact() {
+  const machineReadable = {};
+  const content = renderWorkflowSchemaReference(buildWorkflowJsonSchema(), machineReadable);
+  return {content, machineReadable};
+}
+
+function renderWorkflowSchemaReference(schema, workflowSchemaMarkdown) {
   const root = object(schema.properties);
   const jobs = object(object(root.jobs).additionalProperties);
   const steps = object(object(object(jobs.properties).steps).items);
@@ -388,10 +406,10 @@ function renderWorkflowSchemaReference() {
   const batch = object(listening.properties).batch;
   const session = objectSchemaFor(object(steps.properties).session);
 
-  return [
+  const output = [
     "import {TypeTable} from 'fumadocs-ui/components/type-table';",
     '',
-    component('TopLevelFields', root, {
+    workflowComponent(workflowSchemaMarkdown, 'TopLevelFields', root, {
       required: ['name', 'jobs'],
       nested: {
         env: '#environment-variables',
@@ -404,8 +422,10 @@ function renderWorkflowSchemaReference() {
         jobs: recordType('Job'),
       },
     }),
-    component('TriggerFields', object(trigger.properties), {required: strings(trigger.required)}),
-    component('JobFields', object(jobs.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'TriggerFields', object(trigger.properties), {
+      required: strings(trigger.required),
+    }),
+    workflowComponent(workflowSchemaMarkdown, 'JobFields', object(jobs.properties), {
       required: ['steps'],
       nested: {
         checkout: '#job-checkout-fields',
@@ -419,16 +439,20 @@ function renderWorkflowSchemaReference() {
         steps: codeType('Step[]'),
       },
     }),
-    component('JobCheckoutFields', object(jobCheckout.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'JobCheckoutFields', object(jobCheckout.properties), {
       nested: {permissions: '#checkout-permissions-fields'},
       types: {permissions: namedType('CheckoutPermissions')},
     }),
-    component('CheckoutFields', object(checkout.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'CheckoutFields', object(checkout.properties), {
       nested: {permissions: '#checkout-permissions-fields'},
       types: {permissions: namedType('CheckoutPermissions')},
     }),
-    component('CheckoutPermissionsFields', object(checkoutPermissions.properties)),
-    component('RunStepFields', object(steps.properties), {
+    workflowComponent(
+      workflowSchemaMarkdown,
+      'CheckoutPermissionsFields',
+      object(checkoutPermissions.properties),
+    ),
+    workflowComponent(workflowSchemaMarkdown, 'RunStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'run', 'gate', 'env', 'outputs'],
       required: ['run'],
       nested: {
@@ -442,7 +466,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('ToolStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'ToolStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'tool', 'connection', 'with', 'gate', 'outputs'],
       required: ['tool'],
       nested: {
@@ -455,7 +479,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('string'),
       },
     }),
-    component('CheckoutStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'CheckoutStepFields', object(steps.properties), {
       fields: ['key', 'if', 'name', 'checkout', 'gate', 'outputs'],
       required: ['checkout'],
       nested: {
@@ -469,7 +493,7 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('AgentStepFields', object(steps.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'AgentStepFields', object(steps.properties), {
       fields: [
         'key',
         'if',
@@ -500,20 +524,27 @@ function renderWorkflowSchemaReference() {
         outputs: recordType('Output'),
       },
     }),
-    component('AgentIntegrationFields', object(integration.properties), {required: ['include']}),
-    component('AgentSessionFields', object(session.properties), {
+    workflowComponent(
+      workflowSchemaMarkdown,
+      'AgentIntegrationFields',
+      object(integration.properties),
+      {required: ['include']},
+    ),
+    workflowComponent(workflowSchemaMarkdown, 'AgentSessionFields', object(session.properties), {
       required: ['key'],
       defaults: {mode: 'resume'},
       types: {key: codeType('string')},
     }),
-    component('GateFields', object(gate.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'GateFields', object(gate.properties), {
       nested: {on_failure: '#gate-failure-fields'},
       types: {on_failure: namedType('GateFailure')},
     }),
-    component('GateFailureFields', object(gateFailure.properties), {required: ['restart_from']}),
-    component('StepOutputs', outputFields()),
-    component('ToolStepOutputs', toolOutputFields()),
-    component('ListeningFields', object(listening.properties), {
+    workflowComponent(workflowSchemaMarkdown, 'GateFailureFields', object(gateFailure.properties), {
+      required: ['restart_from'],
+    }),
+    workflowComponent(workflowSchemaMarkdown, 'StepOutputs', outputFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ToolStepOutputs', toolOutputFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ListeningFields', object(listening.properties), {
       required: ['on'],
       nested: {
         on: '#trigger-fields',
@@ -526,11 +557,13 @@ function renderWorkflowSchemaReference() {
         batch: namedType('ListeningBatch'),
       },
     }),
-    component('ListeningBatchFields', object(batch.properties)),
-    component('EnvironmentVariables', environmentFields()),
+    workflowComponent(workflowSchemaMarkdown, 'ListeningBatchFields', object(batch.properties)),
+    workflowComponent(workflowSchemaMarkdown, 'EnvironmentVariables', environmentFields()),
   ]
     .filter(Boolean)
     .join('\n\n');
+
+  return output;
 }
 
 function component(name, properties, options = {}) {
@@ -541,26 +574,74 @@ function component(name, properties, options = {}) {
   return [`export function ${name}() {`, '  return (', table, '  );', '}'].join('\n');
 }
 
+function workflowComponent(markdown, name, properties, options = {}) {
+  markdown[name] = renderTypeTableMarkdown(properties, options);
+  return component(name, properties, options);
+}
+
 function renderTypeTable(properties, options) {
+  const rows = workflowTableRows(properties, options);
+  return [
+    '<TypeTable',
+    '  type={{',
+    ...rows.flatMap((row) => [
+      `    ${JSON.stringify(row.name)}: {`,
+      `      type: ${row.typeExpression},`,
+      `      description: ${descriptionFor(row.description)},`,
+      ...(row.required ? ['      required: true,'] : []),
+      ...(row.defaultValue ? [`      default: ${codeType(row.defaultValue)},`] : []),
+      ...(row.nestedHref ? [`      typeDescriptionLink: ${JSON.stringify(row.nestedHref)},`] : []),
+      '    },',
+    ]),
+    '  }}',
+    '/>',
+  ].join('\n');
+}
+
+function renderTypeTableMarkdown(properties, options) {
+  const rows = workflowTableRows(properties, options);
+
+  return [
+    '| Field | Type | Required | Default | Description |',
+    '|---|---|---|---|---|',
+    ...rows.map((row) => {
+      const linkedType = row.nestedHref
+        ? `[${inlineCode(row.type)}](${row.nestedHref})`
+        : inlineCode(row.type);
+      const defaultText = row.defaultValue ? inlineCode(row.defaultValue) : '-';
+      return `| ${inlineCode(row.name)} | ${linkedType} | ${row.required ? 'Required' : 'Optional'} | ${defaultText} | ${tableValue(row.description || '-')} |`;
+    }),
+  ].join('\n');
+}
+
+function workflowTableRows(properties, options) {
   const required = new Set(options.required ?? []);
   const names = options.fields ?? Object.keys(properties);
-  const rows = names.flatMap((name) => {
+  return names.flatMap((name) => {
     const property = properties[name];
     if (!property) return [];
+
+    const typeExpression = options.types?.[name] ?? typeFor(property);
     return [
-      `    ${JSON.stringify(name)}: {`,
-      `      type: ${options.types?.[name] ?? typeFor(property)},`,
-      `      description: ${descriptionFor(property.description)},`,
-      ...(required.has(name) ? ['      required: true,'] : []),
-      ...(options.defaults?.[name] ? [`      default: ${codeType(options.defaults[name])},`] : []),
-      ...(options.nested?.[name]
-        ? [`      typeDescriptionLink: ${JSON.stringify(options.nested[name])},`]
-        : []),
-      '    },',
+      {
+        name,
+        typeExpression,
+        type: markdownTypeFromExpression(typeExpression),
+        required: required.has(name),
+        defaultValue: options.defaults?.[name],
+        nestedHref: options.nested?.[name],
+        description: typeof property.description === 'string' ? property.description : '',
+      },
     ];
   });
+}
 
-  return ['<TypeTable', '  type={{', ...rows, '  }}', '/>'].join('\n');
+function markdownTypeFromExpression(expression) {
+  const values = [...expression.matchAll(/<code>\{("(?:\\.|[^"\\])*")\}<\/code>/g)].map((match) =>
+    JSON.parse(match[1]),
+  );
+  if (values.length > 0) return values.join(' | ');
+  return expression;
 }
 
 function typeFor(schema) {
@@ -651,11 +732,49 @@ function environmentFields() {
   };
 }
 
-for (const [file, render] of regions) {
-  const path = join(docsRoot, file);
-  mkdirSync(dirname(path), {recursive: true});
-  const next = `${render()}\n`;
-  writeFileSync(path, next);
+for (const region of regions) {
+  const path = join(docsRoot, region.file);
+  const rendered = region.render();
+  const content = typeof rendered === 'string' ? rendered : rendered.content;
+  writeGeneratedFile(path, `${content}\n`);
+
+  if (region.machineReadable) {
+    if (typeof rendered === 'string' || !rendered.machineReadable) {
+      throw new Error(`${region.file} did not return its machine-readable artifact.`);
+    }
+    writeGeneratedFile(
+      join(docsRoot, region.machineReadable.file),
+      `${JSON.stringify(rendered.machineReadable, null, 2)}\n`,
+    );
+  }
+
   // biome-ignore lint/suspicious/noConsole: CLI diagnostics
-  console.log(`✓ wrote ${file}`);
+  console.log(`✓ wrote ${region.file}`);
+}
+
+writeGeneratedFile(
+  join(docsRoot, GENERATED_MANIFEST_FILE),
+  `${JSON.stringify(
+    Object.fromEntries(
+      regions.map((region) => [
+        region.file,
+        region.machineReadable
+          ? {format: region.machineReadable.format, file: region.machineReadable.file}
+          : {format: 'markdown'},
+      ]),
+    ),
+    null,
+    2,
+  )}\n`,
+);
+
+function writeGeneratedFile(path, content) {
+  mkdirSync(dirname(path), {recursive: true});
+  const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, content);
+    renameSync(temporaryPath, path);
+  } finally {
+    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+  }
 }

@@ -1,5 +1,5 @@
+import {canonicalDocsUrl} from '@/lib/machine-readable';
 import {source} from '@/lib/source';
-import {toUrl} from '@/url';
 
 export const revalidate = false;
 
@@ -98,11 +98,13 @@ export function GET() {
     lines.push(`## ${SECTION_LABELS[sectionKey]}`, '');
 
     for (const page of sectionPages) {
-      const description = page.data.description as string | undefined;
-      const entry = description
-        ? `- [${page.data.title}](${toUrl(page.url)}): ${description}`
-        : `- [${page.data.title}](${toUrl(page.url)})`;
-      lines.push(entry);
+      const description = page.data.description;
+      if (typeof description !== 'string' || description.length === 0) {
+        throw new Error(
+          `Documentation page "${page.path}" (${page.url}) is missing a description.`,
+        );
+      }
+      lines.push(`- [${page.data.title}](${canonicalDocsUrl(page.url)}): ${description}`);
     }
 
     lines.push('');

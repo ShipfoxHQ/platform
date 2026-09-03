@@ -1,5 +1,7 @@
 import {config, type DocsConfig} from './config';
 
+export {canonicalDocsOrigin} from './lib/canonical-docs-origin';
+
 const LOCAL_DOCS_ORIGIN = 'http://localhost:3500';
 export const PUBLIC_DOCS_ORIGIN = 'https://www.shipfox.io';
 
