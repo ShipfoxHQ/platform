@@ -38,7 +38,7 @@ export interface RunWorkspaceNavProps {
   run: RunWorkspaceRun;
   activeSection: RunWorkspaceSection;
   currentJobId?: string | undefined;
-  activeJob?: Job | undefined;
+  activeJob?: RunWorkspaceJob | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   annotationSummary?: RunAnnotationSummary | undefined;
 }
@@ -361,16 +361,22 @@ function workspaceCurrentLabel(
 
 function workspaceJobs(
   run: RunWorkspaceRun,
-  activeJob: Job | undefined,
+  activeJob: RunWorkspaceJob | undefined,
 ): {jobs: RunWorkspaceJob[]; jobCount: number} {
   if (Array.isArray(run.jobs)) {
-    return {jobs: [...run.jobs].sort(compareJobs), jobCount: run.jobs.length};
+    const jobs: RunWorkspaceJob[] = [...run.jobs];
+    if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
+    return {jobs: jobs.sort(compareJobs), jobCount: run.jobs.length};
   }
   if ('preview' in run.jobs) {
-    return {jobs: [...run.jobs.preview].sort(compareJobs), jobCount: run.jobs.total};
+    const jobs: RunWorkspaceJob[] = [...run.jobs.preview];
+    if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
+    return {jobs: jobs.sort(compareJobs), jobCount: run.jobs.total};
   }
   if (run.jobs.kind === 'complete') {
-    return {jobs: [...run.jobs.items].sort(compareJobs), jobCount: run.jobs.total};
+    const jobs: RunWorkspaceJob[] = [...run.jobs.items];
+    if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
+    return {jobs: jobs.sort(compareJobs), jobCount: run.jobs.total};
   }
   const jobs: RunWorkspaceJob[] = [...run.jobs.firstPage.items];
   if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);

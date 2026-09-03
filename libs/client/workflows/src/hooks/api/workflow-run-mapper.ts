@@ -265,7 +265,7 @@ export function toWorkflowRunOverviewJob(
   });
 }
 
-function toWorkflowRunOverviewExecution(
+export function toWorkflowRunOverviewExecution(
   dto: NonNullable<WorkflowRunJobOverviewDto['default_execution']>,
 ): WorkflowRunOverviewExecution {
   return {

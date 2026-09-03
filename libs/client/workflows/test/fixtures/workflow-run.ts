@@ -1,14 +1,20 @@
 import type {
+  JobExecutionSummaryDto,
   JobStatusDto,
   StepAttemptDto,
+  StepErrorDto,
+  StepGateResultSummaryDto,
+  WorkflowJobDetailDto,
   WorkflowRunAttemptDto,
   WorkflowRunAttemptsResponseDto,
   WorkflowRunDetailResponseDto,
   WorkflowRunJobDetailDto,
   WorkflowRunJobExecutionDetailDto,
+  WorkflowRunJobOverviewDto,
   WorkflowRunJobSummaryDto,
   WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
+  WorkflowRunOverviewResponseDto,
   WorkflowRunStatusDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
@@ -237,10 +243,216 @@ export function workflowRunDetailDto(
   };
 }
 
+export function workflowRunOverviewResponseDto(
+  detail: WorkflowRunDetailResponseDto,
+): WorkflowRunOverviewResponseDto {
+  return {
+    run: {
+      id: detail.id,
+      project_id: detail.project_id,
+      definition_id: detail.definition_id,
+      number: detail.number,
+      name: detail.name,
+      workflow_name: detail.workflow_name,
+      origin: detail.origin,
+      dev_source: detail.dev_source,
+      trigger_provider: detail.trigger_provider,
+      trigger_source: detail.trigger_source,
+      trigger_event: detail.trigger_event,
+      trigger_reference: detail.trigger_reference,
+      created_at: detail.created_at,
+    },
+    attempt: detail.run_attempt,
+    has_started_job_execution: detail.has_started_job_execution,
+    jobs: {
+      kind: 'complete',
+      total: detail.jobs.length,
+      items: detail.jobs.map((job) => workflowJobOverviewDto(job, defaultJobExecutionDto(job))),
+    },
+  };
+}
+
 export function workflowRunDetail(
   overrides: Partial<WorkflowRunDetailResponseDto> = {},
 ): WorkflowRunDetail {
   return toWorkflowRunDetail(workflowRunDetailDto(overrides));
+}
+
+/** Convert a complete-tree fixture into the selected-job response used by the migrated client. */
+export function workflowJobDetailResponseDto({
+  detail,
+  jobId,
+  executionId,
+}: {
+  detail: WorkflowRunDetailResponseDto;
+  jobId: string;
+  executionId?: string | null | undefined;
+}): WorkflowJobDetailDto {
+  const job = detail.jobs.find((candidate) => candidate.id === jobId);
+  if (!job) throw new Error(`Fixture is missing job ${jobId}`);
+
+  const defaultExecution = defaultJobExecutionDto(job);
+  const selectedExecution =
+    executionId === null
+      ? undefined
+      : (job.job_executions.find((candidate) => candidate.id === executionId) ?? defaultExecution);
+
+  return {
+    workflow_run_id: detail.id,
+    workflow_run_attempt: detail.run_attempt.attempt,
+    job: workflowJobOverviewDto(job, defaultExecution),
+    selected_execution: selectedExecution ? compactJobExecutionDto(selectedExecution) : null,
+  };
+}
+
+function workflowJobOverviewDto(
+  job: WorkflowRunJobDetailDto,
+  defaultExecution: WorkflowRunJobExecutionDetailDto | undefined,
+): WorkflowRunJobOverviewDto {
+  const executionStatusCounts = {
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  for (const execution of job.job_executions) executionStatusCounts[execution.status] += 1;
+
+  return {
+    id: job.id,
+    key: job.key,
+    name: job.name,
+    position: job.position,
+    dependencies: job.dependencies,
+    status: job.status,
+    status_reason: job.status_reason,
+    mode: job.mode,
+    listener_status: job.listener_status,
+    carried_over: job.carried_over,
+    execution_count: job.job_executions.length,
+    execution_status_counts: executionStatusCounts,
+    default_execution: defaultExecution ? jobExecutionSummaryDto(defaultExecution) : null,
+  };
+}
+
+function defaultJobExecutionDto(
+  job: WorkflowRunJobDetailDto,
+): WorkflowRunJobExecutionDetailDto | undefined {
+  return (
+    job.job_executions.find((execution) => execution.status === 'running') ??
+    job.job_executions.reduce<WorkflowRunJobExecutionDetailDto | undefined>(
+      (latest, execution) => (!latest || execution.sequence > latest.sequence ? execution : latest),
+      undefined,
+    )
+  );
+}
+
+function jobExecutionSummaryDto(
+  execution: WorkflowRunJobExecutionDetailDto,
+): JobExecutionSummaryDto {
+  return {
+    id: execution.id,
+    sequence: execution.sequence,
+    name: execution.name,
+    status: execution.status,
+    display_status: execution.status,
+    status_reason: execution.status_reason as JobExecutionSummaryDto['status_reason'],
+    status_reason_message: execution.status_reason_message ?? null,
+    queued_at: execution.queued_at,
+    started_at: execution.started_at,
+    finished_at: execution.finished_at,
+    timed_out_at: execution.timed_out_at,
+    updated_at: execution.updated_at,
+  };
+}
+
+function compactJobExecutionDto(
+  execution: WorkflowRunJobExecutionDetailDto,
+): NonNullable<WorkflowJobDetailDto['selected_execution']> {
+  return {
+    ...jobExecutionSummaryDto(execution),
+    has_context: Boolean(
+      execution.runner?.length ||
+        execution.outputs ||
+        execution.trigger_events.length ||
+        execution.evaluation_trace?.length,
+    ),
+    steps: {
+      items: execution.steps.map((step) => ({
+        id: step.id,
+        key: step.key,
+        name: step.name,
+        type: compactStepType(step.type),
+        position: step.position,
+        status: compactStepStatus(step.status),
+        status_reason: step.status_reason,
+        source_location: step.source_location,
+        current_attempt: step.current_attempt,
+        error: step.error,
+        attempts: {
+          items: step.attempts.map((attempt) => ({
+            id: attempt.id,
+            attempt: attempt.attempt,
+            execution_order: attempt.execution_order,
+            status: compactStepStatus(attempt.status),
+            exit_code: attempt.exit_code,
+            started_at: attempt.started_at,
+            finished_at: attempt.finished_at,
+            error: compactAttemptError(attempt.error),
+            gate_result: compactGateResult(attempt.gate_result),
+          })),
+          next_cursor: null,
+          total: step.attempts.length,
+        },
+      })),
+      next_cursor: null,
+      total: execution.steps.length,
+    },
+  };
+}
+
+function compactStepStatus(
+  status: string,
+): 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped' {
+  if (
+    status === 'pending' ||
+    status === 'running' ||
+    status === 'succeeded' ||
+    status === 'failed' ||
+    status === 'cancelled' ||
+    status === 'skipped'
+  ) {
+    return status;
+  }
+  return 'pending';
+}
+
+function compactStepType(status: string): 'setup' | 'run' | 'agent' | 'checkout' | 'tool' {
+  if (
+    status === 'setup' ||
+    status === 'run' ||
+    status === 'agent' ||
+    status === 'checkout' ||
+    status === 'tool'
+  ) {
+    return status;
+  }
+  return 'run';
+}
+
+function compactAttemptError(error: Record<string, unknown> | null): StepErrorDto {
+  if (!error || typeof error.message !== 'string') return null;
+  return {message: error.message};
+}
+
+function compactGateResult(
+  gateResult: WorkflowRunJobExecutionDetailDto['steps'][number]['attempts'][number]['gate_result'],
+): StepGateResultSummaryDto {
+  if (!gateResult || typeof gateResult.kind !== 'string') return {kind: 'unknown'};
+  if (gateResult.kind === 'none' || gateResult.kind === 'not_evaluated') {
+    return {kind: gateResult.kind};
+  }
+  return {kind: 'unknown'};
 }
 
 export function workflowRunAttemptDto(

@@ -58,6 +58,17 @@ export type {
 } from './entities/step-attempt.js';
 export {StepAttempt} from './entities/step-attempt.js';
 export type {
+  WorkflowExecutionStepsPage,
+  WorkflowJobDetail,
+  WorkflowJobExecutionDetail,
+  WorkflowJobExecutionPage,
+  WorkflowJobExecutionSummary,
+  WorkflowJobPage,
+  WorkflowJobStepAttemptSummary,
+  WorkflowJobStepSummary,
+  WorkflowStepAttemptPage,
+} from './entities/workflow-job-detail.js';
+export type {
   DevRunLaunch,
   ManualWorkflowLaunch,
   WorkflowDisplayStatus,

@@ -23,9 +23,18 @@ import {Link} from '@tanstack/react-router';
 import {type ReactNode, type RefObject, useCallback, useEffect, useRef, useState} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
-import {isWorkflowRunTerminal, type Job, type JobExecution} from '#core/workflow-run.js';
+import {
+  type BoundedExecutionCount,
+  isWorkflowRunTerminal,
+  type Job,
+  type JobExecution,
+  type JobExecutionDisplayStatus,
+  type WorkflowJobDetail,
+} from '#core/workflow-run.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
+import type {useWorkflowJobDetailQuery} from '#hooks/api/workflow-job-detail.js';
+import {toLegacyJobForJobDetail} from '#hooks/api/workflow-job-detail-mapper.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   type WorkflowJobSearch,
@@ -60,6 +69,20 @@ import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
 type InspectorState = {key: string; attemptId: string | null};
+type JobDetailQuery =
+  | ReturnType<typeof useWorkflowRunAttemptQuery>
+  | ReturnType<typeof useWorkflowJobDetailQuery>;
+interface JobDetailData {
+  id: string;
+  runAttempt: {
+    attempt: number;
+    status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  };
+  job: Job;
+  executionCount: BoundedExecutionCount;
+  executionCountVisible: boolean;
+  executionDisplayStatus: JobExecutionDisplayStatus | undefined;
+}
 
 export interface JobDetailViewProps {
   workspaceSlug: string;
@@ -67,9 +90,10 @@ export interface JobDetailViewProps {
   workflowRunId: string;
   jobId: string;
   search: WorkflowJobSearch;
-  query: ReturnType<typeof useWorkflowRunAttemptQuery>;
+  query: JobDetailQuery;
+  selectedJobQuery?: boolean;
   newerAttempt?: number | undefined;
-  newerJob?: Job | undefined;
+  newerJob?: Pick<Job, 'id'> | undefined;
   onSelectionChange: (selection: WorkflowJobSearch) => void;
 }
 
@@ -80,6 +104,7 @@ export function JobDetailView({
   jobId,
   search,
   query,
+  selectedJobQuery = false,
   newerAttempt,
   newerJob,
   onSelectionChange,
@@ -93,12 +118,13 @@ export function JobDetailView({
   const [expandedLogAttemptIds, setExpandedLogAttemptIds] = useState<readonly string[]>([]);
   const [logRefreshTokens, setLogRefreshTokens] = useState<Record<string, number>>({});
   const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
-  const hasLoadedData = query.data !== undefined;
+  const detailData = normalizeJobDetailData(query.data, workflowRunId, jobId);
+  const hasLoadedData = detailData !== undefined;
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
   // summary query below stays counts-only and is scoped to the inspector's selected execution.
   const annotations = useRunAnnotationsQuery({
     workflowRunId,
-    runAttempt: query.data?.runAttempt.attempt,
+    runAttempt: detailData?.runAttempt.attempt,
   });
   const jobAnnotationSummary = summarizeLoadedJobAnnotations(annotations, jobId);
   const inspectorResetKey = `${jobId}:${search.jobExecutionId ?? ''}`;
@@ -108,11 +134,11 @@ export function JobDetailView({
   }));
   const inspectorOpenAttemptId =
     inspectorState.key === inspectorResetKey ? inspectorState.attemptId : null;
-  const annotationExecutionId = resolveAnnotationExecutionId(query.data, jobId, search);
-  const annotationPolling = shouldPollJobAnnotations(query.data);
+  const annotationExecutionId = resolveAnnotationExecutionId(detailData, jobId, search);
+  const annotationPolling = shouldPollJobAnnotations(detailData);
   const annotationSummaryQuery = useWorkflowRunAnnotationSummaryQuery(
-    query.data?.id,
-    query.data?.runAttempt.attempt,
+    detailData?.id,
+    detailData?.runAttempt.attempt,
     annotationExecutionId,
     {polling: annotationPolling},
   );
@@ -132,12 +158,10 @@ export function JobDetailView({
     });
   }, []);
 
-  const queryBoundary = jobDetailQueryBoundary(query);
+  const queryBoundary = jobDetailQueryBoundary(query, selectedJobQuery);
   if (queryBoundary !== undefined) return queryBoundary;
 
-  const run = query.data as NonNullable<typeof query.data>;
-  const job = run.jobs.find((candidate) => candidate.id === jobId);
-  if (!job) {
+  if (!detailData) {
     return (
       <JobNotFoundState
         workspaceSlug={workspaceSlug}
@@ -147,6 +171,8 @@ export function JobDetailView({
       />
     );
   }
+  const run = detailData;
+  const {job} = detailData;
 
   const detailState = resolveJobDetailState({
     job,
@@ -246,6 +272,9 @@ export function JobDetailView({
                 workflowRunId={run.id}
                 runAttempt={run.runAttempt.attempt}
                 annotationSummary={jobAnnotationSummary}
+                executionCount={detailData.executionCount}
+                executionCountVisible={detailData.executionCountVisible}
+                executionDisplayStatus={detailData.executionDisplayStatus}
                 jobContext={
                   selectedJobExecution ? (
                     <JobContextPanel job={job} execution={selectedJobExecution} />
@@ -373,33 +402,76 @@ function summarizeLoadedJobAnnotations(
 }
 
 function resolveAnnotationExecutionId(
-  run: ReturnType<typeof useWorkflowRunAttemptQuery>['data'],
+  run: JobDetailData | undefined,
   jobId: string,
   search: WorkflowJobSearch,
 ): string | undefined {
-  const job = run?.jobs.find((candidate) => candidate.id === jobId);
-  if (!job) return search.jobExecutionId;
-  return resolveWorkflowJobSelection({job, selection: search}).jobExecution?.id;
+  if (!run || run.job.id !== jobId) return search.jobExecutionId;
+  return resolveWorkflowJobSelection({job: run.job, selection: search}).jobExecution?.id;
 }
 
-function shouldPollJobAnnotations(
-  run: ReturnType<typeof useWorkflowRunAttemptQuery>['data'],
-): boolean {
+function shouldPollJobAnnotations(run: JobDetailData | undefined): boolean {
   if (!run) return true;
   return !isWorkflowRunTerminal(run.runAttempt.status);
 }
 
 function jobDetailQueryBoundary(
-  query: ReturnType<typeof useWorkflowRunAttemptQuery>,
+  query: JobDetailQuery,
+  selectedJobQuery: boolean,
 ): ReactNode | undefined {
   if (query.isPending || query.data === undefined) {
     if (!query.isError) return <JobDetailSkeleton />;
   }
   if (!query.isError || query.data !== undefined) return undefined;
   if (query.error instanceof ApiError && query.error.status === 404) {
+    if (selectedJobQuery) return undefined;
     return <WorkflowRunNotFound />;
   }
-  return <QueryLoadError query={query} subject="workflow run" icon="pulseLine" />;
+  return <QueryLoadError query={query} subject="workflow job" icon="pulseLine" />;
+}
+
+function normalizeJobDetailData(
+  data: JobDetailQuery['data'],
+  workflowRunId: string,
+  jobId: string,
+): JobDetailData | undefined {
+  if (!data) return undefined;
+  if (isWorkflowJobDetail(data)) {
+    if (data.job.id !== jobId) return undefined;
+    return {
+      id: data.workflowRunId,
+      runAttempt: {
+        attempt: data.workflowRunAttempt,
+        status: jobDetailRunStatus(data),
+      },
+      job: toLegacyJobForJobDetail(data),
+      executionCount: data.job.executionCount,
+      executionCountVisible: data.job.executionCountVisible,
+      executionDisplayStatus: data.selectedExecution?.displayStatus,
+    };
+  }
+
+  const job = data.jobs.find((candidate) => candidate.id === jobId);
+  return job
+    ? {
+        id: data.id || workflowRunId,
+        runAttempt: data.runAttempt,
+        job,
+        executionCount: job.jobExecutions.length,
+        executionCountVisible: job.executionCountVisible,
+        executionDisplayStatus: undefined,
+      }
+    : undefined;
+}
+
+function isWorkflowJobDetail(data: NonNullable<JobDetailQuery['data']>): data is WorkflowJobDetail {
+  return 'selectedExecution' in data && 'workflowRunId' in data;
+}
+
+function jobDetailRunStatus(detail: WorkflowJobDetail): JobDetailData['runAttempt']['status'] {
+  const status = detail.selectedExecution?.status ?? detail.job.status;
+  if (status === 'skipped') return 'cancelled';
+  return status;
 }
 
 function ExpandedStep({

@@ -1,14 +1,17 @@
+import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
+import {workflowJobQueryKeys} from '#hooks/api/workflow-job-detail.js';
 import type {WorkflowJobSearch, WorkflowRunsSearch} from '#routes/inputs.js';
 import {
   runAttemptsResponseDto,
+  workflowJobDetailResponseDto,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
   workflowRunDetailDto,
+  workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -35,6 +38,7 @@ const LINT_LINK_PATTERN = /lint/;
 const RELEASE_LINK_PATTERN = /release/;
 const ANNOTATION_LINK_PATTERN = /annotation/;
 const ANNOTATIONS_LINK_PATTERN = /Annotations/;
+const JOB_DETAIL_PATH_RE = /^\/workflows\/runs\/jobs\/([^/]+)$/u;
 
 describe('WorkflowJobDetailPage', () => {
   beforeEach(() => {
@@ -153,37 +157,43 @@ describe('WorkflowJobDetailPage', () => {
     expect(screen.getAllByText('1m 10s')).not.toHaveLength(0);
   });
 
-  test('shows a retarget notice when polling advances to the next running step', async () => {
-    let detailRequestCount = 0;
+  test('loads execution history only when the switcher opens', async () => {
+    const user = userEvent.setup();
+    const historyRequests: URL[] = [];
+    const legacyDetailRequests: URL[] = [];
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL((input as Request).url);
-      if (url.pathname.includes('/logs')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+      if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+        historyRequests.push(url);
       }
-      if (url.pathname.endsWith('/head')) {
-        return Promise.resolve(
-          jsonResponse({
-            current_attempt: 1,
-            latest_attempt: 1,
-            current_status: 'running',
-            updated_at: '2026-06-21T12:01:00.000Z',
-          }),
-        );
-      }
-      if (url.pathname.endsWith('/overview')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      detailRequestCount += 1;
-      return Promise.resolve(
-        jsonResponse(
-          detailRequestCount === 1 ? liveInitialJobDetailDto() : liveAdvancedJobDetailDto(),
-        ),
-      );
+      if (url.pathname === `/workflows/runs/${RUN_ID}`) legacyDetailRequests.push(url);
+      return jobDetailFetch(input);
     });
-    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+    configureApiClient({fetchImpl});
+
+    renderJobPath();
+    await screen.findByRole('heading', {name: 'release'});
+    expect(historyRequests).toHaveLength(0);
+    expect(legacyDetailRequests).toHaveLength(0);
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Switch job execution, currently execution 2: release',
+      }),
+    );
+
+    await waitFor(() => expect(historyRequests).toHaveLength(1));
+    expect(historyRequests[0]?.searchParams.get('limit')).toBe('25');
+    expect(legacyDetailRequests).toHaveLength(0);
+  });
+
+  test('shows a retarget notice when polling advances to the next running step', async () => {
+    const fetchImpl = liveJobDetailFetch({
+      jobId: LIVE_JOB_ID,
+      initial: liveInitialJobDetailDto(),
+      advanced: liveAdvancedJobDetailDto(),
+    });
+    configureApiClient({fetchImpl});
 
     const {queryClient} = renderJobPath('?runAttempt=1', LIVE_JOB_ID);
     expect(
@@ -191,7 +201,7 @@ describe('WorkflowJobDetailPage', () => {
     ).toBeInTheDocument();
 
     await act(async () => {
-      await queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(RUN_ID, 1)});
+      await queryClient.invalidateQueries({queryKey: workflowJobQueryKeys.detail(LIVE_JOB_ID)});
     });
 
     expect(await screen.findByText(RUN_MOVED_ON_PATTERN)).toBeInTheDocument();
@@ -199,38 +209,12 @@ describe('WorkflowJobDetailPage', () => {
   });
 
   test('shows a retarget notice when polling advances the running attempt', async () => {
-    let detailRequestCount = 0;
-    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-      const url = new URL((input as Request).url);
-      if (url.pathname.includes('/logs')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname.endsWith('/head')) {
-        return Promise.resolve(
-          jsonResponse({
-            current_attempt: 1,
-            latest_attempt: 1,
-            current_status: 'running',
-            updated_at: '2026-06-21T12:01:00.000Z',
-          }),
-        );
-      }
-      if (url.pathname.endsWith('/overview')) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      if (url.pathname !== `/workflows/runs/${RUN_ID}`) {
-        return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
-      }
-      detailRequestCount += 1;
-      return Promise.resolve(
-        jsonResponse(
-          detailRequestCount === 1
-            ? liveRetriedInitialJobDetailDto()
-            : liveRetriedAdvancedJobDetailDto(),
-        ),
-      );
+    const fetchImpl = liveJobDetailFetch({
+      jobId: LIVE_JOB_ID,
+      initial: liveRetriedInitialJobDetailDto(),
+      advanced: liveRetriedAdvancedJobDetailDto(),
     });
-    configureApiClient({fetchImpl: fetchImpl as typeof fetch});
+    configureApiClient({fetchImpl});
 
     const {queryClient} = renderJobPath('?runAttempt=1', LIVE_JOB_ID);
     expect(
@@ -238,7 +222,7 @@ describe('WorkflowJobDetailPage', () => {
     ).toBeInTheDocument();
 
     await act(async () => {
-      await queryClient.invalidateQueries({queryKey: workflowRunsQueryKeys.detail(RUN_ID, 1)});
+      await queryClient.invalidateQueries({queryKey: workflowJobQueryKeys.detail(LIVE_JOB_ID)});
     });
 
     expect(await screen.findByText(RUN_MOVED_ON_PATTERN)).toBeInTheDocument();
@@ -246,9 +230,7 @@ describe('WorkflowJobDetailPage', () => {
 
   test('moves focus to the heading after navigating from the job rail', async () => {
     const user = userEvent.setup();
-    configureApiClient({
-      fetchImpl: vi.fn(() => Promise.resolve(jsonResponse(multiJobDetailDto()))),
-    });
+    configureApiClient({fetchImpl: vi.fn(jobDetailFetch)});
 
     renderJobPath();
     await screen.findByRole('heading', {name: 'release'});
@@ -344,9 +326,7 @@ describe('WorkflowJobDetailPage', () => {
   });
 
   test('explains a failure that happened before the first step started', async () => {
-    configureApiClient({
-      fetchImpl: vi.fn(() => Promise.resolve(jsonResponse(failedBeforeStepsDetailDto()))),
-    });
+    configureApiClient({fetchImpl: vi.fn(failedBeforeStepsJobDetailFetch)});
 
     renderJobPath();
 
@@ -457,7 +437,68 @@ function jobDetailFetch(input: RequestInfo | URL) {
     );
   }
 
+  if (url.pathname.endsWith('/head')) {
+    return Promise.resolve(
+      jsonResponse({
+        current_attempt: 1,
+        latest_attempt: 1,
+        current_status: 'succeeded',
+        updated_at: '2026-06-21T12:01:00.000Z',
+      }),
+    );
+  }
+
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
+    return Promise.resolve(jsonResponse(executionHistoryResponseDto()));
+  }
+
+  if (url.pathname.endsWith('/overview')) {
+    return Promise.resolve(jsonResponse(workflowRunOverviewResponseDto(multiJobDetailDto())));
+  }
+
+  const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
+  if (jobMatch?.[1]) {
+    if (jobMatch[1] === 'missing-job') {
+      return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+    }
+    const detail = jobMatch[1] === SIBLING_JOB_ID ? multiJobDetailDto() : jobDetailDto();
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail,
+          jobId: jobMatch[1],
+          executionId: url.searchParams.has('execution_id')
+            ? url.searchParams.get('execution_id')
+            : undefined,
+        }),
+      ),
+    );
+  }
+
   return Promise.resolve(jsonResponse(jobDetailDto()));
+}
+
+function executionHistoryResponseDto() {
+  return {
+    items: [
+      {
+        id: EXECUTION_ID,
+        sequence: 2,
+        name: 'release',
+        status: 'succeeded',
+        display_status: 'succeeded',
+        status_reason: null,
+        status_reason_message: null,
+        queued_at: '2026-06-21T12:00:00.000Z',
+        started_at: '2026-06-21T12:00:05.000Z',
+        finished_at: '2026-06-21T12:01:15.000Z',
+        timed_out_at: null,
+        updated_at: '2026-06-21T12:01:15.000Z',
+      },
+    ],
+    next_cursor: null,
+    total: 2,
+  };
 }
 
 function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
@@ -476,6 +517,32 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 1, status: 'succeeded'}),
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 2, status: 'succeeded'}),
           ],
+        }),
+      ),
+    );
+  }
+
+  if (url.pathname.endsWith('/head')) {
+    return Promise.resolve(
+      jsonResponse({
+        current_attempt: 1,
+        latest_attempt: 2,
+        current_status: 'succeeded',
+        updated_at: '2026-06-21T12:01:00.000Z',
+      }),
+    );
+  }
+
+  const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
+  if (jobMatch?.[1]) {
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail: jobDetailDto(),
+          jobId: JOB_ID,
+          executionId: url.searchParams.has('execution_id')
+            ? url.searchParams.get('execution_id')
+            : undefined,
         }),
       ),
     );
@@ -508,6 +575,65 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
   }
 
   return Promise.resolve(jsonResponse(jobDetailDto()));
+}
+
+function failedBeforeStepsJobDetailFetch(input: RequestInfo | URL) {
+  const request = input as Request;
+  const url = new URL(request.url);
+  if (url.pathname === `/workflows/runs/jobs/${JOB_ID}`) {
+    return Promise.resolve(
+      jsonResponse(
+        workflowJobDetailResponseDto({
+          detail: failedBeforeStepsDetailDto(),
+          jobId: JOB_ID,
+        }),
+      ),
+    );
+  }
+  return Promise.resolve(jsonResponse(failedBeforeStepsDetailDto()));
+}
+
+function liveJobDetailFetch({
+  jobId,
+  initial,
+  advanced,
+}: {
+  jobId: string;
+  initial: WorkflowRunDetailResponseDto;
+  advanced: WorkflowRunDetailResponseDto;
+}) {
+  let detailRequestCount = 0;
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL((input as Request).url);
+    const staticResponse = liveJobStaticResponse(url);
+    if (staticResponse) return Promise.resolve(staticResponse);
+
+    if (url.pathname === `/workflows/runs/jobs/${jobId}`) {
+      const detail = detailRequestCount++ === 0 ? initial : advanced;
+      return Promise.resolve(jsonResponse(workflowJobDetailResponseDto({detail, jobId})));
+    }
+    if (url.pathname === `/workflows/runs/${RUN_ID}`) {
+      const detail = detailRequestCount++ === 0 ? initial : advanced;
+      return Promise.resolve(jsonResponse(detail));
+    }
+    return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
+  });
+}
+
+function liveJobStaticResponse(url: URL): Response | undefined {
+  if (url.pathname.includes('/logs')) return jsonResponse({code: 'not-found'}, {status: 404});
+  if (url.pathname.endsWith('/head')) {
+    return jsonResponse({
+      current_attempt: 1,
+      latest_attempt: 1,
+      current_status: 'running',
+      updated_at: '2026-06-21T12:01:00.000Z',
+    });
+  }
+  if (url.pathname.endsWith('/overview')) {
+    return jsonResponse({code: 'not-found'}, {status: 404});
+  }
+  return undefined;
 }
 
 function liveInitialJobDetailDto() {

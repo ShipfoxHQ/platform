@@ -22,6 +22,7 @@ import {
   type StepSourceLocation,
   type WorkflowRunDetail,
   type WorkflowRunOverview,
+  type WorkflowRunOverviewJob,
   type WorkflowRunRerunMode,
   type WorkflowRunSource,
 } from '#core/workflow-run.js';
@@ -83,9 +84,10 @@ export interface WorkflowRunViewProps {
   selection?: WorkflowRunsSearch | undefined;
   tab?: WorkflowRunTab | undefined;
   activeJobId?: string | undefined;
+  activeJob?: WorkflowRunOverviewJob | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   jobContent?: ReactNode | undefined;
-  /** A selected-job route already owns its one visible legacy detail request. */
+  /** Run-level legacy bridge data, retained only for mixed-deployment run sections. */
   legacyQuery?: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
 }
 
@@ -102,6 +104,7 @@ export function WorkflowRunView({
   selection,
   tab,
   activeJobId,
+  activeJob,
   jobSearch,
   jobContent,
   legacyQuery: providedLegacyQuery,
@@ -220,6 +223,7 @@ export function WorkflowRunView({
           selection={selection}
           tab={tab}
           activeJobId={activeJobId}
+          activeJob={activeJob}
           jobSearch={jobSearch}
           jobContent={jobContent}
           selectionQuery={selectionQuery}
@@ -466,6 +470,7 @@ function RunViewContent({
   selectionQuery,
   tab,
   activeJobId,
+  activeJob,
   jobSearch,
   jobContent,
 }: {
@@ -485,6 +490,7 @@ function RunViewContent({
   selectionQuery: ReturnType<typeof useWorkflowRunSelectionQuery>;
   tab: WorkflowRunTab | undefined;
   activeJobId: string | undefined;
+  activeJob: WorkflowRunOverviewJob | undefined;
   jobSearch: WorkflowJobSearch | undefined;
   jobContent: ReactNode | undefined;
 }) {
@@ -635,6 +641,7 @@ function RunViewContent({
       rerunPending={rerunMutation.isPending}
       activeSection={activeSection}
       activeJobId={activeJobId}
+      activeJob={activeJob}
       jobSearch={jobSearch}
       selection={selection}
       selectedJobId={selectedJobId}
@@ -664,6 +671,7 @@ function RunViewLayout({
   rerunPending,
   activeSection,
   activeJobId,
+  activeJob,
   jobSearch,
   selection,
   selectedJobId,
@@ -689,6 +697,7 @@ function RunViewLayout({
   rerunPending: boolean;
   activeSection: RunWorkspaceSection;
   activeJobId: string | undefined;
+  activeJob: WorkflowRunOverviewJob | undefined;
   jobSearch: WorkflowJobSearch | undefined;
   selection: WorkflowRunsSearch | undefined;
   selectedJobId: string | undefined;
@@ -749,9 +758,10 @@ function RunViewLayout({
               activeSection={activeSection}
               currentJobId={activeJobId}
               activeJob={
-                activeJobId
+                activeJob ??
+                (activeJobId
                   ? legacyQuery?.data?.jobs.find((job) => job.id === activeJobId)
-                  : undefined
+                  : undefined)
               }
               jobSearch={jobSearch}
               annotationSummary={annotationSummary}

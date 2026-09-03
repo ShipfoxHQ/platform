@@ -8,9 +8,12 @@ import userEvent from '@testing-library/user-event';
 import type {WorkflowJobSearch, WorkflowRunsSearch} from '#routes/inputs.js';
 import {inlineLogBody, outputLine} from '#test/fixtures/logs.js';
 import {
+  workflowJobDetailResponseDto,
   workflowJobDto,
+  workflowJobExecutionDto,
   workflowRunDetailDto,
   workflowRunDto,
+  workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -48,6 +51,8 @@ const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
+const RUN_OVERVIEW_PATH_RE = /^\/workflows\/runs\/([^/]+)\/overview$/u;
+const JOB_DETAIL_PATH_RE = /^\/workflows\/runs\/jobs\/([^/]+)$/u;
 const RUN_OVERRIDES = {
   id: RUN_ID,
   project_id: PROJECT_ID,
@@ -365,6 +370,7 @@ describe('WorkflowRunPages', () => {
     configureApiClient({fetchImpl: createRunDetailFetch()});
 
     const {router} = renderRunPath();
+    await screen.findByRole('region', {name: 'All jobs summary'});
 
     await user.click(await screen.findByRole('button', {name: 'deploy, Running'}));
 
@@ -755,26 +761,68 @@ function createRunDetailFetch({
       );
     }
 
-    const runMatch = url.pathname.match(RUN_DETAIL_PATH_RE);
-    if (runMatch?.[1] && details[runMatch[1]]) {
-      return Promise.resolve(jsonResponse(details[runMatch[1]]));
-    }
+    const runDetail = runDetailResponse(url, details);
+    if (runDetail) return Promise.resolve(jsonResponse(runDetail));
 
-    if (url.pathname === `/steps/${DEPLOY_STEP_ID}/attempts/1/logs`) {
-      return Promise.resolve(jsonResponse(inlineLogBody(outputLine('attempt one log\n'), 1)));
-    }
-    if (url.pathname === `/steps/${DEPLOY_STEP_ID}/attempts/2/logs`) {
-      return Promise.resolve(jsonResponse(inlineLogBody(outputLine('attempt two log\n'), 1)));
-    }
-    if (url.pathname === `/steps/${DEPLOY_RETRY_STEP_ID}/attempts/1/logs`) {
-      return Promise.resolve(jsonResponse(inlineLogBody(outputLine('retry attempt log\n'), 1)));
-    }
-    if (url.pathname === `/steps/${BUILD_STEP_ID}/attempts/1/logs`) {
-      return Promise.resolve(jsonResponse(inlineLogBody(outputLine('build log\n'), 1)));
-    }
+    const runOverview = runOverviewResponse(url, details);
+    if (runOverview) return Promise.resolve(jsonResponse(runOverview));
+
+    const jobDetail = selectedJobDetailResponse(url, details);
+    if (jobDetail) return Promise.resolve(jsonResponse(jobDetail));
+
+    const logBody = workflowStepLogResponse(url);
+    if (logBody) return Promise.resolve(jsonResponse(logBody));
 
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });
+}
+
+function runDetailResponse(
+  url: URL,
+  details: Record<string, WorkflowRunDetailResponseDto>,
+): WorkflowRunDetailResponseDto | undefined {
+  const runMatch = url.pathname.match(RUN_DETAIL_PATH_RE);
+  return runMatch?.[1] ? details[runMatch[1]] : undefined;
+}
+
+function runOverviewResponse(url: URL, details: Record<string, WorkflowRunDetailResponseDto>) {
+  const runMatch = url.pathname.match(RUN_OVERVIEW_PATH_RE);
+  const detail = runMatch?.[1] ? details[runMatch[1]] : undefined;
+  return detail ? workflowRunOverviewResponseDto(detail) : undefined;
+}
+
+function selectedJobDetailResponse(
+  url: URL,
+  details: Record<string, WorkflowRunDetailResponseDto>,
+) {
+  const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
+  if (!jobMatch?.[1]) return undefined;
+  const detail = details[RUN_ID];
+  const job = detail?.jobs.find((candidate) => candidate.id === jobMatch[1]);
+  if (!detail || !job) return undefined;
+  return workflowJobDetailResponseDto({
+    detail,
+    jobId: jobMatch[1],
+    executionId: url.searchParams.has('execution_id')
+      ? url.searchParams.get('execution_id')
+      : undefined,
+  });
+}
+
+function workflowStepLogResponse(url: URL) {
+  if (url.pathname === `/steps/${DEPLOY_STEP_ID}/attempts/1/logs`) {
+    return inlineLogBody(outputLine('attempt one log\n'), 1);
+  }
+  if (url.pathname === `/steps/${DEPLOY_STEP_ID}/attempts/2/logs`) {
+    return inlineLogBody(outputLine('attempt two log\n'), 1);
+  }
+  if (url.pathname === `/steps/${DEPLOY_RETRY_STEP_ID}/attempts/1/logs`) {
+    return inlineLogBody(outputLine('retry attempt log\n'), 1);
+  }
+  if (url.pathname === `/steps/${BUILD_STEP_ID}/attempts/1/logs`) {
+    return inlineLogBody(outputLine('build log\n'), 1);
+  }
+  return undefined;
 }
 
 function createEmptyRunsFetch() {
@@ -805,18 +853,24 @@ function defaultRunDetailDto(
         run_attempt_id: RUN_ID,
         name: 'build',
         status: 'succeeded',
-        steps: [
-          workflowStepDto({
-            id: BUILD_STEP_ID,
-            key: 'checkout',
-            name: 'checkout',
+        job_executions: [
+          workflowJobExecutionDto({
+            job_id: BUILD_JOB_ID,
             status: 'succeeded',
-            current_attempt: 1,
-            attempts: [
-              workflowStepAttemptDto({
-                id: BUILD_ATTEMPT_ID,
-                step_id: BUILD_STEP_ID,
+            steps: [
+              workflowStepDto({
+                id: BUILD_STEP_ID,
+                key: 'checkout',
+                name: 'checkout',
                 status: 'succeeded',
+                current_attempt: 1,
+                attempts: [
+                  workflowStepAttemptDto({
+                    id: BUILD_ATTEMPT_ID,
+                    step_id: BUILD_STEP_ID,
+                    status: 'succeeded',
+                  }),
+                ],
               }),
             ],
           }),
@@ -829,30 +883,36 @@ function defaultRunDetailDto(
         status: 'running',
         position: 1,
         dependencies: ['build'],
-        steps: [
-          workflowStepDto({
-            id: DEPLOY_STEP_ID,
-            key: 'deploy',
-            name: 'deploy',
+        job_executions: [
+          workflowJobExecutionDto({
+            job_id: DEPLOY_JOB_ID,
             status: 'running',
-            current_attempt: 2,
-            attempts: [
-              workflowStepAttemptDto({
-                id: DEPLOY_ATTEMPT_ONE_ID,
-                step_id: DEPLOY_STEP_ID,
-                attempt: 1,
-                execution_order: 1,
-                status: 'failed',
-                exit_code: 1,
-              }),
-              workflowStepAttemptDto({
-                id: DEPLOY_ATTEMPT_TWO_ID,
-                step_id: DEPLOY_STEP_ID,
-                attempt: 2,
-                execution_order: 2,
+            steps: [
+              workflowStepDto({
+                id: DEPLOY_STEP_ID,
+                key: 'deploy',
+                name: 'deploy',
                 status: 'running',
-                exit_code: null,
-                finished_at: null,
+                current_attempt: 2,
+                attempts: [
+                  workflowStepAttemptDto({
+                    id: DEPLOY_ATTEMPT_ONE_ID,
+                    step_id: DEPLOY_STEP_ID,
+                    attempt: 1,
+                    execution_order: 1,
+                    status: 'failed',
+                    exit_code: 1,
+                  }),
+                  workflowStepAttemptDto({
+                    id: DEPLOY_ATTEMPT_TWO_ID,
+                    step_id: DEPLOY_STEP_ID,
+                    attempt: 2,
+                    execution_order: 2,
+                    status: 'running',
+                    exit_code: null,
+                    finished_at: null,
+                  }),
+                ],
               }),
             ],
           }),

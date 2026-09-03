@@ -2,8 +2,16 @@ import {useNavigate} from '@tanstack/react-router';
 import {useCallback, useMemo} from 'react';
 import {JobDetailView} from '#components/job-detail/job-detail-view.js';
 import {WorkflowRunView} from '#components/workflow-run-view/index.js';
-import {isWorkflowRunTerminal} from '#core/workflow-run.js';
-import {useWorkflowRunAttemptQuery, useWorkflowRunAttemptsQuery} from '#hooks/api/workflow-runs.js';
+import type {Job} from '#core/workflow-run.js';
+import {
+  useWorkflowJobDetailQuery,
+  useWorkflowJobResourceInvalidation,
+} from '#hooks/api/workflow-job-detail.js';
+import {
+  useWorkflowRunLineageHeadQuery,
+  useWorkflowRunOverviewQuery,
+} from '#hooks/api/workflow-run-overview.js';
+import {useWorkflowRunListItem} from '#hooks/api/workflow-runs.js';
 import {type WorkflowJobSearch, workflowJobSearchParams} from '#routes/inputs.js';
 
 export interface WorkflowJobDetailPageProps {
@@ -24,30 +32,38 @@ export function WorkflowJobDetailPage({
   search = {},
 }: WorkflowJobDetailPageProps) {
   const navigate = useNavigate();
-  const runQuery = useWorkflowRunAttemptQuery({
-    workflowRunId,
-    runAttempt: search.runAttempt,
+  const jobQuery = useWorkflowJobDetailQuery({
+    jobId,
+    executionId: search.jobExecutionId,
   });
-  const attemptsQuery = useWorkflowRunAttemptsQuery({
-    workflowRunId,
-    enabled: Boolean(runQuery.data && isWorkflowRunTerminal(runQuery.data.runAttempt.status)),
+  useWorkflowJobResourceInvalidation({
+    detail: jobQuery.data,
+    pinnedExecutionId: search.jobExecutionId,
   });
+  const listRun = useWorkflowRunListItem(workflowRunId);
+  const headQuery = useWorkflowRunLineageHeadQuery({workflowRunId});
   const newerAttempt = useMemo(() => {
-    const currentAttempt = runQuery.data?.runAttempt.attempt ?? search.runAttempt ?? 1;
-    return attemptsQuery.data
-      ?.filter((attempt) => attempt.attempt > currentAttempt)
-      .sort((left, right) => right.attempt - left.attempt)[0]?.attempt;
-  }, [attemptsQuery.data, runQuery.data?.runAttempt.attempt, search.runAttempt]);
-  const newerRunQuery = useWorkflowRunAttemptQuery({
+    if (search.runAttempt === undefined) return undefined;
+    const latestAttempt = headQuery.data?.latestAttempt ?? listRun?.latestAttempt;
+    return latestAttempt && latestAttempt > search.runAttempt ? latestAttempt : undefined;
+  }, [headQuery.data?.latestAttempt, listRun?.latestAttempt, search.runAttempt]);
+  const newerOverviewQuery = useWorkflowRunOverviewQuery({
     workflowRunId,
     runAttempt: newerAttempt,
     enabled: newerAttempt !== undefined,
   });
-
-  const currentJobKey = runQuery.data?.jobs.find((job) => job.id === jobId)?.key;
-  const newerJob = currentJobKey
-    ? newerRunQuery.data?.jobs.find((job) => job.key === currentJobKey)
-    : undefined;
+  const currentJobKey = jobQuery.data?.job.key;
+  const newerJob = useMemo<Pick<Job, 'id'> | undefined>(() => {
+    if (!currentJobKey) return undefined;
+    const cachedJob = listRun?.jobs.preview.find((candidate) => candidate.key === currentJobKey);
+    if (cachedJob) return {id: cachedJob.id};
+    const overviewJobs = newerOverviewQuery.data?.jobs;
+    if (!overviewJobs) return undefined;
+    const jobs =
+      overviewJobs.kind === 'complete' ? overviewJobs.items : overviewJobs.firstPage.items;
+    const job = jobs.find((candidate) => candidate.key === currentJobKey);
+    return job ? {id: job.id} : undefined;
+  }, [currentJobKey, listRun?.jobs.preview, newerOverviewQuery.data]);
 
   const onSelectionChange = useCallback(
     (nextSelection: WorkflowJobSearch) => {
@@ -67,8 +83,8 @@ export function WorkflowJobDetailPage({
         workflowRunId={workflowRunId}
         runAttempt={search.runAttempt}
         activeJobId={jobId}
+        activeJob={jobQuery.data?.job}
         jobSearch={search}
-        legacyQuery={runQuery}
         jobContent={
           <JobDetailView
             key={jobId}
@@ -77,7 +93,8 @@ export function WorkflowJobDetailPage({
             workflowRunId={workflowRunId}
             jobId={jobId}
             search={search}
-            query={runQuery}
+            query={jobQuery}
+            selectedJobQuery
             newerAttempt={newerAttempt}
             newerJob={newerJob}
             onSelectionChange={onSelectionChange}
