@@ -271,6 +271,10 @@ export function e2eEnv(sourceEnv) {
       sourceEnv.INTEGRATIONS_ENABLE_GITHUB_PROVIDER,
       'true',
     ),
+    INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION: valueOr(
+      sourceEnv.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
+      'true',
+    ),
     INTEGRATIONS_ENABLE_LINEAR_PROVIDER: valueOr(
       sourceEnv.INTEGRATIONS_ENABLE_LINEAR_PROVIDER,
       'true',

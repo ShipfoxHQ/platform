@@ -7,6 +7,7 @@ import {
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {ProjectAlreadyExistsError, ProjectSlugConflictError} from '#core/index.js';
 import {createProject} from '#db/index.js';
+import {updateProjectSourceRepository} from '#db/projects.js';
 import {toProjectDto} from '#presentation/dto/index.js';
 
 function syntheticExternalRepositoryId(): string {
@@ -14,6 +15,28 @@ function syntheticExternalRepositoryId(): string {
 }
 
 const MAX_GENERATED_SLUG_ATTEMPTS = 5;
+
+async function hydrateSourceRepository(
+  project: Awaited<ReturnType<typeof createProject>>,
+  source: {
+    owner?: string | undefined;
+    name?: string | undefined;
+    defaultBranch?: string | undefined;
+  },
+): Promise<typeof project> {
+  if (source.owner === undefined || source.name === undefined) return project;
+
+  const hydratedProject = await updateProjectSourceRepository({
+    workspaceId: project.workspaceId,
+    sourceConnectionId: project.sourceConnectionId,
+    sourceExternalRepositoryId: project.sourceExternalRepositoryId,
+    sourceRepositoryOwner: source.owner,
+    sourceRepositoryName: source.name,
+    sourceDefaultBranch: source.defaultBranch ?? 'main',
+  });
+  if (!hydratedProject) throw new Error('E2E project source metadata update failed');
+  return hydratedProject;
+}
 
 function generatedProjectSlug(slugBase: string): string {
   const suffix = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 8), 16);
@@ -53,14 +76,21 @@ export const createE2eProjectRoute = defineRoute({
 
     for (let attempt = 0; attempt < MAX_GENERATED_SLUG_ATTEMPTS; attempt += 1) {
       try {
-        const project = await createProject({
-          workspaceId: request.body.workspace_id,
-          name: request.body.name,
-          slug,
-          sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
-          sourceExternalRepositoryId:
-            request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),
-        });
+        const project = await hydrateSourceRepository(
+          await createProject({
+            workspaceId: request.body.workspace_id,
+            name: request.body.name,
+            slug,
+            sourceConnectionId: request.body.source_connection_id ?? randomUUID(),
+            sourceExternalRepositoryId:
+              request.body.source_external_repository_id ?? syntheticExternalRepositoryId(),
+          }),
+          {
+            owner: request.body.source_repository_owner,
+            name: request.body.source_repository_name,
+            defaultBranch: request.body.source_default_branch,
+          },
+        );
 
         reply.code(201);
         return toProjectDto(project);

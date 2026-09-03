@@ -69,6 +69,7 @@ export interface CreateGithubConnectionParams {
   accountLogin: string;
   displayName: string;
   installerUserId: string;
+  lifecycleStatus?: 'active' | 'disabled' | undefined;
 }
 
 function githubConnectionBody(
@@ -80,6 +81,7 @@ function githubConnectionBody(
     account_login: params.accountLogin,
     display_name: params.displayName,
     installer_user_id: params.installerUserId,
+    ...(params.lifecycleStatus === undefined ? {} : {lifecycle_status: params.lifecycleStatus}),
   };
 }
 

@@ -45,6 +45,7 @@ export function createE2eGithubConnectionRoute(options: CreateE2eGithubConnectio
           installationId,
           displayName: body.display_name,
           installerUserId: body.installer_user_id,
+          ...(body.lifecycle_status === undefined ? {} : {lifecycleStatus: body.lifecycle_status}),
           installation: {
             installationId,
             accountLogin: body.account_login,

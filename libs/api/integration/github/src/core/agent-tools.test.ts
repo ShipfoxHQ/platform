@@ -802,9 +802,20 @@ describe('github agent tool catalog', () => {
     const searchPullRequestsSchema = inputSchemaFor('search_pull_requests');
 
     expect(listIssueTypesSchema.required).toEqual(['owner']);
+    const repositoryProperties = {
+      owner: {description: 'Repository owner', type: 'string'},
+      repo: {description: 'Repository name', type: 'string'},
+    };
     const searchRepositoryPairSchema = [
-      {required: ['owner', 'repo']},
-      {not: {anyOf: [{required: ['owner']}, {required: ['repo']}]}},
+      {properties: repositoryProperties, required: ['owner', 'repo']},
+      {
+        not: {
+          anyOf: [
+            {properties: repositoryProperties, required: ['owner']},
+            {properties: repositoryProperties, required: ['repo']},
+          ],
+        },
+      },
     ];
     expect(searchIssuesSchema.oneOf).toEqual(searchRepositoryPairSchema);
     expect(searchPullRequestsSchema.oneOf).toEqual(searchRepositoryPairSchema);

@@ -1,4 +1,7 @@
-import {integrationConnectionDtoSchema} from '@shipfox/api-integration-core-dto';
+import {
+  integrationConnectionDtoSchema,
+  updateIntegrationConnectionLifecycleStatusSchema,
+} from '@shipfox/api-integration-core-dto';
 import {z} from 'zod';
 
 export const createGithubInstallBodySchema = z.object({
@@ -28,6 +31,7 @@ export const createE2eGithubConnectionBodySchema = z.object({
   account_login: z.string().min(1),
   display_name: z.string().min(1),
   installer_user_id: z.string().uuid(),
+  lifecycle_status: updateIntegrationConnectionLifecycleStatusSchema.optional(),
 });
 export type CreateE2eGithubConnectionBodyDto = z.infer<typeof createE2eGithubConnectionBodySchema>;
 

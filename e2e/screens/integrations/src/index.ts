@@ -3,6 +3,8 @@ import type {Page} from '@shipfox/playwright';
 
 type Locator = ReturnType<Page['locator']>;
 type FixtureUse<T> = (fixture: T) => Promise<void>;
+const SELECTED_REPOSITORY_MODE_RE = /Only your projects' repositories/u;
+const ALL_REPOSITORY_MODE_RE = /Every repository this integration can access/u;
 
 export class IntegrationsCatalogueScreen {
   private readonly shell: SettingsShell;
@@ -113,6 +115,44 @@ export class ProviderInstallScreen {
   }
 }
 
+export class ConnectionDetailsScreen {
+  constructor(private readonly page: Page) {}
+
+  async goto(workspaceSlug: string, connectionSlug: string): Promise<void> {
+    await this.page.goto(
+      `/w/${workspaceSlug}/settings/integrations/${encodeURIComponent(connectionSlug)}`,
+    );
+  }
+
+  heading(): Locator {
+    return this.page.getByRole('heading', {name: 'Repository access'});
+  }
+
+  selectedMode(): Locator {
+    return this.page.getByRole('radio', {name: SELECTED_REPOSITORY_MODE_RE});
+  }
+
+  allMode(): Locator {
+    return this.page.getByRole('radio', {name: ALL_REPOSITORY_MODE_RE});
+  }
+
+  projectsRepositoriesHeading(): Locator {
+    return this.page.getByRole('heading', {name: "Your projects' repositories"});
+  }
+
+  repository(name: string): Locator {
+    return this.page.getByText(name, {exact: true});
+  }
+
+  saveButton(): Locator {
+    return this.page.getByRole('button', {name: 'Save changes'});
+  }
+
+  providerNotice(): Locator {
+    return this.page.getByRole('link', {name: 'Change repositories on GitHub'});
+  }
+}
+
 export class SentryCallbackScreen {
   constructor(private readonly page: Page) {}
 
@@ -147,6 +187,7 @@ export class SentryCallbackScreen {
 
 export interface IntegrationsScreenFixtures {
   integrationsCatalogue: IntegrationsCatalogueScreen;
+  connectionDetails: ConnectionDetailsScreen;
   providerInstall: ProviderInstallScreen;
   sentryCallback: SentryCallbackScreen;
   sourceControlSetup: SourceControlSetupScreen;
@@ -158,6 +199,9 @@ export const integrationsScreens = {
     use: FixtureUse<IntegrationsCatalogueScreen>,
   ) => {
     await use(new IntegrationsCatalogueScreen(page));
+  },
+  connectionDetails: async ({page}: {page: Page}, use: FixtureUse<ConnectionDetailsScreen>) => {
+    await use(new ConnectionDetailsScreen(page));
   },
   providerInstall: async ({page}: {page: Page}, use: FixtureUse<ProviderInstallScreen>) => {
     await use(new ProviderInstallScreen(page));

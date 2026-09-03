@@ -31,6 +31,8 @@
     "@shipfox/e2e-harness": "workspace:*",
     "@shipfox/e2e-kit": "workspace:*",
     "@shipfox/e2e-screens-integrations": "workspace:*",
+    "@shipfox/e2e-setup-integrations": "workspace:*",
+    "@shipfox/e2e-setup-projects": "workspace:*",
     "@shipfox/playwright": "workspace:*",
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*"
