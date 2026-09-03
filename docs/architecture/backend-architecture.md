@@ -35,6 +35,40 @@ Read the [database boundary policy](../policies/database-boundaries.md) when
 changing a table, migration, query, foreign key, or transaction. It owns
 database access and naming rules.
 
+## Bounded contexts
+
+This table is the current context map. [`api-contexts.cjs`](../../api-contexts.cjs)
+is its executable source. It classifies every server package as a bounded
+context, shared infrastructure, a shared semantic package, a same-context SPI,
+or the composition root. [ADR 0002](../adr/0002-api-inter-module-architecture.md)
+records the map as of its date and the decision behind it.
+
+| Bounded context | Packages |
+| --- | --- |
+| Agent | `@shipfox/api-agent`, `@shipfox/api-agent-dto`. |
+| Agent access | `@shipfox/api-agent-access`, `@shipfox/api-agent-access-dto`. |
+| Annotations | `@shipfox/annotations`, `@shipfox/annotations-dto`. |
+| Auth | `@shipfox/api-auth`, `@shipfox/api-auth-dto`. |
+| Definitions | `@shipfox/api-definitions`, `@shipfox/api-definitions-dto`. |
+| Integrations | `@shipfox/api-integration-core`, all provider packages, and their DTO packages. |
+| Logs | `@shipfox/api-logs`, `@shipfox/api-logs-dto`. |
+| Projects | `@shipfox/api-projects`, `@shipfox/api-projects-dto`. |
+| Runners | `@shipfox/api-runners`, `@shipfox/api-runners-dto`. |
+| Secrets | `@shipfox/api-secrets`, `@shipfox/api-secrets-dto`. |
+| Triggers | `@shipfox/api-triggers`, `@shipfox/api-triggers-dto`. |
+| Usage | `@shipfox/api-usage`, `@shipfox/api-usage-dto`. Decided in ADR 0015; the packages land with the Usage context delivery. |
+| Workflows | `@shipfox/api-workflows`, `@shipfox/api-workflows-dto`. |
+| Workspaces | `@shipfox/api-workspaces`, `@shipfox/api-workspaces-dto`. |
+
+`@shipfox/api-dispatcher`, `@shipfox/api-auth-context`,
+`@shipfox/api-email-challenges`, and `@shipfox/api-common-dto` are shared
+support, not contexts. `@shipfox/api-server` is the composition root.
+
+Usage owns usage quantities, never amounts. Read
+[ADR 0015](../adr/0015-usage-context-and-application-seams.md) before adding a
+usage table, event, route, or aggregate, or before changing the pricing or
+admission seams.
+
 ## Feature package layers
 
 API feature packages usually use this shape:

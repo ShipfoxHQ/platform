@@ -7,6 +7,7 @@
 - **Foundation delivery:** [Build the registered in-memory transport](https://linear.app/shipfox/issue/ENG-1033/build-the-registered-in-memory-inter-module-transport).
 - **Amended by:** [ADR 0004: Shared semantic packages and server dependency boundaries](0004-shared-semantic-packages-and-server-dependency-boundaries.md).
 - **Amended by:** [ADR 0006: Database ownership boundaries](0006-database-ownership-boundaries.md).
+- **Amended by:** [ADR 0015: Usage context and application seams](0015-usage-context-and-application-seams.md).
 
 ## Context
 

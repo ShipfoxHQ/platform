@@ -9,6 +9,7 @@
 - **Amended by:** [ADR 0012: Client route frames](0012-client-route-frames.md)
 - **Amended by:** [ADR 0013: Workspace setup composition seams](0013-workspace-setup-composition-seams.md)
 - **Amended by:** [ADR 0014: Admin user impersonation](0014-admin-user-impersonation.md)
+- **Amended by:** [ADR 0015: Usage context and application seams](0015-usage-context-and-application-seams.md)
 
 ## Context
 
