@@ -218,6 +218,7 @@ export async function runAttemptCreatedEvents(workflowRunId: string) {
         workspaceId: string;
         projectId: string;
         definitionId: string;
+        carryOverFromWorkflowRunAttemptId?: string;
       },
   );
 }

@@ -1,5 +1,6 @@
 export {createWorkflowRoutes} from './routes/index.js';
 export {
+  createOnWorkflowRunAttemptCreated,
   onJobEventDelivered,
   onJobStepsSettled,
   onJobTerminatedFailureAnnotation,

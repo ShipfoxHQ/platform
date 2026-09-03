@@ -67,8 +67,10 @@ A step continues a session in one of two modes.
 - `fork` reads a copy and writes nothing back. If the key doesn't exist yet,
   the step runs with no earlier conversation and creates nothing.
 
-A session lasts as long as the run and isn't available outside it. A rerun
-starts every session fresh. Steps that share a key must use the same harness;
+A session lasts as long as the run and isn't available outside it. A rerun of all
+jobs starts every session fresh. A rerun of failed jobs carries named sessions
+into the new attempt, so rerun steps can continue their prior conversations.
+Steps that share a key must use the same harness;
 the model can change. The [Agent session
 fields](/reference/workflow-schema#agent-session-fields) reference lists the
 exact key rules, modes, and failure reasons.

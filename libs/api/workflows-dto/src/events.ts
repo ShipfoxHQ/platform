@@ -39,6 +39,9 @@ export const workflowsWorkflowRunAttemptCreatedSchema = z.object({
   workspaceId: nonEmptyStringSchema,
   projectId: nonEmptyStringSchema,
   definitionId: nonEmptyStringSchema,
+  // Failed reruns carry sessions from this attempt before orchestration starts.
+  // Optional for ordinary runs and events written before session carry-over existed.
+  carryOverFromWorkflowRunAttemptId: nonEmptyStringSchema.optional(),
 });
 export type WorkflowsWorkflowRunAttemptCreatedEventDto = z.infer<
   typeof workflowsWorkflowRunAttemptCreatedSchema

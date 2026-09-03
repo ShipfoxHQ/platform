@@ -375,6 +375,17 @@ describe('workflowsStepRestartEnqueuedSchema', () => {
   });
 });
 
+describe('workflowsWorkflowRunAttemptCreatedSchema', () => {
+  it('accepts the source attempt used for failed-rerun session carry-over', () => {
+    const input = {
+      ...validRunCreated,
+      carryOverFromWorkflowRunAttemptId: 'attempt-0',
+    };
+
+    expect(workflowsWorkflowRunAttemptCreatedSchema.parse(input)).toEqual(input);
+  });
+});
+
 describe.each([
   [
     'workflowsWorkflowRunAttemptCreatedSchema',

@@ -31,6 +31,7 @@ import {createToolStepExecutor} from '#core/tool-step/tool-step-executor.js';
 import {db, migrationsPath, workflowsOutbox} from '#db/index.js';
 import {registerWorkflowsServiceMetrics} from '#metrics/index.js';
 import {
+  createOnWorkflowRunAttemptCreated,
   createWorkflowRoutes,
   onJobEventDelivered,
   onJobStepsSettled,
@@ -38,7 +39,6 @@ import {
   onRunnerJobClaimed,
   onRunnerJobLeaseExpired,
   onStepAttemptTerminatedFailureAnnotation,
-  onWorkflowRunAttemptCreated,
   onWorkflowRunCancelled,
 } from '#presentation/index.js';
 import {createWorkflowsInterModulePresentation} from '#presentation/inter-module.js';
@@ -128,7 +128,7 @@ export function createWorkflowsModule({
       {name: 'workflows', table: workflowsOutbox, db, eventSchemas: workflowsEventSchemas},
     ],
     subscribers: [
-      subscriber(WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED, onWorkflowRunAttemptCreated),
+      subscriber(WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED, createOnWorkflowRunAttemptCreated(agent)),
       subscriber(WORKFLOWS_WORKFLOW_RUN_CANCELLED, onWorkflowRunCancelled),
       subscriber(WORKFLOWS_JOB_EVENT_DELIVERED, onJobEventDelivered),
       subscriber(WORKFLOWS_JOB_STEPS_SETTLED, onJobStepsSettled),

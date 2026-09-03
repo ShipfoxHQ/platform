@@ -74,10 +74,11 @@ workflow copy. It creates a new run attempt with new jobs and executions.
 
 The rerun choice decides what moves into the new attempt.
 
-- **Re-run all jobs** schedules every job again.
-- **Re-run failed jobs** carries successful jobs and their published outputs
-  into the new attempt. Failed, cancelled, and blocked work runs again. Named
-  [agent sessions](/understand/agent-sessions) start fresh in every rerun.
+- **Re-run failed jobs** carries successful jobs, their published outputs, and
+  named [agent sessions](/understand/agent-sessions) into the new attempt.
+  Failed, cancelled, and blocked work runs again. Rerun steps can continue the
+  conversations from the source attempt.
+- **Re-run all jobs** starts every job and named agent session from scratch.
 
 Carried outputs let later jobs use a successful result without rebuilding it.
 The old job's files and process environment don't move to the new attempt.

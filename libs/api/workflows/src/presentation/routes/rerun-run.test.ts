@@ -1,12 +1,17 @@
+import type {AgentInterModuleClient} from '@shipfox/api-agent-dto/inter-module';
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import {WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
+} from '@shipfox/api-workflows-dto';
 import {
   type WorkspacesInterModuleClient,
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {ClientError} from '@shipfox/node-fastify';
+import type {DomainEvent} from '@shipfox/node-outbox';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
@@ -18,9 +23,12 @@ import {
   getJobsByWorkflowRunId,
   getStepsByJobId,
   getWorkflowRunById,
+  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
+import {createWorkflowsModule} from '#index.js';
+import {runAttemptCreatedEvents} from '#test/helpers/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {rerunRunRoute} from './rerun-run.js';
 
@@ -33,6 +41,35 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const getWorkspaceOperatingState = vi.fn();
 const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
+const startMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@shipfox/node-temporal', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shipfox/node-temporal')>()),
+  temporalClient: () => ({workflow: {start: startMock}}),
+}));
+
+function registeredAttemptCreatedSubscriber(
+  carryOverSessions: AgentInterModuleClient['carryOverSessions'],
+) {
+  const module = createWorkflowsModule({
+    agent: {carryOverSessions} as AgentInterModuleClient,
+    definitions: {} as never,
+    annotations: {} as never,
+    auth: {} as never,
+    integrations: {} as never,
+    logs: {} as never,
+    projects: {} as never,
+    runners: {} as never,
+    secrets: {} as never,
+    workspaces: {} as never,
+  });
+  const subscriber = module.subscribers?.find(
+    (candidate) => candidate.event === WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
+  );
+  if (!subscriber) throw new Error('Expected workflow run attempt-created subscriber');
+  return subscriber.handler;
+}
+
 describe('POST /api/workflows/runs/:id/rerun', () => {
   let app: FastifyInstance;
   let workspaceId: string;
@@ -58,6 +95,8 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
   });
 
   beforeEach(() => {
+    startMock.mockReset();
+    startMock.mockResolvedValue({});
     workspaceId = crypto.randomUUID();
     projectId = crypto.randomUUID();
     projectAccessState.workspaceId = workspaceId;
@@ -117,7 +156,33 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     });
   });
 
-  test('creates a new attempt for failed mode', async () => {
+  test('creates a new attempt for failed mode and carries sessions between attempts', async () => {
+    const source = await createFailedRunWithFailedJob();
+    const [sourceAttempt] = await listRunAttempts({workflowRunId: source.id, projectId});
+    if (!sourceAttempt) throw new Error('Expected source attempt');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'failed'},
+    });
+
+    const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+    const targetAttempt = attempts.find((attempt) => attempt.attempt === 2);
+
+    if (!targetAttempt) throw new Error('Expected target attempt');
+
+    expect(targetAttempt.id).not.toBe(sourceAttempt.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: source.id,
+      current_attempt: 2,
+      latest_attempt: 2,
+      status: 'pending',
+    });
+  });
+
+  test('keeps a failed rerun pending when session carry-over fails', async () => {
     const source = await createFailedRunWithFailedJob();
 
     const res = await app.inject({
@@ -133,6 +198,49 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       latest_attempt: 2,
       status: 'pending',
     });
+
+    const sourceAttempt = (await listRunAttempts({workflowRunId: source.id, projectId})).find(
+      (attempt) => attempt.attempt === 1,
+    );
+    if (!sourceAttempt) throw new Error('Expected source attempt');
+    const event = (await runAttemptCreatedEvents(source.id)).find(
+      (candidate) => candidate.attempt === 2,
+    );
+    if (!event) throw new Error('Expected attempt-created event');
+    const carryOverSessions = vi
+      .fn<AgentInterModuleClient['carryOverSessions']>()
+      .mockRejectedValue(new Error('carry-over-conflict'));
+    const subscriber = registeredAttemptCreatedSubscriber(carryOverSessions);
+    const domainEvent: DomainEvent<typeof event> = {
+      id: crypto.randomUUID(),
+      type: WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED,
+      createdAt: new Date(),
+      payload: event,
+    };
+
+    await expect(subscriber(domainEvent)).rejects.toThrow('carry-over-conflict');
+
+    expect(carryOverSessions).toHaveBeenCalledWith({
+      fromWorkflowRunAttemptId: sourceAttempt.id,
+      toWorkflowRunAttemptId: event.workflowRunAttemptId,
+    });
+    expect(startMock).not.toHaveBeenCalled();
+    await expect(getWorkflowRunById(source.id)).resolves.toMatchObject({
+      currentAttempt: 2,
+      status: 'pending',
+    });
+  });
+
+  test('does not carry sessions for an all-jobs rerun', async () => {
+    const source = await createTerminalRun();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(200);
   });
 
   test('returns 409 without creating an attempt for an oversized legacy config', async () => {
