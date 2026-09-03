@@ -11,7 +11,6 @@ import type {
   JobListenerEventOutcomeReason,
 } from '#core/entities/job-listener-event.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
-import {serializedListenerEventsByteLength} from '#core/listener-event-batching.js';
 import {recordListenerEventReceived} from '#metrics/instance.js';
 import {db, type Tx} from './db.js';
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
@@ -122,7 +121,7 @@ export async function deliverEventToListener(
         outcomeReason: null,
         payload: params.payload,
         storedPayloadBytes: diagnosticValueByteLength(params.payload),
-        normalizedEventBytes: serializedListenerEventsByteLength([normalizeListenerEvent(params)]),
+        normalizedEventBytes: diagnosticValueByteLength([normalizeListenerEvent(params)]),
         receivedAt: params.receivedAt,
       })
       .onConflictDoNothing({target: [jobListenerEvents.jobId, jobListenerEvents.eventRef]})

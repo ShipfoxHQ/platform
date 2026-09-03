@@ -81,7 +81,7 @@ export const jobListenerEvents = pgTable(
     ),
     check(
       'workflows_job_listener_events_outcome_consistency_ck',
-      sql`(
+      sql`COALESCE((
         (${table.outcome} = 'pending'
           AND ${table.disposition} IN ('fire', 'resolve')
           AND ${table.consumedByExecutionId} IS NULL
@@ -107,7 +107,7 @@ export const jobListenerEvents = pgTable(
           AND ${table.consumedByExecutionId} IS NULL
           AND ${table.payload} IS NOT NULL
           AND ${table.outcomeReason} IN ('until', 'timeout', 'max_executions', 'cancelled'))
-      )`,
+      ), false)`,
     ),
   ],
 );

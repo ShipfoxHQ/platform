@@ -399,6 +399,9 @@ async function drainListenerEventsInTransaction(
   params: ListenerDrainTransactionParams,
   tx: Tx,
 ): Promise<DrainedListenerEvents> {
+  // Cancellation locks the run, attempt, job, and then listener events. Keep
+  // the drain's lock order the same before locking any event rows.
+  const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
   const existing = await findExistingExecution(params.drain, tx);
   if (existing) return {result: existing};
 
@@ -415,7 +418,6 @@ async function drainListenerEventsInTransaction(
     };
   }
 
-  const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
   const priorExecutions = await loadListenerPriorExecutions(
     params.drain.jobId,
     target.job.name ?? target.job.key,
