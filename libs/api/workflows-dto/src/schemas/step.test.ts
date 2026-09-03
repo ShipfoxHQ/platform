@@ -135,6 +135,18 @@ describe('stepErrorDtoSchema', () => {
     });
   });
 
+  it('accepts an inference credential availability failure', () => {
+    const result = stepErrorDtoSchema.parse({
+      message: 'Inference credentials are unavailable.',
+      reason: 'agent_inference_credentials_unavailable',
+    });
+
+    expect(result).toEqual({
+      message: 'Inference credentials are unavailable.',
+      reason: 'agent_inference_credentials_unavailable',
+    });
+  });
+
   it.each([
     'agent_session_key_invalid',
     'agent_session_held',

@@ -33,6 +33,11 @@ export {
   workspaceProvidersPolicySchema,
 } from './catalog.js';
 export {
+  type CredentialRenewalDto,
+  credentialRenewalSchema,
+  validateRenewalWindow,
+} from './credential-renewal.js';
+export {
   type CreateCustomModelProviderBodyDto,
   type CustomAgentModelDto,
   type CustomModelProviderConfigDto,
