@@ -86,6 +86,19 @@ const {agentStepModuleEvaluated} = vi.hoisted(() => ({
 vi.mock('@shipfox/runner-protocol', () => ({
   requestNextStep: (...args: unknown[]) => requestNextStepMock(...args),
   requestAgentRuntimeConfig: (...args: unknown[]) => requestAgentRuntimeConfigMock(...args),
+  requestAgentRuntimeConfigWithTiming: (...args: unknown[]) =>
+    Promise.resolve(requestAgentRuntimeConfigMock(...args)).then((config) => ({
+      config,
+      timing: {
+        requestStartedAt: 0,
+        responseReceivedAt: 0,
+        wallClockAtReceipt: Date.now(),
+        serverDate: undefined,
+      },
+    })),
+  isTransientAgentRuntimeConfigError: (error: unknown) =>
+    error instanceof AgentRuntimeConfigRequestError &&
+    [408, 429, 500, 502, 503, 504].includes(error.status),
   requestStepSecrets: (...args: unknown[]) => requestStepSecretsMock(...args),
   requestSessionTranscript: (...args: unknown[]) => requestSessionTranscriptMock(...args),
   commitSessionTranscript: (...args: unknown[]) => commitSessionTranscriptMock(...args),
@@ -3385,6 +3398,53 @@ describe('runJobSteps', () => {
       exit_code: null,
     });
     expect(replaceInferenceSecrets).toHaveBeenCalledWith(['sk-runtime-secret']);
+  });
+
+  it('keeps renewable credentials available for final crash redaction after source cleanup', async () => {
+    const agent = buildAgentStep();
+    const token = 'sk-renewable-crash-secret';
+    const replaceInferenceSecrets = vi.fn();
+    const now = Date.now();
+    requestAgentRuntimeConfigMock.mockResolvedValueOnce({
+      harness: 'pi',
+      provider_id: 'anthropic',
+      model: 'claude-opus-4-8',
+      thinking: 'high',
+      credentials: {api_key: token},
+      expires_at: new Date(now + 300_000).toISOString(),
+      generation: '11111111-1111-4111-8111-111111111111',
+      renewal: {
+        mode: 'refresh-at',
+        refresh_at: new Date(now + 120_000).toISOString(),
+      },
+    });
+    executeAgentStepMock.mockImplementationOnce((_step, options) => {
+      expect(options.credentialSource).toBeDefined();
+      throw new Error(`provider crashed with ${token}`);
+    });
+    const ac = new AbortController();
+
+    const execution = await executeStep({
+      step: agent,
+      attempt: 1,
+      cwd: '/work',
+      logsDir: LOGS_DIR,
+      agentStateDir: AGENT_STATE_DIR,
+      jobContext: JOB_CONTEXT,
+      leaseClient,
+      leaseToken: leaseTokenSource,
+      secrets: [],
+      replaceInferenceSecrets,
+      signal: ac.signal,
+      workspacePrepared: true,
+      gitConfigPath: GIT_CONFIG_PATH,
+      jobId: JOB_ID,
+      stepLabel: 'implement',
+    });
+
+    expect(execution.result.error?.message).toBe('provider crashed with ***');
+    expect(replaceInferenceSecrets).toHaveBeenNthCalledWith(1, [token]);
+    expect(replaceInferenceSecrets).toHaveBeenNthCalledWith(2, []);
   });
 
   it('redacts runtime credential values from successful agent response and outputs', async () => {

@@ -523,6 +523,7 @@ describe('runJob', () => {
         'inference-current',
         'inference-previous',
       ],
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token', 'git-rotated'],
     ]);
   });
 

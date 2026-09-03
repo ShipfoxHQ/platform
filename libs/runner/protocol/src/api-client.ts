@@ -149,6 +149,28 @@ export class AgentRuntimeConfigRequestError extends Error {
   }
 }
 
+export type AgentRuntimeConfigRequestParams = {
+  stepId: string;
+  attempt: number;
+  signal?: AbortSignal;
+  /** Marks a re-fetch for bounded server-side renewal telemetry. */
+  renewal?: boolean;
+};
+
+export type AgentRuntimeConfigResponseTiming = {
+  requestStartedAt: number;
+  responseReceivedAt: number;
+  wallClockAtReceipt: number;
+  serverDate: string | undefined;
+};
+
+export type AgentRuntimeConfigResponse = {
+  config: AgentRuntimeCredentialsResponseDto;
+  timing: AgentRuntimeConfigResponseTiming;
+};
+
+export const AGENT_RUNTIME_CONFIG_RENEWAL_HEADER = 'x-shipfox-runtime-config-renewal';
+
 export class StepSecretsRequestError extends Error {
   constructor(
     public readonly status: number,
@@ -488,19 +510,24 @@ export function classifyCheckoutTokenFailure(error: unknown): CheckoutTokenFailu
 
 export async function requestAgentRuntimeConfig(
   leaseClient: KyInstance,
-  params: {
-    stepId: string;
-    attempt: number;
-    signal?: AbortSignal;
-  },
+  params: AgentRuntimeConfigRequestParams,
 ): Promise<AgentRuntimeCredentialsResponseDto> {
+  return (await requestAgentRuntimeConfigWithTiming(leaseClient, params)).config;
+}
+
+export async function requestAgentRuntimeConfigWithTiming(
+  leaseClient: KyInstance,
+  params: AgentRuntimeConfigRequestParams,
+): Promise<AgentRuntimeConfigResponse> {
+  const requestStartedAt = performance.now();
   let response: Response;
   try {
     response = await leaseClient.get('runs/jobs/current/agent-runtime-config', {
       searchParams: {step_id: params.stepId, attempt: params.attempt},
+      ...(params.renewal ? {headers: {[AGENT_RUNTIME_CONFIG_RENEWAL_HEADER]: 'true'}} : {}),
       retry: {
         methods: ['get'],
-        statusCodes: [429, 500, 502, 503, 504],
+        statusCodes: [408, 429, 500, 502, 503, 504],
       },
       ...(params.signal ? {signal: params.signal} : {}),
     });
@@ -517,6 +544,14 @@ export async function requestAgentRuntimeConfig(
     throw error;
   }
 
+  const responseReceivedAt = performance.now();
+  const timing: AgentRuntimeConfigResponseTiming = {
+    requestStartedAt,
+    responseReceivedAt,
+    wallClockAtReceipt: Date.now(),
+    serverDate: response.headers.get('date') ?? undefined,
+  };
+
   if (response.ok) {
     let body: unknown;
     try {
@@ -529,7 +564,7 @@ export async function requestAgentRuntimeConfig(
     if (!parsed.success) {
       throw new AgentRuntimeConfigRequestError(200, 'agent-runtime-config-invalid');
     }
-    return parsed.data;
+    return {config: parsed.data, timing};
   }
 
   const info = await runtimeConfigErrorInfo(response);
@@ -538,6 +573,17 @@ export async function requestAgentRuntimeConfig(
     info.code,
     agentConfigIssueForCode(info.code),
     info.managedProviderId,
+  );
+}
+
+export function isTransientAgentRuntimeConfigError(error: unknown): boolean {
+  if (error instanceof AgentRuntimeConfigRequestError) {
+    return [408, 429, 500, 502, 503, 504].includes(error.status);
+  }
+  return (
+    isTimeoutError(error) ||
+    (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) ||
+    error instanceof TypeError
   );
 }
 

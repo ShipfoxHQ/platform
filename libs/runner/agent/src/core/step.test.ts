@@ -700,6 +700,21 @@ describe('executeAgentStep', () => {
     expect(runAgentMock).not.toHaveBeenCalled();
   });
 
+  it('forwards the runner-owned credential source to the selected harness', async () => {
+    runAgentMock.mockResolvedValue({});
+    const credentialSource = {
+      resolve: vi.fn(),
+      close: vi.fn(),
+    };
+
+    await executeAgentStep(buildAgentStep(), {
+      runtime: RUNTIME,
+      credentialSource,
+    });
+
+    expect(runAgentMock).toHaveBeenCalledWith(expect.objectContaining({credentialSource}));
+  });
+
   it('fails with agent_config_invalid when the config is missing prompt', async () => {
     const result = await executeAgentStep(buildAgentStep({config: {model: 'm'}}), {
       runtime: RUNTIME,
