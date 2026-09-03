@@ -1,5 +1,6 @@
 import {
   MAX_RESOLVED_STEP_CONFIG_BYTES,
+  WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
   WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
@@ -28,6 +29,8 @@ import {
   insertRunningStepAttempt,
   markStepRunning,
 } from '../workflow-runs.js';
+
+const RUN_CONFIG_JSON_OVERHEAD_BYTES = Buffer.byteLength(JSON.stringify({run: ''}) ?? '', 'utf8');
 
 describe('workflow run queries', () => {
   let workspaceId: string;
@@ -99,9 +102,11 @@ describe('workflow run queries', () => {
         .update(stepsTable)
         .set({
           currentAttempt: attempt.attempt + 1,
-          config: {run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - 10)},
+          config: {
+            run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - RUN_CONFIG_JSON_OVERHEAD_BYTES),
+          },
           authoredConfig: {run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES)},
-          error: {message: 'x'.repeat(16 * 1024)},
+          error: {message: 'x'.repeat(WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES)},
         })
         .where(eq(stepsTable.id, attempt.stepId));
 
@@ -142,10 +147,36 @@ describe('workflow run queries', () => {
       expect(detail?.diagnosticBytes?.authoredConfig).toBeGreaterThan(
         WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
       );
+      expect(detail?.diagnosticBytes?.stepError).toBeGreaterThan(
+        WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
+      );
       expect(scopedDetail).toMatchObject({workflowRunId: run.id});
       expect(latestAttempt).toBe(attempt.attempt);
       expect(foreignWorkspaceAttempt).toBeUndefined();
       expect(foreignScopedDetail).toBeUndefined();
+
+      await db()
+        .update(stepsTable)
+        .set({
+          type: 'tool',
+          config: {
+            tool: {
+              provider: 'linear',
+              sensitivity: 'write',
+              with: {payload: 'x'.repeat(20_000)},
+            },
+          },
+        })
+        .where(eq(stepsTable.id, attempt.stepId));
+
+      const toolDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+      });
+      expect(toolDetail?.step.config).toEqual({
+        tool: {provider: 'linear', sensitivity: 'write'},
+      });
+      expect(toolDetail?.step.config.tool).not.toHaveProperty('with');
 
       await db()
         .update(stepAttemptsTable)

@@ -80,6 +80,7 @@ export interface StepAttemptDetail {
   sessionDescriptor?: unknown;
   diagnosticBytes?: {
     authoredConfig?: number | null;
+    stepError?: number | null;
     config?: number | null;
     evaluationTrace?: number | null;
   };
@@ -186,7 +187,14 @@ export async function getStepAttemptDetail(params: {
         currentAttempt: steps.currentAttempt,
         // Failure annotations only need tool provider/sensitivity. Keep the
         // rest of the resolved step config out of the detail read.
-        config: sql<{tool?: unknown}>`jsonb_build_object('tool', ${steps.config} -> 'tool')`,
+        config: sql<{tool?: unknown}>`jsonb_build_object('tool', case
+          when jsonb_typeof(${steps.config} -> 'tool') = 'object'
+          then jsonb_build_object(
+            'provider', ${steps.config} -> 'tool' -> 'provider',
+            'sensitivity', ${steps.config} -> 'tool' -> 'sensitivity'
+          )
+          else null
+        end)`,
         authoredConfig: sql<Record<string, unknown> | null>`case
           when ${steps.authoredConfig} is null then null
           when jsonb_typeof(${steps.authoredConfig}) = 'object'
@@ -206,6 +214,12 @@ export async function getStepAttemptDetail(params: {
         when ${steps.authoredConfig} is null then null
         when jsonb_typeof(${steps.authoredConfig}) = 'object'
         then octet_length(${steps.authoredConfig}::text)
+        else null
+      end`,
+      stepErrorBytes: sql<number | null>`case
+        when ${steps.error} is null then null
+        when jsonb_typeof(${steps.error}) = 'object'
+        then octet_length(${steps.error}::text)
         else null
       end`,
       stepAttempt: {
@@ -264,6 +278,7 @@ export async function getStepAttemptDetail(params: {
     sessionDescriptor: row.stepAttemptSessionDescriptor,
     diagnosticBytes: {
       authoredConfig: row.stepAuthoredConfigBytes ?? null,
+      stepError: row.stepErrorBytes ?? null,
       config: row.stepAttemptConfigBytes ?? null,
       evaluationTrace: row.stepAttemptEvaluationTraceBytes ?? null,
     },

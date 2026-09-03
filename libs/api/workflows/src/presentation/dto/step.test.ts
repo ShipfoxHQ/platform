@@ -1,7 +1,9 @@
 import {
+  WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES,
   WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
+import {diagnosticValueByteLength} from '#core/diagnostics.js';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {
   fromStepErrorDto,
@@ -532,7 +534,10 @@ describe('toStepAttemptDto', () => {
 
 describe('toStepAttemptDetailResponseDto', () => {
   it('keeps authored and resolved config inline through the 256 KiB detail limit', () => {
-    const config = {run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES - 11)};
+    const configJsonOverheadBytes = diagnosticValueByteLength({run: ''});
+    const config = {
+      run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES - configJsonOverheadBytes),
+    };
     const attempt: StepAttempt = {...baseAttempt, config};
 
     const result = toStepAttemptDetailResponseDto(
@@ -553,6 +558,30 @@ describe('toStepAttemptDetailResponseDto', () => {
     expect(result.authored_config).toEqual(config);
     expect(result.config).toEqual(config);
     expect(result.oversized_fields).toEqual([]);
+  });
+
+  it('preserves a valid session descriptor when the resolved config is omitted', () => {
+    const session = {
+      id: '66666666-6666-4666-8666-666666666666',
+      key: 'main',
+      mode: 'resume' as const,
+      segment: 3,
+    };
+
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'agent'}),
+      {...baseAttempt, config: null},
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+      {config: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES + 1},
+      session,
+    );
+
+    expect(result.session).toEqual(session);
   });
 
   it('returns authored config, resolved config, and attempt trace', () => {
@@ -689,6 +718,53 @@ describe('toStepAttemptDetailResponseDto', () => {
       field: 'config',
       stored_bytes: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES + 1,
       reason: 'value_exceeds_inline_limit',
+    });
+  });
+
+  it('describes a legacy step error omitted by the lazy detail query', () => {
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'run', error: {message: 'legacy failure'}}),
+      baseAttempt,
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+      {stepError: WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES + 1},
+    );
+
+    expect(result.oversized_fields).toContainEqual({
+      field: 'error',
+      stored_bytes: WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES + 1,
+      reason: 'legacy_value_exceeds_inline_limit',
+    });
+  });
+
+  it('describes values truncated at the write limit', () => {
+    const result = toStepAttemptDetailResponseDto(
+      step({type: 'run'}),
+      {
+        ...baseAttempt,
+        error: {
+          code: 'step_result_too_large',
+          reason: 'step_result_too_large',
+          field: 'response',
+          measuredBytes: 12_345,
+        },
+      },
+      {
+        workflowRunId: '33333333-3333-4333-8333-333333333333',
+        workflowRunAttempt: 2,
+        jobId: '44444444-4444-4444-8444-444444444444',
+        jobExecutionId: '55555555-5555-4555-8555-555555555555',
+      },
+    );
+
+    expect(result.oversized_fields).toContainEqual({
+      field: 'response',
+      stored_bytes: 12_345,
+      reason: 'value_truncated_at_write_limit',
     });
   });
 

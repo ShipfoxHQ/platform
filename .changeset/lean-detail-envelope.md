@@ -3,4 +3,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Bounds workflow step-attempt diagnostics and measures the complete next-step response envelope.
+Bounds workflow step-attempt detail responses and adds typed oversized-field reasons to step-attempt diagnostics.

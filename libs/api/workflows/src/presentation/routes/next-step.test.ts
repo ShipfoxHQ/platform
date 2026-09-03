@@ -7,7 +7,10 @@ import {
 import {closeApp, createApp, type FastifyInstance} from '@shipfox/node-fastify';
 import {eq} from 'drizzle-orm';
 import {JobNotFoundError} from '#core/errors.js';
-import {recordStepResult as recordJobExecutionStepResult} from '#core/job-execution.js';
+import {
+  nextStepForJob,
+  recordStepResult as recordJobExecutionStepResult,
+} from '#core/job-execution.js';
 import {db} from '#db/db.js';
 import {steps as stepsTable} from '#db/schema/steps.js';
 import {
@@ -35,7 +38,25 @@ import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
 import {createLeaseTokenRouteGroup} from './index.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
 
+const nextStepMetricMocks = vi.hoisted(() => ({
+  recordWorkflowNextStepResponseOverflow: vi.fn(),
+  recordWorkflowNextStepResponseSize: vi.fn(),
+}));
+
+vi.mock('#metrics/instance.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#metrics/instance.js')>()),
+  ...nextStepMetricMocks,
+}));
+
+const captureExceptionMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@shipfox/node-error-monitoring', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shipfox/node-error-monitoring')>()),
+  captureException: captureExceptionMock,
+}));
+
 const URL = '/runs/jobs/current/steps/next';
+const RUN_CONFIG_JSON_OVERHEAD_BYTES = Buffer.byteLength(JSON.stringify({run: ''}) ?? '', 'utf8');
 
 async function recordStepResult(
   params: Omit<Parameters<typeof recordJobExecutionStepResult>[0], 'jobExecutionId'> & {
@@ -64,6 +85,12 @@ const annotationsTestClient: AnnotationsInterModuleClient = {
 
 describe('POST /runs/jobs/current/steps/next', () => {
   let app: FastifyInstance;
+
+  beforeEach(() => {
+    nextStepMetricMocks.recordWorkflowNextStepResponseOverflow.mockClear();
+    nextStepMetricMocks.recordWorkflowNextStepResponseSize.mockClear();
+    captureExceptionMock.mockClear();
+  });
 
   beforeAll(async () => {
     app = await createApp({
@@ -159,7 +186,9 @@ describe('POST /runs/jobs/current/steps/next', () => {
     const {jobId, steps} = await arrangeJobWithSteps(1);
     const step = steps[0];
     if (!step) throw new Error('Expected a step');
-    const config = {run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - 10)};
+    const config = {
+      run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - RUN_CONFIG_JSON_OVERHEAD_BYTES),
+    };
     await db().update(stepsTable).set({config, configPlan: null}).where(eq(stepsTable.id, step.id));
     const token = await mintActiveLeaseToken({jobId});
 
@@ -174,6 +203,37 @@ describe('POST /runs/jobs/current/steps/next', () => {
     expect(serializedResponseByteLength(res.rawPayload)).toBeLessThanOrEqual(
       RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES,
     );
+  });
+
+  test('serves an over-budget legacy step and captures the overflow once', async () => {
+    const {jobId, steps} = await arrangeJobWithSteps(1);
+    const step = steps[0];
+    if (!step) throw new Error('Expected a workflow step');
+
+    await nextStepForJob(jobId);
+    const config = {
+      run: 'x'.repeat(
+        RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES + 2_000 - RUN_CONFIG_JSON_OVERHEAD_BYTES,
+      ),
+    };
+    await db().update(stepsTable).set({config, configPlan: null}).where(eq(stepsTable.id, step.id));
+    const token = await mintActiveLeaseToken({jobId});
+    const headers = {authorization: `Bearer ${token}`};
+
+    const first = await app.inject({method: 'POST', url: URL, headers});
+    const second = await app.inject({method: 'POST', url: URL, headers});
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.json().step.config).toEqual(config);
+    expect(second.json().step.id).toBe(first.json().step.id);
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseSize).toHaveBeenCalledTimes(2);
+    for (const [kind, bytes] of nextStepMetricMocks.recordWorkflowNextStepResponseSize.mock.calls) {
+      expect(kind).toBe('step');
+      expect(bytes).toBeGreaterThan(RUNNER_NEXT_STEP_RESPONSE_BUDGET_BYTES);
+    }
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseOverflow).toHaveBeenCalledTimes(2);
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 
   test('re-delivers the in-flight step on a retried pull', async () => {
@@ -226,6 +286,16 @@ describe('POST /runs/jobs/current/steps/next', () => {
     expect(first.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual({kind: 'wait', retry_after_ms: 1000});
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseSize).toHaveBeenNthCalledWith(
+      1,
+      'wait',
+      serializedResponseByteLength(first.rawPayload),
+    );
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseSize).toHaveBeenNthCalledWith(
+      2,
+      'wait',
+      serializedResponseByteLength(second.rawPayload),
+    );
 
     const invocations = await getToolInvocationsByJobExecutionId(step.jobExecutionId);
     expect(invocations).toHaveLength(1);
@@ -388,6 +458,10 @@ describe('POST /runs/jobs/current/steps/next', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({kind: 'done', status: 'succeeded'});
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseSize).toHaveBeenCalledWith(
+      'done',
+      serializedResponseByteLength(res.rawPayload),
+    );
   });
 
   test('reports {done, failed} after a failed step skips the default-gated rest', async () => {
@@ -404,6 +478,10 @@ describe('POST /runs/jobs/current/steps/next', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({kind: 'done', status: 'failed'});
+    expect(nextStepMetricMocks.recordWorkflowNextStepResponseSize).toHaveBeenCalledWith(
+      'done',
+      serializedResponseByteLength(res.rawPayload),
+    );
   });
 
   test('concurrent pulls hand out the same step exactly once', async () => {

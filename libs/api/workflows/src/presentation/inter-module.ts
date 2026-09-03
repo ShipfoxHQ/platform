@@ -489,6 +489,7 @@ export function createWorkflowsInterModulePresentation(params: {
           jobExecutionId: detail.jobExecutionId,
         },
         detail.diagnosticBytes,
+        detail.sessionDescriptor,
       );
     },
     listWorkflowRunAnnotations: async (input) => {
@@ -610,6 +611,7 @@ export function createWorkflowsInterModulePresentation(params: {
                 jobExecutionId: detail.jobExecutionId,
               },
               detail.diagnosticBytes,
+              detail.sessionDescriptor,
             )
           : null,
       };
