@@ -226,6 +226,17 @@ export async function failWorkflowRunAsTimedOut(
   params: FailWorkflowRunAsTimedOutParams,
 ): Promise<WorkflowRun> {
   const result = await db().transaction(async (tx) => {
+    const [attemptReference] = await tx
+      .select()
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, params.runAttemptId))
+      .limit(1);
+    if (!attemptReference) throw new WorkflowRunNotFoundError(params.runAttemptId);
+
+    // Keep timeout aligned with cancellation and listener drain: lock the run,
+    // then the attempt, before any job or listener-event rows.
+    const lockedRun = await lockWorkflowRun(attemptReference.workflowRunId, tx);
+    if (!lockedRun) throw new WorkflowRunNotFoundError(attemptReference.workflowRunId);
     const [lockedAttempt] = await tx
       .select()
       .from(workflowRunAttempts)
@@ -233,9 +244,6 @@ export async function failWorkflowRunAsTimedOut(
       .limit(1)
       .for('update');
     if (!lockedAttempt) throw new WorkflowRunNotFoundError(params.runAttemptId);
-
-    const lockedRun = await lockWorkflowRun(lockedAttempt.workflowRunId, tx);
-    if (!lockedRun) throw new WorkflowRunNotFoundError(lockedAttempt.workflowRunId);
     if (isWorkflowRunTerminal(lockedRun.status)) {
       return {run: toWorkflowRun(lockedRun), changedJobs: [], changed: false};
     }

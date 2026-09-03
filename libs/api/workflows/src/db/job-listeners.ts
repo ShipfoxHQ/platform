@@ -71,6 +71,7 @@ import {jobs, toJob} from './schema/jobs.js';
 import {steps} from './schema/steps.js';
 import {workflowRunAttempts} from './schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from './schema/workflow-runs.js';
+import {lockWorkflowRun} from './workflow-runs/shared.js';
 import {
   bulkUpdateStepStatuses,
   getDirectDependencyJobContexts,
@@ -922,14 +923,47 @@ function drainExecutionResult(
 }
 
 async function loadListenerMaterializationTarget(jobId: string, tx?: Tx) {
-  const query = (tx ?? db())
+  if (tx !== undefined) {
+    // Keep transaction lock acquisition explicit and aligned with cancellation
+    // and timeout: run, attempt, job, then listener events.
+    const [jobReference] = await tx
+      .select({workflowRunAttemptId: jobs.workflowRunAttemptId})
+      .from(jobs)
+      .where(eq(jobs.id, jobId))
+      .limit(1);
+    if (!jobReference) throw new Error(`Job not found: ${jobId}`);
+
+    const [attemptReference] = await tx
+      .select({workflowRunId: workflowRunAttempts.workflowRunId})
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, jobReference.workflowRunAttemptId))
+      .limit(1);
+    if (!attemptReference) throw new Error(`Job not found: ${jobId}`);
+
+    const run = await lockWorkflowRun(attemptReference.workflowRunId, tx);
+    if (!run) throw new Error(`Job not found: ${jobId}`);
+
+    const [attempt] = await tx
+      .select()
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, jobReference.workflowRunAttemptId))
+      .limit(1)
+      .for('update');
+    if (!attempt) throw new Error(`Job not found: ${jobId}`);
+
+    const [job] = await tx.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).for('update');
+    if (!job) throw new Error(`Job not found: ${jobId}`);
+
+    return {job, attempt, run};
+  }
+
+  const [target] = await db()
     .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
     .where(eq(jobs.id, jobId))
     .limit(1);
-  const [target] = tx === undefined ? await query : await query.for('update');
   if (!target) throw new Error(`Job not found: ${jobId}`);
 
   return target;
