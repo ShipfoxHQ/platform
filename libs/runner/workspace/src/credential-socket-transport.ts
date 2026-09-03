@@ -580,18 +580,26 @@ async function tryReclaimStaleSocketLock(
     throw error;
   }
 
-  const currentLock = await readSocketLock(stalePath);
-  if (currentLock !== expectedLock) {
+  let reclaim = false;
+  try {
+    const currentLock = await readSocketLock(stalePath);
+    reclaim = currentLock === expectedLock && !(await isSocketActive(socketPath));
+  } catch (error) {
+    await restoreSocketLock(stalePath, lockPath);
+    throw error;
+  }
+
+  if (!reclaim) {
     await restoreSocketLock(stalePath, lockPath);
     return false;
   }
 
-  if (await isSocketActive(socketPath)) {
+  try {
+    await rm(stalePath, {force: true});
+  } catch (error) {
     await restoreSocketLock(stalePath, lockPath);
-    return false;
+    throw error;
   }
-
-  await rm(stalePath, {force: true});
   return true;
 }
 
@@ -600,10 +608,10 @@ async function restoreSocketLock(stalePath: string, lockPath: string): Promise<v
     await link(stalePath, lockPath);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'EEXIST' && code !== 'ENOENT') throw error;
-  } finally {
-    await rm(stalePath, {force: true});
+    if (code === 'ENOENT') return;
+    if (code !== 'EEXIST') throw error;
   }
+  await rm(stalePath, {force: true});
 }
 
 async function sweepSocketLockArtifacts(socketPath: string): Promise<void> {
