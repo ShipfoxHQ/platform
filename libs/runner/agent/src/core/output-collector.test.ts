@@ -384,6 +384,24 @@ describe('runOutputTurnLoop', () => {
     expect(runTurn).toHaveBeenNthCalledWith(2, expect.stringContaining('read-diff'));
   });
 
+  it('does not report completion prerequisites as missing workflow outputs', async () => {
+    const controller = new AbortController();
+    const result = await runOutputTurnLoop({
+      signal: controller.signal,
+      prompt: 'Review the pull request.',
+      runTurn: vi.fn<Parameters<typeof runOutputTurnLoop>[0]['runTurn']>(),
+      missingRequired: () => [],
+      completionMissing: () => ['read-diff'],
+    }).catch((caught: unknown) => caught);
+
+    expect(result).toBeInstanceOf(RequiredOutputsMissingError);
+    expect(result).toMatchObject({
+      missing: [],
+      message: 'Agent step finished without required outputs: ',
+    });
+    expect(result).toMatchObject({message: expect.not.stringContaining('read-diff')});
+  });
+
   it('stops before the next turn when aborted mid-loop', async () => {
     const controller = new AbortController();
     const runTurn = vi.fn<Parameters<typeof runOutputTurnLoop>[0]['runTurn']>();

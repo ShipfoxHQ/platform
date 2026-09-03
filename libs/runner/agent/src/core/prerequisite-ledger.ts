@@ -32,6 +32,14 @@ export class PrerequisiteLedger {
   constructor(contract: AgentPrerequisiteContract | undefined) {
     this.#requirements = (contract?.required ?? []).map(normalizePrerequisite);
     const requirementIds = new Set(this.#requirements.map((requirement) => requirement.id));
+    if (requirementIds.size !== this.#requirements.length) {
+      const duplicateIds = this.#requirements
+        .map((requirement) => requirement.id)
+        .filter((id, index, ids) => ids.indexOf(id) !== index);
+      throw new TypeError(
+        `Agent prerequisite IDs must be unique: ${[...new Set(duplicateIds)].join(', ')}.`,
+      );
+    }
     this.#satisfied = new Set((contract?.satisfied ?? []).filter((id) => requirementIds.has(id)));
   }
 

@@ -996,7 +996,14 @@ function installPiCompletionHooks(params: Parameters<typeof runPiSession>[0]): v
     const previousResult = await previousAfterToolCall?.(context, signal);
     const isError = context.isError || previousResult?.isError === true;
     if (!isError && !rejectedOutput) {
-      params.prerequisiteLedger.recordToolSuccess(context.toolCall.name, context.args);
+      const toolCall = prerequisiteToolCall(
+        context.toolCall.name,
+        context.args,
+        context.result.details,
+      );
+      if (toolCall !== undefined) {
+        params.prerequisiteLedger.recordToolSuccess(toolCall.toolName, toolCall.args);
+      }
     }
     return rejectedOutput ? {...previousResult, isError: true} : previousResult;
   };
@@ -1008,6 +1015,34 @@ function installPiCompletionHooks(params: Parameters<typeof runPiSession>[0]): v
 
 function isRejectedOutputDetails(value: unknown): boolean {
   return typeof value === 'object' && value !== null && 'ok' in value && value.ok === false;
+}
+
+function prerequisiteToolCall(
+  toolName: string,
+  args: unknown,
+  details: unknown,
+): {readonly toolName: string; readonly args: unknown} | undefined {
+  if (toolName !== PI_MCP_TOOL_NAME) return {toolName, args};
+  if (!isRecord(args) || typeof args.tool !== 'string') return undefined;
+  if (!isRecord(details) || typeof details.tool !== 'string') return undefined;
+
+  return {
+    toolName: details.tool,
+    args: parseMcpProxyArgs(args.args),
+  };
+}
+
+function parseMcpProxyArgs(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function setOutputTool(collector: OutputCollector) {

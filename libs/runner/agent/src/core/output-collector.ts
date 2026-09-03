@@ -178,7 +178,7 @@ export async function runOutputTurnLoop(params: {
     const completionMissing = params.completionMissing?.() ?? [];
     if (missing.length === 0 && completionMissing.length === 0) return;
     if (attempt === MAX_OUTPUT_REPROMPTS) {
-      throw new RequiredOutputsMissingError([...missing, ...completionMissing]);
+      throw new RequiredOutputsMissingError(missing);
     }
     nextPrompt = nextPromptForMissing(params, missing, completionMissing);
   }

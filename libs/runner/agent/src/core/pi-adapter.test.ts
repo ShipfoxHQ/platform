@@ -1281,9 +1281,9 @@ describe('piHarnessAdapter', () => {
     let afterToolCall:
       | ((context: {
           toolCall: {name: string};
-          args: {method: string};
+          args: unknown;
           context: object;
-          result: {details: object; content: never[]};
+          result: {details: unknown; content: never[]};
           isError: boolean;
         }) => Promise<unknown>)
       | undefined;
@@ -1317,14 +1317,31 @@ describe('piHarnessAdapter', () => {
     promptMock
       .mockImplementationOnce(async () => {
         await customTools[0]?.execute('tool-1', {key: 'summary', value: 'done'});
-        expect(shouldStopAfterTurn?.()).toBe(false);
-      })
-      .mockImplementationOnce(async () => {
         await afterToolCall?.({
           toolCall: {name: 'github__pull_request_read'},
           args: {method: 'get_diff'},
           context: {},
           result: {details: {}, content: []},
+          isError: false,
+        });
+        expect(shouldStopAfterTurn?.()).toBe(false);
+      })
+      .mockImplementationOnce(async () => {
+        await afterToolCall?.({
+          toolCall: {name: 'mcp'},
+          args: {
+            tool: 'github__pull_request_read',
+            args: JSON.stringify({method: 'get_comments'}),
+          },
+          context: {},
+          result: {
+            details: {
+              mode: 'call',
+              server: 'shipfox_integration_tools',
+              tool: 'github__pull_request_read',
+            },
+            content: [],
+          },
           isError: false,
         });
         expect(shouldStopAfterTurn?.()).toBe(true);
@@ -1333,7 +1350,9 @@ describe('piHarnessAdapter', () => {
     const result = piHarnessAdapter.run(
       invocation({
         outputs: {summary: {type: 'string'}},
-        prerequisites: {required: ['pull_request_read.get_diff']},
+        prerequisites: {
+          required: ['pull_request_read.get_diff', 'pull_request_read.get_comments'],
+        },
       }),
     );
 

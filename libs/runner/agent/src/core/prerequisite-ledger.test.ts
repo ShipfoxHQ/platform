@@ -3,12 +3,33 @@ import {PrerequisiteLedger} from '#core/prerequisite-ledger.js';
 describe('PrerequisiteLedger', () => {
   it('starts with only caller-supplied prerequisites satisfied', () => {
     const ledger = new PrerequisiteLedger({
-      required: ['pull_request_read.get_diff'],
-      satisfied: [],
+      required: ['pull_request_read.get_diff', 'pull_request_read.list'],
+      satisfied: ['pull_request_read.get_diff'],
     });
 
-    expect(ledger.missing()).toEqual(['pull_request_read.get_diff']);
+    expect(ledger.missing()).toEqual(['pull_request_read.list']);
     expect(ledger.isComplete()).toBe(false);
+  });
+
+  it('marks a declared prerequisite satisfied', () => {
+    const ledger = new PrerequisiteLedger({required: [{id: 'read-diff', toolName: 'read_diff'}]});
+
+    ledger.markSatisfied('read-diff');
+
+    expect(ledger.missing()).toEqual([]);
+    expect(ledger.isComplete()).toBe(true);
+  });
+
+  it('rejects duplicate prerequisite ids', () => {
+    expect(
+      () =>
+        new PrerequisiteLedger({
+          required: [
+            {id: 'same-id', toolName: 'read_diff'},
+            {id: 'same-id', toolName: 'write_diff'},
+          ],
+        }),
+    ).toThrow('Agent prerequisite IDs must be unique: same-id.');
   });
 
   it('records a successful matching integration tool call', () => {
