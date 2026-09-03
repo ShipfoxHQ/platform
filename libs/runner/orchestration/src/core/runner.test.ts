@@ -462,6 +462,70 @@ describe('runJob', () => {
     ]);
   });
 
+  it('replaces inference generations without dropping other job secrets', async () => {
+    const observedSecrets: string[][] = [];
+    mockRunnerToolCapabilities.mockReturnValueOnce({
+      features: {renewable_git: true},
+      harnesses: {pi: {tools: ['read']}},
+    });
+    mockRunJobSteps.mockImplementationOnce((params) => {
+      params.subscribeSecrets?.((secrets) => observedSecrets.push(secrets));
+      params.registerSecrets?.(['checkout-token']);
+
+      const credentialLifecycleOptions = createJobCredentialLifecycleMock.mock.calls[0]?.[0] as {
+        replaceSecrets: (secrets: string[]) => void;
+      };
+      credentialLifecycleOptions.replaceSecrets(['git-token']);
+      params.replaceInferenceSecrets?.([
+        'inference-current',
+        'inference-previous',
+        'inference-oldest-retained',
+      ]);
+      credentialLifecycleOptions.replaceSecrets(['git-rotated']);
+      params.replaceInferenceSecrets?.([
+        'inference-newest',
+        'inference-current',
+        'inference-previous',
+        'inference-expired',
+      ]);
+      return Promise.resolve();
+    });
+
+    await runJob(JOB, WORKSPACE_ROOT);
+
+    expect(observedSecrets).toEqual([
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token'],
+      ['sf_mrt_runner-registration-token', JOB.lease_token, 'checkout-token', 'git-token'],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'checkout-token',
+        'git-token',
+        'inference-current',
+        'inference-previous',
+        'inference-oldest-retained',
+      ],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'checkout-token',
+        'git-rotated',
+        'inference-current',
+        'inference-previous',
+        'inference-oldest-retained',
+      ],
+      [
+        'sf_mrt_runner-registration-token',
+        JOB.lease_token,
+        'checkout-token',
+        'git-rotated',
+        'inference-newest',
+        'inference-current',
+        'inference-previous',
+      ],
+    ]);
+  });
+
   it('broadcasts registered secrets to each live subscriber independently', async () => {
     const firstSecrets: string[][] = [];
     const secondSecrets: string[][] = [];
