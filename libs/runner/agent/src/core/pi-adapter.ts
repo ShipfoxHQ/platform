@@ -1176,10 +1176,6 @@ function parseMcpProxyArgs(value: unknown): unknown {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function setOutputTool(collector: OutputCollector) {
   return defineTool({
     name: PI_OUTPUT_TOOL_NAME,

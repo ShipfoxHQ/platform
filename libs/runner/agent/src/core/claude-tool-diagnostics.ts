@@ -121,6 +121,9 @@ export class ClaudeToolDiagnostics {
       providerTools: params.providerTools,
       catalogFailures: (params.catalogFailures ?? []).map(catalogFailureForSession),
     });
+    if (params.invocation.session?.harnessSessionId !== undefined) {
+      this.#sessionDiagnostics.recordSessionId(params.invocation.session.harnessSessionId);
+    }
     for (const omission of params.omissions ?? []) {
       this.#addOmission(omission.toolName, omission.reason);
     }
@@ -197,6 +200,7 @@ export class ClaudeToolDiagnostics {
     missingOutputCount?: number;
     executionFailed?: boolean;
     executionCompleted?: boolean;
+    aborted?: boolean;
   }): AgentInvocationFailurePhase | undefined {
     if (this.#outcomeLogged) return this.#failurePhase;
     this.#outcomeLogged = true;
@@ -248,6 +252,7 @@ export class ClaudeToolDiagnostics {
       readonly ok: boolean;
       readonly idempotent?: boolean | undefined;
       readonly code?: string | undefined;
+      readonly reason?: string | undefined;
     };
   }): void {
     this.#sessionDiagnostics.recordOutputWrite(params);
@@ -293,6 +298,7 @@ export class ClaudeToolDiagnostics {
     const advertised = new Set(
       message.tools.filter((tool): tool is string => typeof tool === 'string'),
     );
+    this.#sessionDiagnostics.recordProviderToolNames([...advertised]);
     for (const toolName of this.#expectedSdkToolNames) {
       const integrationName = this.#sdkToolToIntegrationTool.get(toolName);
       if (integrationName === undefined) continue;
@@ -425,9 +431,10 @@ export class ClaudeToolDiagnostics {
 }
 
 function sessionTerminationReason(
-  params: {outputGate: ClaudeToolOutputGate; executionFailed?: boolean},
+  params: {outputGate: ClaudeToolOutputGate; executionFailed?: boolean; aborted?: boolean},
   failureClass: AgentSessionFailureClass | undefined,
 ): AgentSessionTerminationReason {
+  if (params.aborted === true) return 'aborted';
   if (params.executionFailed === true) return failureClass ?? 'error';
   return params.outputGate === 'failed' ? 'error' : 'completed';
 }

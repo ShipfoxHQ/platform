@@ -35,16 +35,18 @@ export function createPiSessionDiagnosticsExtension(
       });
 
       pi.on('tool_result', (event) => {
+        const structuredContent = structuredContentFromToolResult(event.details);
         diagnostics.recordToolResult({
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           isError: event.isError,
           details: event.details,
+          ...(structuredContent === undefined ? {} : {structuredContent}),
         });
         recordOutputWrite(diagnostics, event.toolName, event.input, event.details);
 
         const stableError = stableToolErrorDetails(
-          event.details,
+          {details: event.details, structuredContent},
           event.isError || isRejectedOutput(event.details),
         );
         if (event.isError || isRejectedOutput(event.details) || stableError !== undefined) {
@@ -83,6 +85,7 @@ function recordOutputWrite(
 ): void {
   if (toolName !== 'set_output' || !isRecord(input) || typeof input.key !== 'string') return;
   if (!isRecord(details) || typeof details.ok !== 'boolean') return;
+  const reason = outputFailureReason(details);
   diagnostics.recordOutputWrite({
     key: input.key,
     value: typeof input.value === 'string' ? input.value : '',
@@ -90,8 +93,26 @@ function recordOutputWrite(
       ok: details.ok,
       ...(typeof details.idempotent === 'boolean' ? {idempotent: details.idempotent} : {}),
       ...(typeof details.code === 'string' ? {code: details.code} : {}),
+      ...(reason === undefined ? {} : {reason}),
     },
   });
+}
+
+function outputFailureReason(details: Record<string, unknown>): string | undefined {
+  if (typeof details.reason === 'string') return details.reason;
+  return isRecord(details.details) && typeof details.details.schemaError === 'string'
+    ? details.details.schemaError
+    : undefined;
+}
+
+function structuredContentFromToolResult(value: unknown, seen = new Set<object>()): unknown {
+  if (!isRecord(value)) return undefined;
+  if (seen.has(value)) return undefined;
+  seen.add(value);
+  if (value.structuredContent !== undefined) return value.structuredContent;
+  const nestedMcpResult = structuredContentFromToolResult(value.mcpResult, seen);
+  if (nestedMcpResult !== undefined) return nestedMcpResult;
+  return structuredContentFromToolResult(value.details, seen);
 }
 
 function isRejectedOutput(value: unknown): boolean {

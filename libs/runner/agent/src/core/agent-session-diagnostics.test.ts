@@ -162,6 +162,55 @@ describe('AgentSessionDiagnostics', () => {
     );
   });
 
+  it('does not classify an unrecognized provider code only because it has a reason', () => {
+    const record = diagnostics();
+    record.recordToolResult({
+      isError: false,
+      details: {code: 'provider-specific-code', reason: 'provider wording'},
+    });
+
+    expect(record.snapshot().toolResults[0]).toMatchObject({isError: false});
+    expect(record.snapshot().toolResults[0]).not.toHaveProperty('error');
+  });
+
+  it('bounds model-controlled diagnostic values while retaining full-value fingerprints', () => {
+    const hugeArgs = {payload: 'secret-'.repeat(5000)};
+    const hugeKey = 'output-'.repeat(5000);
+    const record = diagnostics({
+      providerTools: Array.from({length: 100}, (_, index) => ({
+        name: `tool-${index}`,
+        description: 'description-'.repeat(500),
+        inputSchema: {properties: {payload: 'schema-'.repeat(5000)}},
+      })),
+    });
+    record.recordToolCall({toolCallId: 'call-1', toolName: 'tool-1', args: hugeArgs});
+    record.recordOutputWrite({
+      key: hugeKey,
+      value: hugeArgs.payload,
+      result: {
+        ok: false,
+        code: 'output_schema_mismatch',
+        reason: 'schema-'.repeat(5000),
+      },
+    });
+
+    const snapshot = record.snapshot();
+    const call = snapshot.toolCalls[0];
+    const write = snapshot.outputWrites[0];
+    expect(call?.normalizedArgs).toMatchObject({payload: expect.any(String)});
+    expect((call?.normalizedArgs as {payload: string}).payload).not.toBe(hugeArgs.payload);
+    expect(call?.argsFingerprint).toBe(stableDiagnosticFingerprint(hugeArgs));
+    expect(write).toMatchObject({
+      key: expect.any(String),
+      keyFingerprint: stableDiagnosticFingerprint(hugeKey),
+      code: 'output_schema_mismatch',
+      reason: expect.any(String),
+    });
+    expect(write?.key).not.toBe(hugeKey);
+    expect(Buffer.byteLength(JSON.stringify(snapshot), 'utf8')).toBeLessThanOrEqual(128 * 1024);
+    expect(snapshot.providerTools.length).toBeLessThanOrEqual(64);
+  });
+
   it('fills exact arguments when a progress event precedes the assistant tool call', () => {
     const record = diagnostics();
     record.recordToolCall({toolCallId: 'call-1', toolName: 'pull_request_read', args: {}});

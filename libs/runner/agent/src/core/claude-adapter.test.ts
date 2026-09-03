@@ -630,12 +630,10 @@ describe('claudeHarnessAdapter', () => {
     await expect(result).rejects.toMatchObject({failurePhase: 'output_gate_failed'});
     await expect(rejection).resolves.toMatchObject({
       isError: true,
-      structuredContent: {
+      structuredContent: expect.objectContaining({
         code: 'undeclared_output',
-        reason: 'undeclared_output',
-        tool: 'set_output',
-        parameter: 'undeclared',
-      },
+        details: {code: 'undeclared_output', key: 'undeclared'},
+      }),
     });
   });
 
@@ -1194,6 +1192,44 @@ describe('claudeHarnessAdapter', () => {
       }),
       'Claude integration tool outcome',
     );
+  });
+
+  it('persists diagnostics when resumed-session tool preparation fails before Claude starts', async () => {
+    const transcriptFile = join(testCwd, 'downloaded-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+    const bridge = mcpBridge([], {
+      activateHttp: vi.fn().mockRejectedValue(new Error('bridge bind failed')),
+    });
+
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        mcpServers: [bridge],
+        requestedIntegrationTools: [{connectionSlug: 'linear_shipfox', toolId: 'get_team'}],
+        session: {
+          mode: 'resume',
+          file: transcriptFile,
+          harnessSessionId: 'prior-session-id',
+        },
+      }),
+    );
+
+    await expect(result).rejects.toMatchObject({
+      name: 'AgentInvocationError',
+      sessionFile: transcriptFile,
+      sessionId: 'prior-session-id',
+    });
+    const entries = readFileSync(transcriptFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(entries.at(-1)).toMatchObject({
+      type: 'shipfox_agent_diagnostics',
+      data: {
+        harness: 'claude',
+        sessionId: 'prior-session-id',
+        termination: {reason: 'error'},
+      },
+    });
   });
 
   it('continues after a catalog failure and records its taxonomy', async () => {
@@ -1961,7 +1997,7 @@ describe('claudeHarnessAdapter', () => {
         [{type: 'assistant', uuid: 'next', message: {content: []}}],
       );
       return makeQuery([
-        {...initWithTools([sdkTool]), session_id: 'prior-session-id'},
+        {...initWithTools([sdkTool, 'Read']), session_id: 'prior-session-id'},
         assistantToolUse(sdkTool, 'call-1'),
         userToolResult('call-1'),
         successMessage,
@@ -1994,12 +2030,13 @@ describe('claudeHarnessAdapter', () => {
         directToolNames: [sdkTool],
         proxyFallback: false,
       },
-      providerTools: [
-        {
+      providerTools: expect.arrayContaining([
+        expect.objectContaining({
           name: sdkTool,
           inputSchema: {type: 'object'},
-        },
-      ],
+        }),
+        expect.objectContaining({name: 'Read', inputSchema: null}),
+      ]),
       toolCalls: [
         {
           toolCallId: 'call-1',
@@ -2072,16 +2109,35 @@ describe('claudeHarnessAdapter', () => {
 
   it('aborts the SDK controller and closes the query when the signal fires', async () => {
     const ac = new AbortController();
-    const blockingQuery = makeBlockingQuery([initMessage]);
+    const transcriptFile = join(testCwd, 'aborted-session.jsonl');
+    writeFileSync(transcriptFile, '{"type":"user","uuid":"prior"}\n');
+    const blockingQuery = makeBlockingQuery([{...initMessage, session_id: 'prior-session-id'}]);
     queryMock.mockReturnValue(blockingQuery);
 
-    const result = claudeHarnessAdapter.run(invocation({signal: ac.signal}));
+    const result = claudeHarnessAdapter.run(
+      invocation({
+        signal: ac.signal,
+        session: {
+          mode: 'resume',
+          file: transcriptFile,
+          harnessSessionId: 'prior-session-id',
+        },
+      }),
+    );
     await vi.waitFor(() => expect(queryMock).toHaveBeenCalled());
     ac.abort();
 
     await expect(result).rejects.toThrow('did not emit a result');
     expect(lastQueryOptions().abortController.signal.aborted).toBe(true);
     expect(blockingQuery.close).toHaveBeenCalled();
+    const entries = readFileSync(transcriptFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(entries.at(-1)).toMatchObject({
+      type: 'shipfox_agent_diagnostics',
+      data: {termination: {reason: 'aborted'}},
+    });
   });
 
   it('propagates SDK generator failures', async () => {

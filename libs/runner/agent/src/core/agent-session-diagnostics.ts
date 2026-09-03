@@ -27,7 +27,9 @@ export interface AgentSessionToolDescriptor {
   readonly name: string;
   readonly description?: string | undefined;
   readonly inputSchema: unknown;
+  readonly inputSchemaFingerprint?: string | undefined;
   readonly outputSchema?: unknown | undefined;
+  readonly outputSchemaFingerprint?: string | undefined;
 }
 
 export interface AgentSessionCatalogFailure {
@@ -46,7 +48,7 @@ export interface AgentSessionToolCall {
   readonly sequence: number;
   readonly toolCallId?: string | undefined;
   readonly toolName: string;
-  /** Protected session artifacts may retain the exact normalized arguments. */
+  /** Protected session artifacts retain bounded normalized arguments and a full-value fingerprint. */
   readonly normalizedArgs: unknown;
   readonly argsFingerprint: string;
 }
@@ -66,9 +68,11 @@ export type AgentSessionOutputWriteStatus = 'accepted' | 'idempotent' | 'conflic
 export interface AgentSessionOutputWrite {
   readonly sequence: number;
   readonly key: string;
+  readonly keyFingerprint: string;
   readonly status: AgentSessionOutputWriteStatus;
   readonly valueFingerprint: string;
   readonly code?: string | undefined;
+  readonly reason?: string | undefined;
 }
 
 export interface AgentSessionBudget {
@@ -148,6 +152,13 @@ const MAX_DIAGNOSTIC_TOOL_RESULTS = 256;
 const MAX_DIAGNOSTIC_OUTPUT_WRITES = 256;
 const MAX_DIAGNOSTIC_FAILURE_CLASSES = 4;
 const MAX_DIAGNOSTIC_CATALOG_FAILURES = 32;
+const MAX_DIAGNOSTIC_PROVIDER_TOOLS = 64;
+const MAX_DIAGNOSTIC_CORRELATIONS = 512;
+const MAX_DIAGNOSTIC_VALUE_BYTES = 4 * 1024;
+const MAX_DIAGNOSTIC_VALUE_DEPTH = 8;
+const MAX_DIAGNOSTIC_COLLECTION_ITEMS = 64;
+const MAX_DIAGNOSTIC_STRING_BYTES = 256;
+const MAX_DIAGNOSTIC_ENTRY_BYTES = 128 * 1024;
 const MAX_REPEATED_TOOL_FAILURES = 3;
 const STABLE_ERROR_CODES = new Set([
   'invalid-request',
@@ -213,15 +224,17 @@ export class AgentSessionDiagnostics {
 
   constructor(params: AgentSessionDiagnosticsParams) {
     this.#harness = params.harness;
-    this.#provider = params.invocation.provider;
-    this.#model = params.invocation.model;
+    this.#provider = boundedDiagnosticString(params.invocation.provider);
+    this.#model = boundedDiagnosticString(params.invocation.model);
     this.#entryUuid = diagnosticEntryUuid(params);
     this.#registration = {
       metadataMode: params.metadataMode,
-      directToolNames: [...new Set(params.directToolNames ?? [])],
+      directToolNames: boundedUniqueStrings(params.directToolNames ?? []),
       proxyFallback: params.proxyFallback ?? false,
     };
-    this.#providerTools = (params.providerTools ?? []).map(normalizeToolDescriptor);
+    this.#providerTools = (params.providerTools ?? [])
+      .slice(0, MAX_DIAGNOSTIC_PROVIDER_TOOLS)
+      .map(normalizeToolDescriptor);
     this.#catalogFailures = (params.catalogFailures ?? [])
       .slice(0, MAX_DIAGNOSTIC_CATALOG_FAILURES)
       .map(normalizeCatalogFailure);
@@ -243,46 +256,71 @@ export class AgentSessionDiagnostics {
   }
 
   recordSessionId(sessionId: string | undefined): void {
-    if (sessionId !== undefined && sessionId !== '') this.#sessionId = sessionId;
+    if (sessionId !== undefined && sessionId !== '') {
+      this.#sessionId = boundedDiagnosticString(sessionId);
+    }
   }
 
   recordProviderTools(tools: readonly AgentSessionToolDescriptor[]): void {
     if (tools.length === 0) return;
-    this.#providerTools = tools.map(normalizeToolDescriptor);
+    this.#providerTools = tools
+      .slice(0, MAX_DIAGNOSTIC_PROVIDER_TOOLS)
+      .map(normalizeToolDescriptor);
+  }
+
+  recordProviderToolNames(toolNames: readonly string[]): void {
+    const knownTools = new Map(this.#providerTools.map((tool) => [tool.name, tool]));
+    for (const toolName of toolNames) {
+      if (knownTools.size >= MAX_DIAGNOSTIC_PROVIDER_TOOLS) break;
+      const name = boundedDiagnosticString(toolName);
+      if (name === '' || knownTools.has(name)) continue;
+      knownTools.set(name, {name, inputSchema: null});
+    }
+    this.#providerTools = [...knownTools.values()];
   }
 
   recordToolCall(params: {toolCallId?: string | undefined; toolName: string; args: unknown}): void {
     const normalizedArgs = normalizeDiagnosticValue(params.args);
+    const toolCallId =
+      params.toolCallId === undefined ? undefined : boundedDiagnosticString(params.toolCallId);
     const call: AgentSessionToolCall = {
       sequence: this.#nextSequence(),
-      ...(params.toolCallId === undefined ? {} : {toolCallId: params.toolCallId}),
-      toolName: params.toolName,
-      normalizedArgs,
+      ...(toolCallId === undefined ? {} : {toolCallId}),
+      toolName: boundedDiagnosticString(params.toolName),
+      normalizedArgs: boundedDiagnosticValue(normalizedArgs),
       argsFingerprint: stableDiagnosticFingerprint(normalizedArgs),
     };
     this.#toolCallsConsumed += 1;
     if (this.#toolCalls.length < MAX_DIAGNOSTIC_TOOL_CALLS) this.#toolCalls.push(call);
-    if (params.toolCallId !== undefined) this.#toolCallById.set(params.toolCallId, call);
+    if (toolCallId !== undefined) {
+      setBoundedMap(this.#toolCallById, toolCallId, call, MAX_DIAGNOSTIC_CORRELATIONS);
+    }
   }
 
   updateToolCallArguments(toolCallId: string, args: unknown): void {
-    const existing = this.#toolCallById.get(toolCallId);
+    const boundedToolCallId = boundedDiagnosticString(toolCallId);
+    const existing = this.#toolCallById.get(boundedToolCallId);
     if (existing === undefined) return;
     const normalizedArgs = normalizeDiagnosticValue(args);
     const updated = {
       ...existing,
-      normalizedArgs,
+      normalizedArgs: boundedDiagnosticValue(normalizedArgs),
       argsFingerprint: stableDiagnosticFingerprint(normalizedArgs),
     };
-    this.#toolCallById.set(toolCallId, updated);
-    const index = this.#toolCalls.findIndex((call) => call.toolCallId === toolCallId);
+    setBoundedMap(this.#toolCallById, boundedToolCallId, updated, MAX_DIAGNOSTIC_CORRELATIONS);
+    const index = this.#toolCalls.findIndex((call) => call.toolCallId === boundedToolCallId);
     if (index >= 0) this.#toolCalls[index] = updated;
   }
 
   recordToolResult(params: RecordToolResultParams): void {
-    const call =
-      params.toolCallId === undefined ? undefined : this.#toolCallById.get(params.toolCallId);
-    const result = createToolResult(params, call, this.#nextSequence());
+    const toolCallId =
+      params.toolCallId === undefined ? undefined : boundedDiagnosticString(params.toolCallId);
+    const call = toolCallId === undefined ? undefined : this.#toolCallById.get(toolCallId);
+    const result = createToolResult(
+      {...params, ...(toolCallId === undefined ? {} : {toolCallId})},
+      call,
+      this.#nextSequence(),
+    );
     if (this.#toolResults.length < MAX_DIAGNOSTIC_TOOL_RESULTS) this.#toolResults.push(result);
     this.#recordToolResultFailure(result, call, params.toolName);
   }
@@ -294,6 +332,7 @@ export class AgentSessionDiagnostics {
       readonly ok: boolean;
       readonly idempotent?: boolean | undefined;
       readonly code?: string | undefined;
+      readonly reason?: string | undefined;
     };
   }): void {
     const status = outputWriteStatus(params.result);
@@ -301,10 +340,16 @@ export class AgentSessionDiagnostics {
     if (this.#outputWrites.length >= MAX_DIAGNOSTIC_OUTPUT_WRITES) return;
     this.#outputWrites.push({
       sequence: this.#nextSequence(),
-      key: params.key,
+      key: boundedDiagnosticString(params.key),
+      keyFingerprint: stableDiagnosticFingerprint(params.key),
       status,
       valueFingerprint: stableDiagnosticFingerprint(params.value),
-      ...(params.result.code === undefined ? {} : {code: params.result.code}),
+      ...(params.result.code === undefined
+        ? {}
+        : {code: boundedDiagnosticString(params.result.code)}),
+      ...(params.result.reason === undefined
+        ? {}
+        : {reason: boundedDiagnosticString(params.result.reason)}),
     });
   }
 
@@ -356,7 +401,7 @@ export class AgentSessionDiagnostics {
 
   snapshot(): AgentSessionDiagnosticEntry {
     const terminationReason = this.#terminationReason ?? 'error';
-    return {
+    return boundedDiagnosticEntry({
       kind: 'agent_session_diagnostics',
       version: AGENT_SESSION_DIAGNOSTICS_VERSION,
       harness: this.#harness,
@@ -382,7 +427,7 @@ export class AgentSessionDiagnostics {
         timeMs: budget(Math.max(0, Date.now() - this.#startedAt)),
         tokens: budget(this.#tokensConsumed),
       },
-    };
+    });
   }
 
   storeEntry(): AgentSessionDiagnosticStoreEntry {
@@ -407,12 +452,12 @@ export class AgentSessionDiagnostics {
     if (result.error?.code === 'output_conflict') this.markFailure('output_conflict');
     if (!result.isError) return;
     const repetitionKey = [
-      call?.toolName ?? toolName ?? 'unknown',
+      call?.toolName ?? boundedDiagnosticString(toolName ?? 'unknown'),
       call?.argsFingerprint ?? 'unknown',
       result.resultFingerprint,
     ].join(':');
     const repetitions = (this.#repeatedFailures.get(repetitionKey) ?? 0) + 1;
-    this.#repeatedFailures.set(repetitionKey, repetitions);
+    setBoundedMap(this.#repeatedFailures, repetitionKey, repetitions, MAX_DIAGNOSTIC_CORRELATIONS);
     if (repetitions >= MAX_REPEATED_TOOL_FAILURES) {
       this.markFailure('agent_tool_loop_detected');
     }
@@ -436,12 +481,13 @@ function createToolResult(
   const structuredResult = structuredResultForFingerprint(
     params.structuredContent ?? params.details,
   );
+  const toolName = params.toolName ?? call?.toolName;
   return {
     sequence,
-    ...(params.toolCallId === undefined ? {} : {toolCallId: params.toolCallId}),
-    ...(params.toolName === undefined && call === undefined
+    ...(params.toolCallId === undefined
       ? {}
-      : {toolName: params.toolName ?? call?.toolName}),
+      : {toolCallId: boundedDiagnosticString(params.toolCallId)}),
+    ...(toolName === undefined ? {} : {toolName: boundedDiagnosticString(toolName)}),
     isError,
     resultFingerprint: stableDiagnosticFingerprint({isError, error, structuredResult}),
     ...(structuredResult === undefined
@@ -488,14 +534,9 @@ function stableToolErrorForRecord(
   if (seen.has(record)) return undefined;
   seen.add(record);
   const code = stringField(record, 'code');
-  if (
-    code !== undefined &&
-    (allowUnrecognizedCode ||
-      STABLE_ERROR_CODES.has(code) ||
-      stringField(record, 'reason') !== undefined)
-  ) {
+  if (code !== undefined && (allowUnrecognizedCode || STABLE_ERROR_CODES.has(code))) {
     return {
-      code,
+      code: boundedDiagnosticString(code),
       ...optionalStringField('reason', record.reason),
       ...optionalStringField('tool', record.tool),
       ...optionalStringField('parameter', record.parameter),
@@ -533,35 +574,45 @@ function adapterToolError(
   if (adapterError === 'tool_error' || adapterError === 'call_failed') {
     return {code: 'tool_error', reason: 'provider_error'};
   }
-  return {code: 'tool_error', reason: adapterError};
+  return {code: 'tool_error', reason: boundedDiagnosticString(adapterError)};
 }
 
 function diagnosticEntryUuid(params: AgentSessionDiagnosticsParams): string {
   return [
     AGENT_SESSION_DIAGNOSTICS_ENTRY_TYPE,
     params.harness,
-    params.invocation.jobExecutionId ?? 'unknown',
-    params.invocation.stepId ?? 'unknown',
+    boundedDiagnosticString(params.invocation.jobExecutionId ?? 'unknown'),
+    boundedDiagnosticString(params.invocation.stepId ?? 'unknown'),
     String(params.invocation.attempt ?? 0),
   ].join(':');
 }
 
 function normalizeToolDescriptor(tool: AgentSessionToolDescriptor): AgentSessionToolDescriptor {
+  const inputSchema = normalizeDiagnosticValue(tool.inputSchema);
+  const outputSchema =
+    tool.outputSchema === undefined ? undefined : normalizeDiagnosticValue(tool.outputSchema);
   return {
-    name: tool.name,
-    ...(tool.description === undefined ? {} : {description: tool.description}),
-    inputSchema: normalizeDiagnosticValue(tool.inputSchema),
-    ...(tool.outputSchema === undefined
+    name: boundedDiagnosticString(tool.name),
+    ...(tool.description === undefined
       ? {}
-      : {outputSchema: normalizeDiagnosticValue(tool.outputSchema)}),
+      : {description: boundedDiagnosticString(tool.description)}),
+    inputSchema: boundedDiagnosticValue(inputSchema),
+    inputSchemaFingerprint: stableDiagnosticFingerprint(inputSchema),
+    ...(outputSchema === undefined
+      ? {}
+      : {
+          outputSchema: boundedDiagnosticValue(outputSchema),
+          outputSchemaFingerprint: stableDiagnosticFingerprint(outputSchema),
+        }),
   };
 }
 
 function normalizeCatalogFailure(failure: AgentSessionCatalogFailure): AgentSessionCatalogFailure {
+  const status = statusValue(failure.status);
   return {
-    server: failure.server,
+    server: boundedDiagnosticString(failure.server),
     errorClass: failure.errorClass,
-    ...(failure.status === undefined ? {} : {status: failure.status}),
+    ...(status === undefined ? {} : {status}),
   };
 }
 
@@ -608,13 +659,20 @@ function stringField(record: Record<string, unknown>, key: string): string | und
 }
 
 function optionalStringField(key: string, value: unknown): Record<string, string> {
-  return typeof value === 'string' && value.length > 0 ? {[key]: value} : {};
+  return typeof value === 'string' && value.length > 0
+    ? {[key]: boundedDiagnosticString(value)}
+    : {};
 }
 
 function optionalStatusField(value: unknown): Record<string, number> {
+  const status = statusValue(value);
+  return status === undefined ? {} : {status};
+}
+
+function statusValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
-    ? {status: value}
-    : {};
+    ? value
+    : undefined;
 }
 
 function firstFiniteNumber(
@@ -630,6 +688,110 @@ function firstFiniteNumber(
 
 function isFailureClass(value: AgentSessionTerminationReason): value is AgentSessionFailureClass {
   return value !== 'completed' && value !== 'aborted' && value !== 'error';
+}
+
+function boundedDiagnosticEntry(entry: AgentSessionDiagnosticEntry): AgentSessionDiagnosticEntry {
+  let bounded = entry;
+  while (diagnosticJsonBytes(bounded) > MAX_DIAGNOSTIC_ENTRY_BYTES) {
+    if (bounded.toolCalls.length > 0) {
+      bounded = {...bounded, toolCalls: bounded.toolCalls.slice(1)};
+      continue;
+    }
+    if (bounded.toolResults.length > 0) {
+      bounded = {...bounded, toolResults: bounded.toolResults.slice(1)};
+      continue;
+    }
+    if (bounded.outputWrites.length > 0) {
+      bounded = {...bounded, outputWrites: bounded.outputWrites.slice(1)};
+      continue;
+    }
+    if (bounded.providerTools.length > 0) {
+      bounded = {...bounded, providerTools: bounded.providerTools.slice(1)};
+      continue;
+    }
+    if (bounded.catalogFailures.length > 0) {
+      bounded = {...bounded, catalogFailures: bounded.catalogFailures.slice(1)};
+      continue;
+    }
+    break;
+  }
+  return bounded;
+}
+
+function boundedDiagnosticValue(value: unknown): unknown {
+  return boundNormalizedDiagnosticValue(normalizeDiagnosticValue(value), 0);
+}
+
+function boundNormalizedDiagnosticValue(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') return boundedDiagnosticString(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= MAX_DIAGNOSTIC_VALUE_DEPTH) return '[truncated]';
+
+  if (Array.isArray(value)) {
+    const bounded = value
+      .slice(0, MAX_DIAGNOSTIC_COLLECTION_ITEMS)
+      .map((item) => boundNormalizedDiagnosticValue(item, depth + 1));
+    while (diagnosticJsonBytes(bounded) > MAX_DIAGNOSTIC_VALUE_BYTES && bounded.length > 0) {
+      bounded.pop();
+    }
+    return bounded;
+  }
+
+  const record = value as Record<string, unknown>;
+  const bounded: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort().slice(0, MAX_DIAGNOSTIC_COLLECTION_ITEMS)) {
+    bounded[boundedDiagnosticString(key)] = boundNormalizedDiagnosticValue(record[key], depth + 1);
+  }
+  while (diagnosticJsonBytes(bounded) > MAX_DIAGNOSTIC_VALUE_BYTES) {
+    const lastKey = Object.keys(bounded).at(-1);
+    if (lastKey === undefined) break;
+    delete bounded[lastKey];
+  }
+  return bounded;
+}
+
+function boundedDiagnosticString(value: string, maxBytes = MAX_DIAGNOSTIC_STRING_BYTES): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  const suffix = '...[truncated]';
+  const suffixBytes = Buffer.byteLength(suffix, 'utf8');
+  const prefixBytes = Math.max(0, maxBytes - suffixBytes);
+  let prefix = '';
+  for (const character of value) {
+    const next = `${prefix}${character}`;
+    if (Buffer.byteLength(next, 'utf8') > prefixBytes) break;
+    prefix = next;
+  }
+  return `${prefix}${suffix}`;
+}
+
+function boundedUniqueStrings(values: readonly string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const bounded = boundedDiagnosticString(value);
+    if (seen.has(bounded)) continue;
+    seen.add(bounded);
+    result.push(bounded);
+    if (result.length >= MAX_DIAGNOSTIC_PROVIDER_TOOLS) break;
+  }
+  return result;
+}
+
+function setBoundedMap<K, V>(map: Map<K, V>, key: K, value: V, maxSize: number): void {
+  if (!map.has(key) && map.size >= maxSize) {
+    const oldest = map.keys().next();
+    if (!oldest.done) map.delete(oldest.value);
+  }
+  map.set(key, value);
+}
+
+function diagnosticJsonBytes(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? 0 : Buffer.byteLength(serialized, 'utf8');
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 /** Sort object keys while preserving arrays and exact scalar argument values. */

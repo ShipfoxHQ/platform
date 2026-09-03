@@ -329,7 +329,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   let claudeQuery: Query | undefined;
   let messages: ClaudeInputStream | undefined;
   let sessionStore: ClaudeSessionStore | undefined;
-  let sessionId: string | undefined;
+  let sessionId = sessionInvocation?.harnessSessionId;
   let response = '';
   let toolContext: ClaudeToolContext | undefined;
   let turnsCompleted = false;
@@ -340,13 +340,13 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   };
 
   try {
+    assertClaudeNotAborted(signal);
+    sessionStore = await createClaudeSessionStore(sessionInvocation);
     toolContext = await createClaudeToolContext(invocation, managedMcpServers);
     activeToolDiagnostics = toolContext.diagnostics;
     toolContext.diagnostics.logManifest();
     configDir = await createClaudeConfigDir(agentStateDir);
 
-    assertClaudeNotAborted(signal);
-    sessionStore = await createClaudeSessionStore(sessionInvocation);
     const inputMessages = new ClaudeInputStream();
     messages = inputMessages;
     claudeQuery = query({
@@ -415,6 +415,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
       agentStateDir,
       session: sessionInvocation,
       sessionStore,
+      aborted: signal.aborted,
     });
   } finally {
     messages?.close();
@@ -490,12 +491,14 @@ async function handleClaudeAgentFailure(params: {
   agentStateDir: string;
   session: HarnessInvocation['session'];
   sessionStore: ClaudeSessionStore | undefined;
+  aborted: boolean;
 }): Promise<never> {
   const failurePhase = params.diagnostics.finish({
     outputGate: outputGateForError(params.error),
     missingOutputCount: params.collector.missingRequired().length,
     executionFailed: true,
     executionCompleted: params.executionCompleted,
+    aborted: params.aborted,
   });
   await params.diagnostics.appendToSessionStore(params.sessionStore, params.sessionId);
   return await rethrowClaudeSessionError({
@@ -1023,7 +1026,14 @@ function setOutputTool(
         result: {
           ok: result.ok,
           ...(result.ok && result.idempotent === true ? {idempotent: true} : {}),
-          ...(!result.ok ? {code: result.code} : {}),
+          ...(!result.ok
+            ? {
+                code: result.code,
+                ...(result.details.schemaError === undefined
+                  ? {}
+                  : {reason: result.details.schemaError}),
+              }
+            : {}),
         },
       });
       return {

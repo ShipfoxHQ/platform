@@ -213,7 +213,7 @@ describe('OutputCollector', () => {
       details: {code: 'output_conflict', key: 'summary'},
     });
     expect(collector.snapshot()).toEqual({summary: 'done'});
-    expect(collector.isComplete).toBe(true);
+    expect(collector.isComplete()).toBe(true);
   });
 
   it('returns the validation error and exact JSON Schema for a rejected json output', () => {
