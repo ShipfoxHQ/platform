@@ -233,6 +233,78 @@ describe('workflowsJobExecutionTerminatedSchema', () => {
 
     expect(workflowsJobExecutionTerminatedSchema.parse(input)).toEqual(input);
   });
+
+  it('keeps identity, timestamps, and runner identity optional for events written before they existed', () => {
+    const result = workflowsJobExecutionTerminatedSchema.parse(validJobExecutionTerminated);
+
+    expect(result.workspaceId).toBeUndefined();
+    expect(result.projectId).toBeUndefined();
+    expect(result.definitionId).toBeUndefined();
+    expect(result.jobKey).toBeUndefined();
+    expect(result.queuedAt).toBeUndefined();
+    expect(result.startedAt).toBeUndefined();
+    expect(result.runnerLabels).toBeUndefined();
+    expect(result.templateKey).toBeUndefined();
+    expect(result.provisionerId).toBeUndefined();
+    expect(result.provisionerScope).toBeUndefined();
+    expect(result.providerKind).toBeUndefined();
+    expect(result.launchKind).toBeUndefined();
+  });
+
+  it('makes a claimed execution self-sufficient: identity, queued, started, and runner identity all present', () => {
+    const input = {
+      ...validJobExecutionTerminated,
+      workspaceId: 'ws-1',
+      projectId: 'project-1',
+      definitionId: 'def-1',
+      jobKey: 'build',
+      queuedAt: '2026-08-11T08:00:00.000Z',
+      startedAt: '2026-08-11T08:00:05.000Z',
+      runnerLabels: ['linux', 'x64'],
+      templateKey: 'standard',
+      provisionerId: crypto.randomUUID(),
+      provisionerScope: 'installation' as const,
+      providerKind: 'ec2',
+      launchKind: 'demand' as const,
+    };
+
+    expect(workflowsJobExecutionTerminatedSchema.strict().parse(input)).toEqual(input);
+  });
+
+  it('accepts null started_at and null runner identity for a never-claimed execution', () => {
+    const input = {
+      ...validJobExecutionTerminated,
+      workspaceId: 'ws-1',
+      projectId: 'project-1',
+      definitionId: 'def-1',
+      jobKey: 'build',
+      queuedAt: '2026-08-11T08:00:00.000Z',
+      startedAt: null,
+      runnerLabels: null,
+      templateKey: null,
+      provisionerId: null,
+      provisionerScope: null,
+      providerKind: null,
+      launchKind: null,
+    };
+
+    expect(workflowsJobExecutionTerminatedSchema.strict().parse(input)).toEqual(input);
+  });
+
+  it('rejects a provisioner scope or launch kind outside the known set', () => {
+    expect(() =>
+      workflowsJobExecutionTerminatedSchema.parse({
+        ...validJobExecutionTerminated,
+        provisionerScope: 'region',
+      }),
+    ).toThrow();
+    expect(() =>
+      workflowsJobExecutionTerminatedSchema.parse({
+        ...validJobExecutionTerminated,
+        launchKind: 'scheduled',
+      }),
+    ).toThrow();
+  });
 });
 
 describe('workflowsWorkflowRunTerminatedSchema', () => {
@@ -372,6 +444,27 @@ describe('workflowsStepRestartEnqueuedSchema', () => {
     const parse = () => workflowsStepRestartEnqueuedSchema.parse(input);
 
     expect(parse).toThrow();
+  });
+});
+
+describe('workflowsJobExecutionQueuedSchema', () => {
+  it('accepts the job key, definition id, and run number added for self-sufficient usage records', () => {
+    const input = {
+      ...validJobExecutionQueued,
+      jobKey: 'build',
+      definitionId: 'def-1',
+      runNumber: 12,
+    };
+
+    expect(workflowsJobExecutionQueuedSchema.strict().parse(input)).toEqual(input);
+  });
+
+  it('keeps the job key, definition id, and run number optional for events written before they existed', () => {
+    const result = workflowsJobExecutionQueuedSchema.parse(validJobExecutionQueued);
+
+    expect(result.jobKey).toBeUndefined();
+    expect(result.definitionId).toBeUndefined();
+    expect(result.runNumber).toBeUndefined();
   });
 });
 

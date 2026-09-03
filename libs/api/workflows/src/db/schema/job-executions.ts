@@ -40,6 +40,16 @@ export const jobExecutions = pgTable(
     // exposes the parent job's static name/key as the effective name.
     name: text('name'),
     runner: jsonb('runner').$type<string[]>(),
+    // Runner identity from the claimed event (first-write-wins, beside startedAt).
+    // Plain columns, not a foreign key or a local enum: the values are opaque ids
+    // and enum-shaped strings owned and validated by the runners module's own
+    // event contract, not by this table.
+    runnerLabels: jsonb('runner_labels').$type<string[]>(),
+    templateKey: text('template_key'),
+    provisionerId: uuid('provisioner_id'),
+    provisionerScope: text('provisioner_scope'),
+    providerKind: text('provider_kind'),
+    launchKind: text('launch_kind'),
     status: jobExecutionStatusEnum('status').notNull().default('pending'),
     statusReason: jobStatusReasonEnum('status_reason'),
     statusReasonMessage: text('status_reason_message'),

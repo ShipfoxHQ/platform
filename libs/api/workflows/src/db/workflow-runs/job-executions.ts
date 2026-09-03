@@ -289,6 +289,14 @@ async function updateJobExecutionStatusAtVersion(
       finishedAt: row.finishedAt,
       statusReason: row.statusReason,
       statusReasonMessage: row.statusReasonMessage,
+      queuedAt: row.queuedAt,
+      startedAt: row.startedAt,
+      runnerLabels: row.runnerLabels,
+      templateKey: row.templateKey,
+      provisionerId: row.provisionerId,
+      provisionerScope: row.provisionerScope,
+      providerKind: row.providerKind,
+      launchKind: row.launchKind,
     });
   }
   return {
@@ -390,13 +398,25 @@ export async function queueJobExecution(params: {jobExecutionId: string}): Promi
   return result.execution;
 }
 
+export interface JobExecutionRunnerIdentity {
+  runnerLabels: string[] | null;
+  templateKey: string | null;
+  provisionerId: string | null;
+  provisionerScope: string | null;
+  providerKind: string | null;
+  launchKind: string | null;
+}
+
 export async function recordJobExecutionStartedAt(params: {
   jobExecutionId: string;
   startedAt: Date;
+  // Present when the caller is projecting a runner claim; absent for callers
+  // that only need to stamp the start time (e.g. tests exercising display state).
+  runnerIdentity?: JobExecutionRunnerIdentity;
 }): Promise<void> {
   const updated = await db()
     .update(jobExecutions)
-    .set({startedAt: params.startedAt})
+    .set({startedAt: params.startedAt, ...params.runnerIdentity})
     .where(and(eq(jobExecutions.id, params.jobExecutionId), isNull(jobExecutions.startedAt)))
     .returning({id: jobExecutions.id});
 

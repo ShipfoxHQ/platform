@@ -5,6 +5,7 @@ import {
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
   WORKFLOWS_STEP_RESTART_ENQUEUED,
+  type WorkflowsJobExecutionTerminatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import type {JobStatusReason} from '#core/entities/job.js';
@@ -37,6 +38,9 @@ export async function writeJobExecutionQueuedOutbox(
       projectId: identity.projectId,
       requiredLabels: params.requiredLabels,
       queuedAt: params.queuedAt.toISOString(),
+      jobKey: identity.jobKey,
+      definitionId: identity.definitionId,
+      runNumber: identity.runNumber,
     },
   });
 }
@@ -50,6 +54,17 @@ export async function writeJobExecutionTerminatedOutbox(
     finishedAt?: Date | null | undefined;
     statusReason: JobStatusReason | null;
     statusReasonMessage?: string | null | undefined;
+    // Runner identity and lifecycle timestamps carried on the job_executions row,
+    // so the terminated event is a self-sufficient usage record: null when the
+    // execution was never queued, never claimed, or claimed by no known provisioner.
+    queuedAt: Date | null;
+    startedAt: Date | null;
+    runnerLabels: string[] | null;
+    templateKey: string | null;
+    provisionerId: string | null;
+    provisionerScope: string | null;
+    providerKind: string | null;
+    launchKind: string | null;
   },
 ): Promise<void> {
   if (
@@ -68,14 +83,32 @@ export async function writeJobExecutionTerminatedOutbox(
       jobExecutionId: params.jobExecutionId,
       workflowRunId: identity.workflowRunId,
       workflowRunAttemptId: identity.workflowRunAttemptId,
+      workspaceId: identity.workspaceId,
+      projectId: identity.projectId,
+      definitionId: identity.definitionId,
+      jobKey: identity.jobKey,
       status: params.status,
       finishedAt: (params.finishedAt ?? new Date()).toISOString(),
+      queuedAt: params.queuedAt ? params.queuedAt.toISOString() : null,
+      startedAt: params.startedAt ? params.startedAt.toISOString() : null,
       statusReason: params.statusReason,
       cancellationReason:
         params.statusReason === 'run_cancelled' || params.statusReason === 'timed_out'
           ? params.statusReason
           : null,
       statusReasonMessage: params.statusReasonMessage ?? null,
+      runnerLabels: params.runnerLabels,
+      templateKey: params.templateKey,
+      provisionerId: params.provisionerId,
+      // Stored as plain text (see the job_executions schema); cast to the DTO's
+      // closed set here, at the one place this value crosses into the strict
+      // event contract. A value outside the set can only come from a producer
+      // migration ahead of this package, so it is passed through rather than
+      // dropped or thrown on.
+      provisionerScope:
+        params.provisionerScope as WorkflowsJobExecutionTerminatedEventDto['provisionerScope'],
+      providerKind: params.providerKind,
+      launchKind: params.launchKind as WorkflowsJobExecutionTerminatedEventDto['launchKind'],
     },
   });
 }

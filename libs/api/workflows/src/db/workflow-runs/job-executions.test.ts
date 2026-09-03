@@ -28,6 +28,7 @@ import {
   getStepsByJobId,
   markStepRunning,
   queueJobExecution,
+  recordJobExecutionStartedAt,
   resolveJobExecutionAfterLeaseExpiry,
   updateJobExecutionStatus,
 } from '../workflow-runs.js';
@@ -85,6 +86,9 @@ describe('workflow run job executions', () => {
       projectId,
       requiredLabels: ['ubuntu-latest'],
       queuedAt: queued.queuedAt?.toISOString(),
+      jobKey: job.key,
+      definitionId,
+      runNumber: run.number,
     });
   });
 
@@ -133,6 +137,167 @@ describe('workflow run job executions', () => {
         workflowRunId: run.id,
         status: 'cancelled',
         statusReason: 'run_cancelled',
+      }),
+    ]);
+  });
+
+  test('carries identity, queued, started, and runner identity in the terminated event for a claimed execution', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    const queued = await queueJobExecution({jobExecutionId: execution.id});
+    const startedAt = new Date('2026-08-11T08:00:05.000Z');
+    const provisionerId = crypto.randomUUID();
+    await recordJobExecutionStartedAt({
+      jobExecutionId: execution.id,
+      startedAt,
+      runnerIdentity: {
+        runnerLabels: ['ubuntu-latest', 'x64'],
+        templateKey: 'standard',
+        provisionerId,
+        provisionerScope: 'installation',
+        providerKind: 'ec2',
+        launchKind: 'demand',
+      },
+    });
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'failed',
+      expectedVersion: execution.version,
+      statusReason: 'unknown',
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobId: job.id,
+        jobExecutionId: execution.id,
+        workflowRunId: run.id,
+        workspaceId,
+        projectId,
+        definitionId,
+        jobKey: job.key,
+        status: 'failed',
+        statusReason: 'unknown',
+        queuedAt: queued.queuedAt?.toISOString(),
+        startedAt: startedAt.toISOString(),
+        runnerLabels: ['ubuntu-latest', 'x64'],
+        templateKey: 'standard',
+        provisionerId,
+        provisionerScope: 'installation',
+        providerKind: 'ec2',
+        launchKind: 'demand',
+      }),
+    ]);
+  });
+
+  test('carries a null started_at and null runner identity in the terminated event for a never-claimed execution', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    const queued = await queueJobExecution({jobExecutionId: execution.id});
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'cancelled',
+      expectedVersion: execution.version,
+      statusReason: 'run_cancelled',
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobExecutionId: execution.id,
+        status: 'cancelled',
+        queuedAt: queued.queuedAt?.toISOString(),
+        startedAt: null,
+        runnerLabels: null,
+        templateKey: null,
+        provisionerId: null,
+        provisionerScope: null,
+        providerKind: null,
+        launchKind: null,
+      }),
+    ]);
+  });
+
+  test('carries queued, started, and runner identity in the terminated event after a lease expires', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    const queued = await queueJobExecution({jobExecutionId: execution.id});
+    const startedAt = new Date('2026-08-11T08:00:05.000Z');
+    await recordJobExecutionStartedAt({
+      jobExecutionId: execution.id,
+      startedAt,
+      runnerIdentity: {
+        runnerLabels: ['ubuntu-latest'],
+        templateKey: 'standard',
+        provisionerId: null,
+        provisionerScope: 'installation',
+        providerKind: 'ec2',
+        launchKind: 'demand',
+      },
+    });
+
+    await resolveJobExecutionAfterLeaseExpiry({
+      jobExecutionId: execution.id,
+      expectedVersion: execution.version,
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobExecutionId: execution.id,
+        status: 'failed',
+        statusReason: 'runner_lost',
+        queuedAt: queued.queuedAt?.toISOString(),
+        startedAt: startedAt.toISOString(),
+        runnerLabels: ['ubuntu-latest'],
+        templateKey: 'standard',
+        provisionerScope: 'installation',
+        providerKind: 'ec2',
+        launchKind: 'demand',
       }),
     ]);
   });
