@@ -138,13 +138,33 @@ export function toWorkflowJobStepAttemptSummary(
   };
 }
 
+export interface WorkflowJobDetailPresentationOptions {
+  steps?: readonly WorkflowJobStepSummary[] | undefined;
+  attemptsByStepId?: ReadonlyMap<string, readonly WorkflowJobStepAttemptSummary[]> | undefined;
+}
+
+export function mergeWorkflowJobStepSummaries(
+  sources: readonly (readonly WorkflowJobStepSummary[])[],
+): WorkflowJobStepSummary[] {
+  return mergeById(sources);
+}
+
+export function mergeWorkflowJobStepAttempts(
+  sources: readonly (readonly WorkflowJobStepAttemptSummary[])[],
+): WorkflowJobStepAttemptSummary[] {
+  return mergeById(sources);
+}
+
 /**
  * The job log components still accept the retained complete-tree model. Keep this conversion at
  * the presentation boundary: the selected-job query and its cache never acquire legacy fields.
  */
-export function toLegacyJobForJobDetail(detail: WorkflowJobDetail): Job {
+export function toLegacyJobForJobDetail(
+  detail: WorkflowJobDetail,
+  presentation: WorkflowJobDetailPresentationOptions = {},
+): Job {
   const execution = detail.selectedExecution
-    ? toLegacyJobExecution(detail.job.id, detail.selectedExecution)
+    ? toLegacyJobExecution(detail.job.id, detail.selectedExecution, presentation)
     : undefined;
   const updatedAt = execution?.updatedAt ?? detail.job.defaultExecution?.updatedAt ?? '';
 
@@ -172,7 +192,12 @@ export function toLegacyJobForJobDetail(detail: WorkflowJobDetail): Job {
   });
 }
 
-function toLegacyJobExecution(jobId: string, detail: WorkflowJobExecutionDetail): JobExecution {
+function toLegacyJobExecution(
+  jobId: string,
+  detail: WorkflowJobExecutionDetail,
+  presentation: WorkflowJobDetailPresentationOptions,
+): JobExecution {
+  const steps = presentation.steps ?? detail.steps.items;
   return new JobExecution({
     id: detail.id,
     jobId,
@@ -191,12 +216,19 @@ function toLegacyJobExecution(jobId: string, detail: WorkflowJobExecutionDetail)
     evaluationTrace: null,
     createdAt: detail.updatedAt,
     updatedAt: detail.updatedAt,
-    steps: detail.steps.items.map((step) => toLegacyStep(step, detail.updatedAt)),
+    steps: steps.map((step) =>
+      toLegacyStep(step, detail.updatedAt, presentation.attemptsByStepId?.get(step.id)),
+    ),
   });
 }
 
-function toLegacyStep(step: WorkflowJobStepSummary, fallbackUpdatedAt: string): Step {
-  const firstAttempt = step.attempts.items[0];
+function toLegacyStep(
+  step: WorkflowJobStepSummary,
+  fallbackUpdatedAt: string,
+  presentedAttempts: readonly WorkflowJobStepAttemptSummary[] | undefined,
+): Step {
+  const attempts = presentedAttempts ?? step.attempts.items;
+  const firstAttempt = attempts[0];
   const updatedAt = firstAttempt?.finishedAt ?? firstAttempt?.startedAt ?? fallbackUpdatedAt;
   return {
     id: step.id,
@@ -216,10 +248,16 @@ function toLegacyStep(step: WorkflowJobStepSummary, fallbackUpdatedAt: string): 
     currentAttempt: step.currentAttempt,
     createdAt: firstAttempt?.startedAt ?? fallbackUpdatedAt,
     updatedAt,
-    attempts: step.attempts.items.map((attempt) =>
-      toLegacyStepAttempt(attempt, step.jobExecutionId),
-    ),
+    attempts: attempts.map((attempt) => toLegacyStepAttempt(attempt, step.jobExecutionId)),
   };
+}
+
+function mergeById<T extends {id: string}>(sources: readonly (readonly T[])[]): T[] {
+  const merged = new Map<string, T>();
+  for (const source of sources) {
+    for (const item of source) merged.set(item.id, item);
+  }
+  return [...merged.values()];
 }
 
 function toLegacyStepAttempt(

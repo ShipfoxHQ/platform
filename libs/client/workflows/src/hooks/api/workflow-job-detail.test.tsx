@@ -5,7 +5,7 @@ import type {
   WorkflowStepAttemptSummariesResponseDto,
 } from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
-import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
+import {QueryClient, QueryClientProvider, QueryObserver} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
 import {
@@ -24,7 +24,12 @@ import {
   useWorkflowStepAttemptsInfiniteQuery,
   workflowJobDetailQueryOptions,
 } from './workflow-job-detail.js';
-import {toWorkflowJobDetail} from './workflow-job-detail-mapper.js';
+import {
+  mergeWorkflowJobStepAttempts,
+  mergeWorkflowJobStepSummaries,
+  toLegacyJobForJobDetail,
+  toWorkflowJobDetail,
+} from './workflow-job-detail-mapper.js';
 
 const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const JOB_ID = '88888888-8888-4888-8888-888888888888';
@@ -86,6 +91,26 @@ describe('selected-job API hooks', () => {
     });
   });
 
+  test('does not poll a pinned terminal execution on an active listener job', () => {
+    const detail = toWorkflowJobDetail(selectedJobDetailResponseDto());
+    detail.job.mode = 'listening';
+    detail.job.listenerStatus = 'listening';
+    const queryClient = new QueryClient();
+    const options = workflowJobDetailQueryOptions({
+      jobId: JOB_ID,
+      executionId: EXECUTION_ID,
+    });
+    const observer = new QueryObserver(queryClient, options);
+    queryClient.setQueryData(options.queryKey, detail);
+    const query = observer.getCurrentQuery();
+
+    expect(typeof observer.options.refetchInterval).toBe('function');
+    if (typeof observer.options.refetchInterval !== 'function') return;
+    expect(observer.options.refetchInterval(query)).toBe(false);
+    if (typeof observer.options.refetchOnWindowFocus !== 'function') return;
+    expect(observer.options.refetchOnWindowFocus(query)).toBe(false);
+  });
+
   test('uses bounded cursor resources for execution, step, and attempt history', async () => {
     const requests: URL[] = [];
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
@@ -145,6 +170,46 @@ describe('selected-job API hooks', () => {
       'limit=25&cursor=attempt-cursor',
     ]);
     expect(result.current.attempts.data?.pages[0]?.items[0]?.jobExecutionId).toBeUndefined();
+  });
+
+  test('seeds embedded step pages and preserves appended presentation history', async () => {
+    const detail = toWorkflowJobDetail(selectedJobDetailResponseDto());
+    const selectedExecution = detail.selectedExecution;
+    if (!selectedExecution) throw new Error('Expected a selected execution');
+    const firstStep = selectedExecution.steps.items[0];
+    if (!firstStep) throw new Error('Expected an embedded step');
+    const firstAttempt = firstStep.attempts.items[0];
+    if (!firstAttempt) throw new Error('Expected an embedded attempt');
+    const olderStep = {...firstStep, id: SECOND_STEP_ID, name: 'older step'};
+    const olderAttempt = {...firstAttempt, id: SECOND_ATTEMPT_ID, attempt: 2};
+
+    const presentedJob = toLegacyJobForJobDetail(detail, {
+      steps: mergeWorkflowJobStepSummaries([[...selectedExecution.steps.items, olderStep]]),
+      attemptsByStepId: new Map([
+        [firstStep.id, mergeWorkflowJobStepAttempts([[...firstStep.attempts.items, olderAttempt]])],
+      ]),
+    });
+
+    expect(presentedJob.jobExecutions[0]?.steps.map((step) => step.id)).toEqual([
+      STEP_ID,
+      SECOND_STEP_ID,
+    ]);
+    expect(presentedJob.jobExecutions[0]?.steps[0]?.attempts).toHaveLength(2);
+
+    const fetchImpl = vi.fn(() => {
+      throw new Error('Embedded step pages should not fetch on mount');
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {result} = renderWithQueryClient(() =>
+      useWorkflowExecutionStepsInfiniteQuery({
+        jobId: JOB_ID,
+        executionId: EXECUTION_ID,
+        initialPage: selectedExecution.steps,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.data?.pages[0]?.items).toHaveLength(1));
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   test('invalidates only the selected job detail and its history', async () => {

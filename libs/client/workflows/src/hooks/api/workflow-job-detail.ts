@@ -127,13 +127,17 @@ export function workflowJobDetailQueryOptions({
         signal,
       }),
     staleTime: (query) =>
-      workflowJobDetailIsLive(query.state.data) ? WORKFLOW_JOB_DETAIL_STALE_TIME_MS : Infinity,
-    refetchOnWindowFocus: (query) => workflowJobDetailIsLive(query.state.data),
+      workflowJobDetailIsLive(query.state.data, selectedExecutionId)
+        ? WORKFLOW_JOB_DETAIL_STALE_TIME_MS
+        : Infinity,
+    refetchOnWindowFocus: (query) => workflowJobDetailIsLive(query.state.data, selectedExecutionId),
     refetchInterval: (query) => {
       if (!queryEnabled || (query.state.error !== null && query.state.data === undefined)) {
         return false;
       }
-      return workflowJobDetailIsLive(query.state.data) ? WORKFLOW_JOB_DETAIL_ACTIVE_POLL_MS : false;
+      return workflowJobDetailIsLive(query.state.data, selectedExecutionId)
+        ? WORKFLOW_JOB_DETAIL_ACTIVE_POLL_MS
+        : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -218,6 +222,8 @@ export function useWorkflowJobExecutionsInfiniteQuery(input: WorkflowJobExecutio
 export interface WorkflowExecutionStepsQueryInput {
   jobId: string | undefined;
   executionId: string | undefined;
+  /** The first page embedded in selected-job detail, when available. */
+  initialPage?: WorkflowExecutionStepsPage | undefined;
   /** Step pages are live only while their execution is active. */
   polling?: boolean | undefined;
   enabled?: boolean | undefined;
@@ -226,7 +232,8 @@ export interface WorkflowExecutionStepsQueryInput {
 export function workflowExecutionStepsInfiniteQueryOptions({
   jobId,
   executionId,
-  polling = true,
+  initialPage,
+  polling = false,
   enabled = true,
 }: WorkflowExecutionStepsQueryInput): WorkflowExecutionStepsInfiniteQueryOptions {
   const queryEnabled = Boolean(jobId) && Boolean(executionId) && enabled;
@@ -236,6 +243,12 @@ export function workflowExecutionStepsInfiniteQueryOptions({
       : (['workflow-executions', 'steps'] as const),
     enabled: queryEnabled,
     initialPageParam: null as string | null,
+    ...(initialPage
+      ? {
+          initialData: {pages: [initialPage], pageParams: [null]},
+          initialDataUpdatedAt: Date.now(),
+        }
+      : {}),
     queryFn: ({pageParam, signal}) =>
       getWorkflowExecutionSteps({
         jobId: jobId ?? '',
@@ -263,11 +276,14 @@ export const workflowExecutionStepAttemptsInfiniteQueryOptions =
 
 export interface WorkflowStepAttemptsQueryInput {
   stepId: string | undefined;
+  /** The first page embedded in selected-job detail, when available. */
+  initialPage?: WorkflowStepAttemptPage | undefined;
   enabled?: boolean | undefined;
 }
 
 export function workflowStepAttemptsInfiniteQueryOptions({
   stepId,
+  initialPage,
   enabled = true,
 }: WorkflowStepAttemptsQueryInput): WorkflowStepAttemptsInfiniteQueryOptions {
   const queryEnabled = Boolean(stepId) && enabled;
@@ -277,6 +293,12 @@ export function workflowStepAttemptsInfiniteQueryOptions({
       : (['workflow-steps', 'attempts'] as const),
     enabled: queryEnabled,
     initialPageParam: null as string | null,
+    ...(initialPage
+      ? {
+          initialData: {pages: [initialPage], pageParams: [null]},
+          initialDataUpdatedAt: Date.now(),
+        }
+      : {}),
     queryFn: ({pageParam, signal}) =>
       getWorkflowStepAttempts({stepId: stepId ?? '', cursor: pageParam, signal}),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
@@ -391,8 +413,17 @@ async function getWorkflowStepAttempts({
   );
 }
 
-function workflowJobDetailIsLive(detail: WorkflowJobDetail | undefined): boolean {
+function workflowJobDetailIsLive(
+  detail: WorkflowJobDetail | undefined,
+  selectedExecutionId: string | undefined,
+): boolean {
   if (!detail) return true;
+  if (selectedExecutionId !== undefined) {
+    return (
+      detail.selectedExecution !== null &&
+      !isTerminalJobExecutionStatus(detail.selectedExecution.status)
+    );
+  }
   if (detail.job.mode === 'listening' && detail.job.listenerStatus === 'listening') return true;
   if (detail.selectedExecution) {
     return !isTerminalJobExecutionStatus(detail.selectedExecution.status);

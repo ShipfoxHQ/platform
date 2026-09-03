@@ -179,6 +179,36 @@ function JobExecutionSwitcherMenu({
             </DropdownMenuItem>
           );
         })}
+        {executionsQuery.isError && historyExecutions.length === 0 ? (
+          <DropdownMenuItem closeOnSelect={false} onSelect={() => void executionsQuery.refetch()}>
+            <Text as="span" size="sm" className="text-foreground-highlight-error">
+              Could not load execution history. Retry
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
+        {executionsQuery.isFetchNextPageError ? (
+          <DropdownMenuItem
+            closeOnSelect={false}
+            onSelect={() => void executionsQuery.fetchNextPage()}
+          >
+            <Text as="span" size="sm" className="text-foreground-highlight-error">
+              Could not load older executions. Retry
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
+        {executionsQuery.hasNextPage ? (
+          <DropdownMenuItem
+            closeOnSelect={false}
+            disabled={executionsQuery.isFetchingNextPage}
+            onSelect={() => void executionsQuery.fetchNextPage()}
+          >
+            <Text as="span" size="sm" className="text-foreground-neutral-muted">
+              {executionsQuery.isFetchingNextPage
+                ? 'Loading older executions...'
+                : 'Load older executions'}
+            </Text>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -4,7 +4,7 @@
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
 import {Badge} from '@shipfox/react-ui/badge';
-import {IconButton} from '@shipfox/react-ui/button';
+import {Button, IconButton} from '@shipfox/react-ui/button';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -20,21 +20,42 @@ import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {Text} from '@shipfox/react-ui/typography';
 import {Link} from '@tanstack/react-router';
-import {type ReactNode, type RefObject, useCallback, useEffect, useRef, useState} from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {summarizeJobAnnotations} from '#core/run-annotation.js';
 import {
   type BoundedExecutionCount,
+  isTerminalJobExecutionStatus,
   isWorkflowRunTerminal,
   type Job,
   type JobExecution,
   type JobExecutionDisplayStatus,
   type WorkflowJobDetail,
+  type WorkflowJobStepSummary,
 } from '#core/workflow-run.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import type {useWorkflowJobDetailQuery} from '#hooks/api/workflow-job-detail.js';
-import {toLegacyJobForJobDetail} from '#hooks/api/workflow-job-detail-mapper.js';
+import {
+  flattenWorkflowExecutionStepsPages,
+  flattenWorkflowStepAttemptPages,
+  useWorkflowExecutionStepsInfiniteQuery,
+  useWorkflowStepAttemptsInfiniteQuery,
+} from '#hooks/api/workflow-job-detail.js';
+import {
+  mergeWorkflowJobStepAttempts,
+  mergeWorkflowJobStepSummaries,
+  toLegacyJobForJobDetail,
+  type WorkflowJobDetailPresentationOptions,
+} from '#hooks/api/workflow-job-detail-mapper.js';
 import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   type WorkflowJobSearch,
@@ -46,6 +67,7 @@ import {
   buildStepListModel,
   getStepStatusVisual,
   type StepListModel,
+  type StepModel,
 } from '../step-list/step-list-model.js';
 import {
   WorkflowRunNotFound,
@@ -118,7 +140,17 @@ export function JobDetailView({
   const [expandedLogAttemptIds, setExpandedLogAttemptIds] = useState<readonly string[]>([]);
   const [logRefreshTokens, setLogRefreshTokens] = useState<Record<string, number>>({});
   const [logFetchingByAttemptId, setLogFetchingByAttemptId] = useState<Record<string, boolean>>({});
-  const detailData = normalizeJobDetailData(query.data, workflowRunId, jobId);
+  const selectedJobResources = useSelectedJobDetailPresentation({
+    data: query.data,
+    selectedJobQuery,
+    jobId,
+  });
+  const detailData = normalizeJobDetailData(
+    query.data,
+    workflowRunId,
+    jobId,
+    selectedJobResources.detailPresentation,
+  );
   const hasLoadedData = detailData !== undefined;
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
   // summary query below stays counts-only and is scoped to the inspector's selected execution.
@@ -316,6 +348,15 @@ export function JobDetailView({
                         emptyState={emptyStateForJob(job, selectedJobExecution)}
                         showHeader={false}
                         className="rounded-none border-0 bg-transparent shadow-none"
+                        renderStepFooter={(step) => (
+                          <StepAttemptHistoryControl
+                            step={step}
+                            stepSummary={selectedJobResources.presentedStepById.get(step.id)}
+                            attemptsStepId={selectedJobResources.attemptsStepId}
+                            attemptsQuery={selectedJobResources.attemptsQuery}
+                            onRequest={selectedJobResources.requestOlderAttempts}
+                          />
+                        )}
                         renderExpandedStep={(context) => (
                           <ExpandedStep
                             context={context}
@@ -350,6 +391,7 @@ export function JobDetailView({
                           />
                         )}
                       />
+                      <SelectedJobStepsPagination query={selectedJobResources.stepsQuery} />
                     </>
                   ) : (
                     <EmptyStateForMissingExecution job={job} />
@@ -434,6 +476,7 @@ function normalizeJobDetailData(
   data: JobDetailQuery['data'],
   workflowRunId: string,
   jobId: string,
+  presentation?: WorkflowJobDetailPresentationOptions,
 ): JobDetailData | undefined {
   if (!data) return undefined;
   if (isWorkflowJobDetail(data)) {
@@ -444,7 +487,7 @@ function normalizeJobDetailData(
         attempt: data.workflowRunAttempt,
         status: jobDetailRunStatus(data),
       },
-      job: toLegacyJobForJobDetail(data),
+      job: toLegacyJobForJobDetail(data, presentation),
       executionCount: data.job.executionCount,
       executionCountVisible: data.job.executionCountVisible,
       executionDisplayStatus: data.selectedExecution?.displayStatus,
@@ -462,6 +505,184 @@ function normalizeJobDetailData(
         executionDisplayStatus: undefined,
       }
     : undefined;
+}
+
+function useSelectedJobDetailPresentation({
+  data,
+  selectedJobQuery,
+  jobId,
+}: {
+  data: JobDetailQuery['data'];
+  selectedJobQuery: boolean;
+  jobId: string;
+}) {
+  const selectedJobDetail =
+    selectedJobQuery && data && isWorkflowJobDetail(data) && data.job.id === jobId
+      ? data
+      : undefined;
+  const selectedDetailExecution = selectedJobDetail?.selectedExecution ?? undefined;
+  const [attemptsStepId, setAttemptsStepId] = useState<string | undefined>(undefined);
+  const pendingAttemptsStepIdRef = useRef<string | undefined>(undefined);
+  const previousSelectedResourceKeyRef = useRef<string | undefined>(undefined);
+  const selectedResourceKey = `${selectedJobQuery ? 'selected' : 'legacy'}:${jobId}:${selectedDetailExecution?.id ?? ''}`;
+
+  useEffect(() => {
+    if (previousSelectedResourceKeyRef.current === selectedResourceKey) return;
+    previousSelectedResourceKeyRef.current = selectedResourceKey;
+    pendingAttemptsStepIdRef.current = undefined;
+    setAttemptsStepId(undefined);
+  }, [selectedResourceKey]);
+
+  const stepsQuery = useWorkflowExecutionStepsInfiniteQuery({
+    jobId: selectedJobDetail?.job.id,
+    executionId: selectedDetailExecution?.id,
+    initialPage: selectedDetailExecution?.steps,
+    polling:
+      selectedDetailExecution !== undefined &&
+      !isTerminalJobExecutionStatus(selectedDetailExecution.status),
+    enabled: selectedJobQuery && selectedDetailExecution !== undefined,
+  });
+  const loadedSteps = useMemo(
+    () => flattenWorkflowExecutionStepsPages(stepsQuery.data),
+    [stepsQuery.data],
+  );
+  const presentedSteps = useMemo(
+    () => mergeWorkflowJobStepSummaries([loadedSteps, selectedDetailExecution?.steps.items ?? []]),
+    [loadedSteps, selectedDetailExecution?.steps.items],
+  );
+  const presentedStepById = useMemo(
+    () => new Map(presentedSteps.map((step) => [step.id, step] as const)),
+    [presentedSteps],
+  );
+  const attemptsStep = attemptsStepId ? presentedStepById.get(attemptsStepId) : undefined;
+  const attemptsQuery = useWorkflowStepAttemptsInfiniteQuery({
+    stepId: attemptsStepId,
+    initialPage: attemptsStep?.attempts,
+    enabled: selectedJobQuery && attemptsStepId !== undefined,
+  });
+  const loadedAttempts = useMemo(
+    () => flattenWorkflowStepAttemptPages(attemptsQuery.data),
+    [attemptsQuery.data],
+  );
+  const presentedAttemptsByStepId = useMemo(() => {
+    if (!attemptsStepId) return undefined;
+    return new Map([
+      [
+        attemptsStepId,
+        mergeWorkflowJobStepAttempts([loadedAttempts, attemptsStep?.attempts.items ?? []]),
+      ],
+    ]);
+  }, [attemptsStep?.attempts.items, attemptsStepId, loadedAttempts]);
+
+  useEffect(() => {
+    if (
+      pendingAttemptsStepIdRef.current !== attemptsStepId ||
+      attemptsStepId === undefined ||
+      attemptsQuery.isFetchingNextPage
+    ) {
+      return;
+    }
+    pendingAttemptsStepIdRef.current = undefined;
+    if (attemptsQuery.hasNextPage) void attemptsQuery.fetchNextPage();
+  }, [
+    attemptsQuery.fetchNextPage,
+    attemptsQuery.hasNextPage,
+    attemptsQuery.isFetchingNextPage,
+    attemptsStepId,
+  ]);
+
+  const requestOlderAttempts = useCallback(
+    (stepId: string) => {
+      if (attemptsStepId !== stepId) {
+        pendingAttemptsStepIdRef.current = stepId;
+        setAttemptsStepId(stepId);
+        return;
+      }
+      if (attemptsQuery.hasNextPage) {
+        void attemptsQuery.fetchNextPage();
+      } else if (attemptsQuery.isError) {
+        void attemptsQuery.refetch();
+      }
+    },
+    [attemptsQuery, attemptsStepId],
+  );
+
+  const detailPresentation: WorkflowJobDetailPresentationOptions | undefined = selectedJobDetail
+    ? {steps: presentedSteps, attemptsByStepId: presentedAttemptsByStepId}
+    : undefined;
+
+  return {
+    selectedDetailExecution,
+    detailPresentation,
+    stepsQuery,
+    presentedStepById,
+    attemptsStepId,
+    attemptsQuery,
+    requestOlderAttempts,
+  };
+}
+
+function StepAttemptHistoryControl({
+  step,
+  stepSummary,
+  attemptsStepId,
+  attemptsQuery,
+  onRequest,
+}: {
+  step: StepModel;
+  stepSummary: WorkflowJobStepSummary | undefined;
+  attemptsStepId: string | undefined;
+  attemptsQuery: ReturnType<typeof useWorkflowStepAttemptsInfiniteQuery>;
+  onRequest: (stepId: string) => void;
+}) {
+  const hasMoreAttempts =
+    attemptsStepId === step.id
+      ? attemptsQuery.hasNextPage || attemptsQuery.isError
+      : Boolean(stepSummary?.attempts.nextCursor);
+  if (!hasMoreAttempts) return null;
+
+  const isLoading = attemptsStepId === step.id && attemptsQuery.isFetchingNextPage;
+  const hasError = attemptsStepId === step.id && attemptsQuery.isError;
+  return (
+    <div className="flex justify-center border-t border-border-neutral-base py-row">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        isLoading={isLoading}
+        onClick={() => onRequest(step.id)}
+      >
+        {hasError ? 'Retry loading older attempts' : 'Load older attempts'}
+      </Button>
+    </div>
+  );
+}
+
+function SelectedJobStepsPagination({
+  query,
+}: {
+  query: ReturnType<typeof useWorkflowExecutionStepsInfiniteQuery>;
+}) {
+  if (!query.hasNextPage && !query.isError) return null;
+  return (
+    <div className="flex justify-center border-t border-border-neutral-base py-row">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        isLoading={query.isFetchingNextPage}
+        onClick={() => {
+          if (query.hasNextPage) {
+            void query.fetchNextPage();
+          } else {
+            void query.refetch();
+          }
+        }}
+      >
+        {query.isError ? 'Retry loading older steps' : 'Load older steps'}
+      </Button>
+    </div>
+  );
 }
 
 function isWorkflowJobDetail(data: NonNullable<JobDetailQuery['data']>): data is WorkflowJobDetail {

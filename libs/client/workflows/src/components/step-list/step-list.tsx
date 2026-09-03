@@ -32,6 +32,7 @@ import {
   type StepAttemptModel,
   type StepListEntryModel,
   type StepListModel,
+  type StepModel,
 } from './step-list-model.js';
 
 export interface StepExpandedContext {
@@ -64,6 +65,7 @@ export interface StepListProps {
   onInspectorOpenChange?: ((attemptId: string | null) => void) | undefined;
   autoSelectActiveAttempt?: boolean | undefined;
   emptyState?: StepListEmptyState | undefined;
+  renderStepFooter?: ((step: StepModel) => ReactNode) | undefined;
   renderExpandedStep?: ((context: StepExpandedContext) => ReactNode) | undefined;
   renderInspector?: ((entry: StepListEntryModel) => ReactNode) | undefined;
   showHeader?: boolean | undefined;
@@ -81,6 +83,7 @@ export function StepList({
   onInspectorOpenChange,
   autoSelectActiveAttempt = false,
   emptyState,
+  renderStepFooter,
   renderExpandedStep,
   renderInspector,
   showHeader = true,
@@ -104,6 +107,7 @@ export function StepList({
       onInspectorOpenChange={onInspectorOpenChange}
       autoSelectActiveAttempt={autoSelectActiveAttempt}
       emptyState={emptyState}
+      renderStepFooter={renderStepFooter}
       renderExpandedStep={renderExpandedStep}
       renderInspector={renderInspector}
       showHeader={showHeader}
@@ -122,6 +126,7 @@ function StepListContent({
   onInspectorOpenChange,
   autoSelectActiveAttempt,
   emptyState,
+  renderStepFooter,
   renderExpandedStep,
   renderInspector,
   showHeader,
@@ -261,6 +266,7 @@ function StepListContent({
             <ol>
               {model.entries.map((entry, index) => {
                 const selected = selectedAttemptIds.includes(entry.id);
+                const isLastAttemptForStep = model.entries[index + 1]?.step.id !== entry.step.id;
                 return (
                   <StepRow
                     key={entry.id}
@@ -296,6 +302,7 @@ function StepListContent({
                           })
                         : null
                     }
+                    stepFooter={isLastAttemptForStep ? renderStepFooter?.(entry.step) : null}
                   />
                 );
               })}
@@ -366,6 +373,7 @@ function StepRow({
   onSelect,
   onInspect,
   expandedContent,
+  stepFooter,
 }: {
   entry: StepListEntryModel;
   selected: boolean;
@@ -374,6 +382,7 @@ function StepRow({
   onSelect: () => void;
   onInspect?: (() => void) | undefined;
   expandedContent: ReactNode;
+  stepFooter: ReactNode;
 }) {
   const shouldShowLabelTooltip = entry.step.label.length > 32;
   const rowContent = (
@@ -464,6 +473,7 @@ function StepRow({
           <div className="min-w-0">{expandedContent}</div>
         </AccordionContent>
       ) : null}
+      {stepFooter}
     </>
   );
 

@@ -42,11 +42,14 @@ export function WorkflowJobDetailPage({
   });
   const listRun = useWorkflowRunListItem(workflowRunId);
   const headQuery = useWorkflowRunLineageHeadQuery({workflowRunId});
+  const currentAttempt = search.runAttempt ?? jobQuery.data?.workflowRunAttempt;
   const newerAttempt = useMemo(() => {
-    if (search.runAttempt === undefined) return undefined;
+    if (currentAttempt === undefined) return undefined;
     const latestAttempt = headQuery.data?.latestAttempt ?? listRun?.latestAttempt;
-    return latestAttempt && latestAttempt > search.runAttempt ? latestAttempt : undefined;
-  }, [headQuery.data?.latestAttempt, listRun?.latestAttempt, search.runAttempt]);
+    return latestAttempt !== undefined && latestAttempt > currentAttempt
+      ? latestAttempt
+      : undefined;
+  }, [currentAttempt, headQuery.data?.latestAttempt, listRun?.latestAttempt]);
   const newerOverviewQuery = useWorkflowRunOverviewQuery({
     workflowRunId,
     runAttempt: newerAttempt,
@@ -54,16 +57,21 @@ export function WorkflowJobDetailPage({
   });
   const currentJobKey = jobQuery.data?.job.key;
   const newerJob = useMemo<Pick<Job, 'id'> | undefined>(() => {
-    if (!currentJobKey) return undefined;
-    const cachedJob = listRun?.jobs.preview.find((candidate) => candidate.key === currentJobKey);
-    if (cachedJob) return {id: cachedJob.id};
+    if (!currentJobKey || newerAttempt === undefined) return undefined;
     const overviewJobs = newerOverviewQuery.data?.jobs;
-    if (!overviewJobs) return undefined;
-    const jobs =
-      overviewJobs.kind === 'complete' ? overviewJobs.items : overviewJobs.firstPage.items;
-    const job = jobs.find((candidate) => candidate.key === currentJobKey);
-    return job ? {id: job.id} : undefined;
-  }, [currentJobKey, listRun?.jobs.preview, newerOverviewQuery.data]);
+    if (overviewJobs) {
+      const jobs =
+        overviewJobs.kind === 'complete' ? overviewJobs.items : overviewJobs.firstPage.items;
+      const job = jobs.find((candidate) => candidate.key === currentJobKey);
+      if (job) return {id: job.id};
+    }
+
+    // A cached run-list row is only a safe fallback when it belongs to the attempt we are
+    // retargeting. Older list rows can otherwise point at the same logical job in this attempt.
+    if (listRun?.latestAttempt !== newerAttempt) return undefined;
+    const cachedJob = listRun.jobs.preview.find((candidate) => candidate.key === currentJobKey);
+    return cachedJob ? {id: cachedJob.id} : undefined;
+  }, [currentJobKey, listRun, newerAttempt, newerOverviewQuery.data]);
 
   const onSelectionChange = useCallback(
     (nextSelection: WorkflowJobSearch) => {
