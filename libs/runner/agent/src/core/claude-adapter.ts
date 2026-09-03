@@ -1025,7 +1025,9 @@ function setOutputTool(
         value: args.value,
         result: {
           ok: result.ok,
-          ...(result.ok && result.idempotent === true ? {idempotent: true} : {}),
+          ...(result.ok && 'idempotent' in result && result.idempotent === true
+            ? {idempotent: true}
+            : {}),
           ...(!result.ok
             ? {
                 code: result.code,

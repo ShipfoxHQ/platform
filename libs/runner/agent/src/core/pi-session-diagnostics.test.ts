@@ -29,7 +29,7 @@ describe('Pi session diagnostics extension', () => {
     } as unknown as ExtensionAPI;
 
     expect(extension.name).toBe(PI_SESSION_DIAGNOSTICS_EXTENSION_NAME);
-    if (extension.factory === undefined) throw new Error('Expected extension factory');
+    if (typeof extension === 'function') throw new Error('Expected an inline extension object');
     await extension.factory(pi);
 
     handlers.get('tool_call')?.({
