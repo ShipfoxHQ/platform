@@ -76,7 +76,7 @@ for (const tokenCase of GITHUB_TOKEN_CASES) {
         workspaceId: suite.workspaceId,
         name: `GitHub E2E project ${uniqueId}`,
         sourceConnectionId: connection.id,
-        sourceExternalRepositoryId: 'github:42',
+        sourceExternalRepositoryId: GITHUB_REPOSITORY_EXTERNAL_ID,
         sourceRepositoryOwner: 'shipfox',
         sourceRepositoryName: 'e2e',
         sourceDefaultBranch: 'main',

@@ -5,4 +5,4 @@
 '@shipfox/api-projects-dto': minor
 ---
 
-Adds GitHub authorization state and E2E project metadata for selected and all repository access.
+Adds GitHub authorization state for selected and all repository access.

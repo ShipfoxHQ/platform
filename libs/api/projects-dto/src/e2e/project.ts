@@ -25,6 +25,13 @@ export const e2eCreateProjectBodySchema = z
         message: 'Source repository owner and name must be provided together',
       });
     }
+    if (body.source_default_branch !== undefined && (!hasOwner || !hasName)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['source_default_branch'],
+        message: 'Source repository default branch requires owner and name',
+      });
+    }
   });
 
 export type E2eCreateProjectBodyDto = z.infer<typeof e2eCreateProjectBodySchema>;

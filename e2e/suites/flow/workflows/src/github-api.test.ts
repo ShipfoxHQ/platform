@@ -165,4 +165,38 @@ describe('GitHub API mock', () => {
       await mock.stop();
     }
   });
+
+  it('serves pull request review thread queries with the expected GraphQL shape', async () => {
+    const mock = await startGithubApiMock({endpoint: new URL('http://127.0.0.1:0')});
+
+    try {
+      const response = await fetch(new URL('/graphql', mock.endpoint), {
+        method: 'POST',
+        headers: {
+          authorization: `bearer ${GITHUB_STATELESS_INSTALLATION_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: 'query GetPullRequestReviewThreads { reviewThreads { nodes { id } } }',
+          variables: {owner: 'shipfox', repo: 'platform', pullNumber: 2},
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        data: {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [],
+                pageInfo: {hasNextPage: false, endCursor: null},
+              },
+            },
+          },
+        },
+      });
+    } finally {
+      await mock.stop();
+    }
+  });
 });

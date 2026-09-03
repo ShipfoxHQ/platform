@@ -279,17 +279,36 @@ async function handleGraphqlRequest(params: GithubRequestContext): Promise<void>
   if (isCurrentInstallationAuthorization(params)) {
     params.calls.push({kind: 'graphql', authorization: params.authorization, query, variables});
   }
-  sendJson(params.response, 200, {
-    data: {
-      resolveReviewThread: {
-        thread: {
-          id: isRecord(variables.input) ? variables.input.threadId : 'synthetic-thread-id',
-          isResolved: true,
-          marker: GITHUB_GRAPHQL_RESULT_MARKER,
+  if (query.includes('resolveReviewThread')) {
+    sendJson(params.response, 200, {
+      data: {
+        resolveReviewThread: {
+          thread: {
+            id: isRecord(variables.input) ? variables.input.threadId : 'synthetic-thread-id',
+            isResolved: true,
+            marker: GITHUB_GRAPHQL_RESULT_MARKER,
+          },
         },
       },
-    },
-  });
+    });
+    return;
+  }
+  if (query.includes('reviewThreads')) {
+    sendJson(params.response, 200, {
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [],
+              pageInfo: {hasNextPage: false, endCursor: null},
+            },
+          },
+        },
+      },
+    });
+    return;
+  }
+  sendJson(params.response, 200, {data: {}});
 }
 
 function isCurrentInstallationAuthorization(params: GithubRequestContext): boolean {

@@ -129,6 +129,22 @@ describe('projects E2E routes', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  test('requires source repository owner and name when a default branch is provided', async () => {
+    const app = await createApp({routes: [projectsE2eRoutes], swagger: false});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/projects',
+      payload: {
+        workspace_id: crypto.randomUUID(),
+        name: 'GitHub E2E Project',
+        source_default_branch: 'main',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
   test('returns conflict for duplicate explicit source values', async () => {
     const workspaceId = crypto.randomUUID();
     const sourceConnectionId = crypto.randomUUID();

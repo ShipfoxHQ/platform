@@ -41,9 +41,15 @@ test('settings exposes project-backed GitHub repositories and persists access mo
   await connectionDetails.saveButton().click();
   await expect(connectionDetails.allMode()).toBeChecked();
   await expect(connectionDetails.projectsRepositoriesHeading()).toHaveCount(0);
+  await connectionDetails.goto(workspaceSlug, connection.slug);
+  await expect(connectionDetails.allMode()).toBeChecked();
+  await expect(connectionDetails.projectsRepositoriesHeading()).toHaveCount(0);
 
   await connectionDetails.selectedMode().check();
   await connectionDetails.saveButton().click();
+  await expect(connectionDetails.selectedMode()).toBeChecked();
+  await expect(connectionDetails.repository('shipfox/e2e')).toBeVisible();
+  await connectionDetails.goto(workspaceSlug, connection.slug);
   await expect(connectionDetails.selectedMode()).toBeChecked();
   await expect(connectionDetails.repository('shipfox/e2e')).toBeVisible();
 });
