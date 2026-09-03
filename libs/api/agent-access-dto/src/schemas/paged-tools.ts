@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import type {AgentAccessObjectSchema} from './envelope.js';
+import {dateTimeSchema, idSchema, utf8CappedString} from './primitives.js';
 
 export const AGENT_ACCESS_DEFAULT_PAGE_LIMIT = 50;
 export const AGENT_ACCESS_PAGE_LIMIT_MAX = 100;
@@ -12,16 +13,6 @@ export const AGENT_ACCESS_DIAGNOSTIC_PATH_MAX_BYTES = 512;
 export const AGENT_ACCESS_DIAGNOSTIC_MAX_ITEMS = 10;
 export const AGENT_ACCESS_ANNOTATION_BODY_MAX_BYTES = 8 * 1024;
 
-const idSchema = z.string().uuid();
-const dateTimeSchema = z.string().datetime();
-const utf8Encoder = new TextEncoder();
-const utf8CappedString = (maxBytes: number) =>
-  z
-    .string()
-    .max(maxBytes)
-    .refine((value) => utf8Encoder.encode(value).byteLength <= maxBytes, {
-      message: `String must contain at most ${maxBytes} UTF-8 bytes`,
-    });
 const pageInputFields = {
   limit: z
     .number()

@@ -6,8 +6,6 @@ import {
   AGENT_ACCESS_DIAGNOSTIC_MAX_ITEMS,
   AGENT_ACCESS_DIAGNOSTIC_MESSAGE_MAX_BYTES,
   AGENT_ACCESS_DIAGNOSTIC_PATH_MAX_BYTES,
-  AGENT_ACCESS_TEXT_MAX_BYTES,
-  type AgentAccessEnvelopeDto,
   agentAccessOutputSchema,
   type GetRunAnnotationsInputDto,
   getRunAnnotationsInputJsonSchema,
@@ -45,17 +43,23 @@ import {
 import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {encodeNumberIdCursor, encodeStringIdCursor} from '@shipfox/node-drizzle';
+import {agentAccessSuccess} from './envelope.js';
 import {
-  decodeNumberIdCursor,
-  decodeStringIdCursor,
-  decodeTimestampIdCursor,
-  encodeNumberIdCursor,
-  encodeStringIdCursor,
-  encodeTimestampIdCursor,
-} from '@shipfox/node-drizzle';
-import {agentAccessError, agentAccessSuccess} from './envelope.js';
-import {reducePagedAgentAccessResponse, truncateAgentAccessUtf8} from './response.js';
+  cap,
+  capNullable,
+  decodeNumberCursor,
+  decodeStringCursor,
+  decodeTimestampCursor,
+  encodeTimestampCursor,
+  invalidRequest,
+  notFound,
+  parseInput,
+  reducePage,
+  truncateAgentAccessUtf8,
+} from './tool-utils.js';
 import type {AgentAccessTool} from './tools.js';
+import {createAgentAccessWorkflowTools} from './workflow-tools.js';
 
 export interface AgentAccessPagedToolsOptions {
   projects: ProjectsModuleClient;
@@ -72,6 +76,7 @@ export function createAgentAccessTools(
     createListProjectsTool(options.projects),
     createListWorkflowDefinitionsTool(options.definitions),
     createListWorkflowRunsTool(options.projects, options.workflows),
+    ...createAgentAccessWorkflowTools(options.workflows),
     createGetRunAnnotationsTool(options.workflows, options.annotations),
     createListTriggerEventsTool(options.triggers),
   ];
@@ -316,12 +321,12 @@ async function resolveRunAttempt(
     ).attempt;
   }
 
-  const detail = await workflows.getWorkflowRunDetail({
+  const overview = await workflows.getWorkflowRunOverview({
     workspaceId: context.workspaceId,
     workflowRunId: input.run_id,
     attempt: input.attempt,
   });
-  return detail.run === null ? null : input.attempt;
+  return overview === null ? null : input.attempt;
 }
 
 function toProjectResult(project: {
@@ -578,15 +583,6 @@ function triggerEventFilters(input: ListTriggerEventsInputDto) {
   };
 }
 
-function reducePage(
-  envelope: AgentAccessEnvelopeDto,
-  itemKey: string,
-  items: readonly Record<string, unknown>[],
-  cursorForItem: (item: Record<string, unknown>, index: number) => string,
-): AgentAccessEnvelopeDto {
-  return reducePagedAgentAccessResponse({envelope, itemKey, items, cursorForItem});
-}
-
 function projectCursor(item: Record<string, unknown>): string {
   return encodeTimestampCursor(String(item.created_at), String(item.id));
 }
@@ -609,49 +605,4 @@ function annotationCursor(item: Record<string, unknown>): string {
 
 function triggerEventCursor(item: Record<string, unknown>): string {
   return encodeTimestampCursor(String(item.received_at), String(item.id));
-}
-
-function decodeTimestampCursor(
-  value: string | undefined,
-): {createdAt: string; id: string} | undefined {
-  if (value === undefined) return undefined;
-  const cursor = decodeTimestampIdCursor(value);
-  return cursor ? {createdAt: cursor.createdAt.toISOString(), id: cursor.id} : undefined;
-}
-
-function decodeStringCursor(value: string | undefined): {value: string; id: string} | undefined {
-  return value === undefined ? undefined : decodeStringIdCursor(value);
-}
-
-function decodeNumberCursor(value: string | undefined): {value: number; id: string} | undefined {
-  return value === undefined ? undefined : decodeNumberIdCursor(value);
-}
-
-function encodeTimestampCursor(createdAt: string, id: string): string {
-  return encodeTimestampIdCursor({createdAt: new Date(createdAt), id});
-}
-
-function cap(value: string, maxBytes = AGENT_ACCESS_TEXT_MAX_BYTES): string {
-  return truncateAgentAccessUtf8(value, maxBytes).value;
-}
-
-function capNullable(value: string | null, maxBytes = AGENT_ACCESS_TEXT_MAX_BYTES): string | null {
-  return value === null ? null : cap(value, maxBytes);
-}
-
-function invalidRequest(): AgentAccessEnvelopeDto {
-  return agentAccessError('invalid-request');
-}
-
-function notFound(): AgentAccessEnvelopeDto {
-  return agentAccessError('not-found');
-}
-
-interface SafeParseSchema<T> {
-  safeParse(value: unknown): {success: true; data: T} | {success: false};
-}
-
-function parseInput<T>(schema: SafeParseSchema<T>, value: unknown): T | undefined {
-  const parsed = schema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
 }
