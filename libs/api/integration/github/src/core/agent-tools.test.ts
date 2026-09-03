@@ -55,7 +55,10 @@ const expectedCatalogRows = [
     category: 'issues',
     sensitivity: 'write',
     sensitive: false,
-    requiredScope: [{permission: 'issues', access: 'write'}],
+    requiredScope: [
+      {permission: 'issues', access: 'write'},
+      {permission: 'pull_requests', access: 'write'},
+    ],
   },
   {
     id: 'issue_write',
@@ -1213,6 +1216,50 @@ describe('github agent tool catalog', () => {
     expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
       contents: 'write',
       issues: 'read',
+    });
+  });
+
+  it('requests issue and pull request write access for issue comments', async () => {
+    const request = vi.fn(() => Promise.resolve({data: {id: 7}}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {
+          issues: 'write' as const,
+          pull_requests: 'write' as const,
+        },
+      }),
+    );
+    const addIssueComment = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'add_issue_comment',
+    );
+    if (!addIssueComment) throw new Error('Missing add_issue_comment tool');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [addIssueComment],
+      scope: undefined,
+    });
+    const result = await session.call({
+      toolId: 'add_issue_comment',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        issue_number: 1,
+        body: 'Comment',
+      },
+    });
+
+    expect(result).toMatchObject({structuredContent: {id: 7}});
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
+      issues: 'write',
+      pull_requests: 'write',
     });
   });
 
