@@ -1,5 +1,7 @@
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
+import {Button} from '@shipfox/react-ui/button';
+import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import {Panel, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
 import {RelativeTimeProvider} from '@shipfox/react-ui/relative-time';
@@ -885,6 +887,7 @@ function RunWorkspaceContent({
       onSelectAnnotationJob={onSelectAnnotationJob}
       onClearAnnotationFilters={onClearAnnotationFilters}
       source={sourceQuery.data}
+      sourceQuery={sourceQuery}
       highlightedLineRange={highlightedLineRange}
     />
   );
@@ -983,6 +986,7 @@ function RunSectionContent({
   onSelectAnnotationJob,
   onClearAnnotationFilters,
   source,
+  sourceQuery,
   highlightedLineRange,
 }: {
   section: RunWorkspaceSection;
@@ -998,6 +1002,7 @@ function RunSectionContent({
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
   source: WorkflowRunSource | undefined;
+  sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
   highlightedLineRange: StepSourceLocation | null;
 }) {
   if (section === 'summary') {
@@ -1062,6 +1067,9 @@ function RunSectionContent({
       className="min-h-0 flex-1 overflow-auto pb-panel pt-panel-compact"
     >
       <div className="flex min-h-full w-full flex-col">
+        {sourceQuery.isError && source !== undefined ? (
+          <WorkflowSourceStaleError query={sourceQuery} />
+        ) : null}
         <Text as="h2" className="sr-only">
           Workflow source
         </Text>
@@ -1098,6 +1106,25 @@ function sourceUnavailableDescription(source: WorkflowRunSource | undefined): st
     return 'This workflow source snapshot is too large to display.';
   }
   return 'This run was created before workflow source snapshots were captured.';
+}
+
+function WorkflowSourceStaleError({query}: {query: ReturnType<typeof useWorkflowRunSourceQuery>}) {
+  return (
+    <Callout role="status" aria-live="polite" type="warning" variant="secondary">
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-inline">
+        <Text size="xs">Could not refresh workflow source.</Text>
+        <Button
+          type="button"
+          size="2xs"
+          variant="secondary"
+          isLoading={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          Retry
+        </Button>
+      </div>
+    </Callout>
+  );
 }
 
 function RunAnnotationsSection({

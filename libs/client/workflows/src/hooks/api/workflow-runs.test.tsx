@@ -279,6 +279,14 @@ describe('workflow run API hooks', () => {
           degraded: false,
         },
       ],
+      output: null,
+      outputs: null,
+      response: null,
+      error: null,
+      gateResult: null,
+      invocations: [],
+      restartFeedback: null,
+      oversizedFields: [],
     });
   });
 

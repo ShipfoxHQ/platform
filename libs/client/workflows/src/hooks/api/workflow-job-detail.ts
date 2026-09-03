@@ -4,6 +4,7 @@ import {
   WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT,
   workflowExecutionStepsResponseSchema,
   workflowJobDetailResponseSchema,
+  workflowJobExecutionContextResponseSchema,
   workflowJobExecutionSummariesResponseSchema,
   workflowStepAttemptSummariesResponseSchema,
 } from '@shipfox/api-workflows-dto';
@@ -12,6 +13,7 @@ import {
   type InfiniteData,
   infiniteQueryOptions,
   type QueryClient,
+  type QueryKey,
   queryOptions,
   type UseInfiniteQueryOptions,
   type UseQueryOptions,
@@ -23,21 +25,32 @@ import {useEffect, useRef} from 'react';
 import {
   isTerminalJobExecutionStatus,
   isTerminalJobStatus,
+  isTerminalStepAttemptStatus,
   type WorkflowExecutionStepsPage,
   type WorkflowJobDetail,
+  type WorkflowJobExecutionContext,
+  type WorkflowJobExecutionDetail,
   type WorkflowJobExecutionPage,
   type WorkflowJobStepAttemptSummary,
+  type WorkflowJobStepSummary,
   type WorkflowStepAttemptPage,
 } from '#core/workflow-run.js';
+import {stepAttemptDetailQueryKeys} from './step-attempt-detail.js';
 import {
   toWorkflowExecutionStepsPage,
   toWorkflowJobDetail,
+  toWorkflowJobExecutionContext,
   toWorkflowJobExecutionPage,
   toWorkflowStepAttemptPage,
 } from './workflow-job-detail-mapper.js';
+import {
+  WORKFLOW_RESOURCE_ACTIVE_POLL_MS,
+  WORKFLOW_RESOURCE_STALE_TIME_MS,
+  workflowResourceQueryOptions,
+} from './workflow-resource-query.js';
 
-export const WORKFLOW_JOB_DETAIL_ACTIVE_POLL_MS = 4_000;
-export const WORKFLOW_JOB_DETAIL_STALE_TIME_MS = 2_000;
+export const WORKFLOW_JOB_DETAIL_ACTIVE_POLL_MS = WORKFLOW_RESOURCE_ACTIVE_POLL_MS;
+export const WORKFLOW_JOB_DETAIL_STALE_TIME_MS = WORKFLOW_RESOURCE_STALE_TIME_MS;
 export const WORKFLOW_JOB_EXECUTIONS_STALE_TIME_MS = 30_000;
 export const WORKFLOW_STEP_ATTEMPTS_STALE_TIME_MS = 30_000;
 
@@ -49,12 +62,67 @@ export const workflowJobQueryKeys = {
   executions: (jobId: string) => [...workflowJobQueryKeys.all, 'executions', jobId] as const,
   executionSteps: (executionId: string) => ['workflow-executions', 'steps', executionId] as const,
   stepAttempts: (stepId: string) => ['workflow-steps', 'attempts', stepId] as const,
+  context: (executionId: string) => ['workflow-executions', 'context', executionId] as const,
 };
 
 // These names make the public boundary discoverable without forcing callers to know the
 // implementation's shorter key name. Keep all aliases pointed at the same key factory.
 export const workflowJobDetailQueryKeys = workflowJobQueryKeys;
 export const workflowJobsQueryKeys = workflowJobQueryKeys;
+
+interface WorkflowDiagnosticResource {
+  key: string;
+  isTerminal: boolean;
+  queryKey: QueryKey;
+}
+
+/** Invalidate lazy diagnostics once when their compact parent becomes terminal. */
+export function useWorkflowJobDiagnosticInvalidation({
+  execution,
+  steps,
+}: {
+  execution: WorkflowJobExecutionDetail | undefined;
+  steps: readonly WorkflowJobStepSummary[];
+}): void {
+  const queryClient = useQueryClient();
+  const previousResourceStatesRef = useRef<Map<string, boolean>>(new Map());
+
+  useEffect(() => {
+    const resources: WorkflowDiagnosticResource[] = [];
+    if (execution) {
+      resources.push({
+        key: `execution:${execution.id}`,
+        isTerminal: isTerminalJobExecutionStatus(execution.status),
+        queryKey: workflowJobQueryKeys.context(execution.id),
+      });
+    }
+
+    for (const step of steps) {
+      for (const attempt of step.attempts.items) {
+        resources.push({
+          key: `attempt:${attempt.stepId}:${attempt.attempt}`,
+          isTerminal: isTerminalStepAttemptStatus(attempt.status),
+          queryKey: stepAttemptDetailQueryKeys.detail(attempt.stepId, attempt.attempt),
+        });
+      }
+    }
+
+    const previous = previousResourceStatesRef.current;
+    for (const resource of resources) {
+      if (
+        resource.isTerminal &&
+        (previous.get(resource.key) === false ||
+          (previous.get(resource.key) === undefined &&
+            queryClient.getQueryData(resource.queryKey) !== undefined))
+      ) {
+        void queryClient.invalidateQueries({queryKey: resource.queryKey});
+      }
+    }
+    previousResourceStatesRef.current = new Map(
+      resources.map((resource) => [resource.key, resource.isTerminal]),
+    );
+  }, [execution, queryClient, steps]);
+}
 
 type WorkflowJobDetailQueryKey =
   | ReturnType<typeof workflowJobQueryKeys.detail>
@@ -68,6 +136,9 @@ type WorkflowExecutionStepsQueryKey =
 type WorkflowStepAttemptsQueryKey =
   | ReturnType<typeof workflowJobQueryKeys.stepAttempts>
   | readonly ['workflow-steps', 'attempts'];
+type WorkflowJobExecutionContextQueryKey =
+  | ReturnType<typeof workflowJobQueryKeys.context>
+  | readonly ['workflow-executions', 'context'];
 
 type WorkflowJobDetailQueryOptions = UseQueryOptions<
   WorkflowJobDetail,
@@ -96,6 +167,12 @@ type WorkflowStepAttemptsInfiniteQueryOptions = UseInfiniteQueryOptions<
   WorkflowStepAttemptsQueryKey,
   string | null
 >;
+type WorkflowJobExecutionContextQueryOptions = UseQueryOptions<
+  WorkflowJobExecutionContext,
+  Error,
+  WorkflowJobExecutionContext,
+  WorkflowJobExecutionContextQueryKey
+>;
 
 export interface WorkflowJobDetailQueryInput {
   jobId: string | undefined;
@@ -115,36 +192,61 @@ export function workflowJobDetailQueryOptions({
   const selectedExecutionId = executionId ?? jobExecutionId;
   const queryEnabled = Boolean(jobId) && enabled;
 
-  return queryOptions({
-    queryKey: jobId
-      ? workflowJobQueryKeys.detail(jobId, selectedExecutionId)
-      : (['workflow-jobs', 'detail'] as const),
-    enabled: queryEnabled,
-    queryFn: ({signal}) =>
-      getWorkflowJobDetail({
-        jobId: jobId ?? '',
-        executionId: selectedExecutionId,
-        signal,
-      }),
-    staleTime: (query) =>
-      workflowJobDetailIsLive(query.state.data, selectedExecutionId)
-        ? WORKFLOW_JOB_DETAIL_STALE_TIME_MS
-        : Infinity,
-    refetchOnWindowFocus: (query) => workflowJobDetailIsLive(query.state.data, selectedExecutionId),
-    refetchInterval: (query) => {
-      if (!queryEnabled || (query.state.error !== null && query.state.data === undefined)) {
-        return false;
-      }
-      return workflowJobDetailIsLive(query.state.data, selectedExecutionId)
-        ? WORKFLOW_JOB_DETAIL_ACTIVE_POLL_MS
-        : false;
-    },
-    refetchIntervalInBackground: false,
-  });
+  return queryOptions(
+    workflowResourceQueryOptions({
+      queryKey: jobId
+        ? workflowJobQueryKeys.detail(jobId, selectedExecutionId)
+        : (['workflow-jobs', 'detail'] as const),
+      enabled: queryEnabled,
+      queryFn: ({signal}) =>
+        getWorkflowJobDetail({
+          jobId: jobId ?? '',
+          executionId: selectedExecutionId,
+          signal,
+        }),
+      isLive: (data) => workflowJobDetailIsLive(data, selectedExecutionId),
+    }),
+  );
 }
 
 export function useWorkflowJobDetailQuery(input: WorkflowJobDetailQueryInput) {
   return useQuery(workflowJobDetailQueryOptions(input));
+}
+
+export interface WorkflowJobExecutionContextQueryInput {
+  jobId: string | undefined;
+  executionId: string | undefined;
+  enabled?: boolean | undefined;
+  polling?: boolean | undefined;
+}
+
+/** Context owns the heavy job/execution fields and is enabled only while its sheet is open. */
+export function workflowJobExecutionContextQueryOptions({
+  jobId,
+  executionId,
+  enabled = true,
+  polling = false,
+}: WorkflowJobExecutionContextQueryInput): WorkflowJobExecutionContextQueryOptions {
+  const queryEnabled = Boolean(jobId) && Boolean(executionId) && enabled;
+  return queryOptions(
+    workflowResourceQueryOptions({
+      queryKey: executionId
+        ? workflowJobQueryKeys.context(executionId)
+        : (['workflow-executions', 'context'] as const),
+      enabled: queryEnabled,
+      queryFn: ({signal}) =>
+        getWorkflowJobExecutionContext({
+          jobId: jobId ?? '',
+          executionId: executionId ?? '',
+          signal,
+        }),
+      isLive: () => polling,
+    }),
+  );
+}
+
+export function useWorkflowJobExecutionContextQuery(input: WorkflowJobExecutionContextQueryInput) {
+  return useQuery(workflowJobExecutionContextQueryOptions(input));
 }
 
 interface DefaultJobResourceSnapshot {
@@ -346,6 +448,24 @@ async function getWorkflowJobDetail({
   const path = `/workflows/runs/jobs/${jobId}${query ? `?${query}` : ''}`;
   return toWorkflowJobDetail(
     await checkedApiRequest(workflowJobDetailResponseSchema, path, {signal}),
+  );
+}
+
+async function getWorkflowJobExecutionContext({
+  jobId,
+  executionId,
+  signal,
+}: {
+  jobId: string;
+  executionId: string;
+  signal?: AbortSignal;
+}): Promise<WorkflowJobExecutionContext> {
+  return toWorkflowJobExecutionContext(
+    await checkedApiRequest(
+      workflowJobExecutionContextResponseSchema,
+      `/workflows/runs/jobs/${jobId}/executions/${executionId}/context`,
+      {signal},
+    ),
   );
 }
 

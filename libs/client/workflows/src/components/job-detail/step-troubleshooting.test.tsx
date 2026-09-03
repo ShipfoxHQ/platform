@@ -3,7 +3,7 @@ import type {
   StepAttemptDto,
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
   createMemoryHistory,
@@ -17,6 +17,7 @@ import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import type {StepErrorReason} from '#core/workflow-run.js';
+import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -35,7 +36,7 @@ const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the inv
 describe('StepInspectorSheet', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    configureApiClient({baseUrl: '', fetchImpl: undefined});
+    resetApiClient();
   });
 
   it('shows a loading state only after the inspector is opened', async () => {
@@ -140,6 +141,112 @@ describe('StepInspectorSheet', () => {
     expect((await screen.findAllByText('Evaluation')).length).toBeGreaterThan(0);
   });
 
+  it('renders complete attempt diagnostics from the lazy detail response', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            authored_config: {tool: {id: 'chat_post_message'}},
+            config: {
+              tool: {
+                provider: 'slack',
+                id: 'chat_post_message',
+                with: {channel: '#releases'},
+              },
+            },
+            output: {result: {id: 'result-1'}},
+            outputs: {message_id: 'message-1'},
+            response: 'provider response',
+            error: {message: 'diagnostic warning', reason: 'tool_error'},
+            gate_result: {kind: 'passed', passed: true, source: 'exit 0', exit_code: 0},
+            invocations: [
+              {
+                call_index: 0,
+                started_at: '2026-09-01T09:00:00.000Z',
+                finished_at: '2026-09-01T09:00:00.412Z',
+                outcome: 'success',
+                duration_ms: 412,
+              },
+            ],
+            restart_feedback: 'Restarted from the previous attempt.',
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({entry: toolStepEntry({status: 'succeeded'})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByRole('region', {name: 'Authored configuration'})).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Succeeded');
+    expect(screen.getByText('provider response')).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Attempt diagnostics'})).toHaveTextContent(
+      'diagnostic warning',
+    );
+    expect(screen.getByRole('region', {name: 'Attempt diagnostics'})).toHaveTextContent(
+      'Restarted from the previous attempt.',
+    );
+  });
+
+  it('renders a failed gate in attempt diagnostics', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            gate_result: {kind: 'failed', passed: false, source: 'exit 1', exit_code: 1},
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({entry: toolStepEntry({status: 'failed'})});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    const diagnostics = await screen.findByRole('region', {name: 'Attempt diagnostics'});
+    expect(diagnostics).toHaveTextContent('failed');
+    expect(diagnostics).toHaveTextContent('exit 1');
+  });
+
+  it('renders typed unavailable states for oversized diagnostic fields', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            oversized_fields: [
+              {
+                field: 'config',
+                stored_bytes: 70_000,
+                reason: 'legacy_value_exceeds_inline_limit',
+              },
+              {
+                field: 'output',
+                stored_bytes: 300_000,
+                reason: 'legacy_value_exceeds_inline_limit',
+              },
+              {
+                field: 'evaluation_trace',
+                stored_bytes: 70_000,
+                reason: 'legacy_value_exceeds_inline_limit',
+              },
+            ],
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({entry: emptyStepEntry()});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    const unavailable = await screen.findByRole('region', {name: 'Unavailable diagnostics'});
+    expect(unavailable).toHaveTextContent('Resolved configuration unavailable');
+    expect(unavailable).toHaveTextContent('Step output unavailable');
+    expect(unavailable).toHaveTextContent('Evaluation unavailable');
+    expect(unavailable).toHaveTextContent('300,000 bytes');
+  });
+
   it('shows the session descriptor without transcript data', async () => {
     const user = userEvent.setup();
     configureApiClient({
@@ -216,6 +323,39 @@ describe('StepInspectorSheet', () => {
     await user.click(screen.getByRole('button', {name: 'Retry'}));
     expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
     expect(screen.getByText('Resolved configuration')).toBeInTheDocument();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the last successful detail while a refresh fails', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          stepDetailResponse({
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+            evaluation_trace: null,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({code: 'server-error'}, {status: 500}));
+    configureApiClient({fetchImpl});
+
+    const {queryClient} = await renderPanel();
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+    expect(await screen.findByRole('region', {name: 'Inputs'})).toBeInTheDocument();
+
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: stepAttemptDetailQueryKeys.detail(STEP_ID, 1),
+      });
+    });
+
+    expect(
+      await screen.findByText('Could not refresh troubleshooting details.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('region', {name: 'Inputs'})).toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -504,7 +644,7 @@ async function renderPanel({
     result = render(<RouterProvider router={router} />);
   });
   if (!result) throw new Error('Step inspector did not render.');
-  return result;
+  return {result, queryClient};
 }
 
 function PanelHarness({
@@ -805,13 +945,6 @@ function stepDetailResponse(
     config: null,
     session: null,
     evaluation_trace: null,
-    output: null,
-    outputs: null,
-    response: null,
-    error: null,
-    gate_result: null,
-    invocations: [],
-    restart_feedback: null,
     oversized_fields: [],
     ...overrides,
   };
