@@ -246,6 +246,137 @@ describe('selected workflow job reads', () => {
     expect(detail?.payload).toBeNull();
   });
 
+  test('derives missing legacy byte counters and marks suppressed payloads', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const jobId = fixture.jobIds[0] as string;
+    const executionId = fixture.executionIds[0] as string;
+    const receivedAt = new Date('2026-08-31T12:00:00.000Z');
+    const payload = {action: 'opened'};
+
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-legacy-counters',
+      receivedAt,
+      payload,
+      storedPayloadBytes: 0,
+      normalizedEventBytes: 0,
+    });
+
+    const detail = await getExecutionTriggerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-legacy-counters',
+    });
+    expect(detail?.storedPayloadBytes).toBeGreaterThan(0);
+    expect(detail?.normalizedEventBytes).toBeGreaterThan(0);
+    expect(detail?.payload).toEqual(payload);
+    expect(detail?.payloadPreviewTruncated).toBe(false);
+
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-legacy-large',
+      receivedAt: new Date(receivedAt.getTime() + 1_000),
+      payload: {body: 'x'.repeat(WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES)},
+      storedPayloadBytes: 0,
+      normalizedEventBytes: 0,
+    });
+
+    const largeDetail = await getExecutionTriggerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-legacy-large',
+    });
+    expect(largeDetail?.storedPayloadBytes).toBeGreaterThan(
+      WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
+    );
+    expect(largeDetail?.payload).toBeNull();
+    expect(largeDetail?.payloadPreviewTruncated).toBe(true);
+  });
+
+  test('lists only events consumed by the requested execution', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 2,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const jobId = fixture.jobIds[0] as string;
+    const firstExecutionId = fixture.executionIds[0] as string;
+    const secondExecutionId = fixture.executionIds[1] as string;
+    const receivedAt = new Date('2026-08-31T12:00:00.000Z');
+
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId: firstExecutionId,
+      eventRef: 'event-first-execution',
+      receivedAt,
+    });
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId: secondExecutionId,
+      eventRef: 'event-second-execution',
+      receivedAt: new Date(receivedAt.getTime() + 1_000),
+    });
+
+    const page = await listExecutionTriggerEvents({
+      jobId,
+      executionId: firstExecutionId,
+      limit: 10,
+    });
+    expect(page?.items.map((item) => item.eventRef)).toEqual(['event-first-execution']);
+    expect(page?.total).toBe(1);
+  });
+
+  test('uses the id tiebreaker when events share a received timestamp', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 1,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const jobId = fixture.jobIds[0] as string;
+    const executionId = fixture.executionIds[0] as string;
+    const receivedAt = new Date('2026-08-31T12:00:00.000Z');
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-same-time-1',
+      receivedAt,
+    });
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-same-time-2',
+      receivedAt,
+    });
+
+    const eventRefs: string[] = [];
+    let cursor: {createdAt: Date; id: string} | undefined;
+    do {
+      const page = await listExecutionTriggerEvents({
+        jobId,
+        executionId,
+        limit: 1,
+        cursor,
+      });
+      eventRefs.push(...(page?.items.map((item) => item.eventRef) ?? []));
+      cursor = page?.nextCursor ?? undefined;
+    } while (cursor);
+
+    expect(eventRefs).toHaveLength(2);
+    expect(new Set(eventRefs)).toEqual(new Set(['event-same-time-1', 'event-same-time-2']));
+  });
+
   test('reads canonical events for materialized executions and falls back to legacy arrays', async () => {
     const canonicalFixture = await createHighCardinalityWorkflowRun({
       jobs: 1,
@@ -323,6 +454,44 @@ describe('selected workflow job reads', () => {
     });
     expect(legacyContext?.triggerEvents).toEqual([legacyEvent]);
     expect(legacyContext?.triggerEventsBytes).toBeGreaterThan(0);
+  });
+
+  test('marks canonical-only executions as having context', async () => {
+    const fixture = await createHighCardinalityWorkflowRun({
+      jobs: 1,
+      dependenciesPerJob: 0,
+      executionsPerJob: 2,
+      stepsPerExecution: 1,
+      attemptsPerStep: 1,
+    });
+    const jobId = fixture.jobIds[0] as string;
+    const canonicalExecutionId = fixture.executionIds[0] as string;
+    const emptyExecutionId = fixture.executionIds[1] as string;
+
+    await db()
+      .update(jobExecutions)
+      .set({runner: null})
+      .where(eq(jobExecutions.id, canonicalExecutionId));
+    await db()
+      .update(jobExecutions)
+      .set({runner: null})
+      .where(eq(jobExecutions.id, emptyExecutionId));
+
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId: canonicalExecutionId,
+      eventRef: 'event-context-only',
+      receivedAt: new Date('2026-08-31T12:00:00.000Z'),
+    });
+
+    expect(
+      (await getWorkflowJobDetail({jobId, executionId: canonicalExecutionId}))?.selectedExecution
+        ?.hasContext,
+    ).toBe(true);
+    expect(
+      (await getWorkflowJobDetail({jobId, executionId: emptyExecutionId}))?.selectedExecution
+        ?.hasContext,
+    ).toBe(false);
   });
 
   test('keeps canonical context bounded by normalized event bytes', async () => {

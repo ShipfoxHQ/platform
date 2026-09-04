@@ -7,6 +7,9 @@ export const WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX = 100;
 /** Maximum serialized UTF-8 size of one untrusted payload preview. */
 export const WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES = 16 * 1024;
 
+/** Maximum UTF-8 size of untrusted source and event labels in one read. */
+export const WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES = 512;
+
 const executionTriggerEventDispositionSchema = z.enum(['fire', 'resolve']);
 const executionTriggerEventOutcomeSchema = z.enum([
   'pending',
@@ -18,12 +21,20 @@ const executionTriggerEventOutcomeSchema = z.enum([
 const executionTriggerEventOutcomeReasonSchema = z
   .enum(['payload_too_large', 'until', 'timeout', 'max_executions', 'cancelled'])
   .nullable();
+const executionTriggerEventMetadataSchema = z
+  .string()
+  .refine(
+    (value) =>
+      new TextEncoder().encode(value).byteLength <=
+      WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
+    {message: 'Execution trigger event metadata exceeds its UTF-8 byte limit'},
+  );
 
 export const workflowExecutionTriggerEventSummarySchema = z.object({
   event_ref: z.string().min(1),
   delivery_id: z.string().min(1),
-  source: z.string(),
-  event: z.string(),
+  source: executionTriggerEventMetadataSchema,
+  event: executionTriggerEventMetadataSchema,
   disposition: executionTriggerEventDispositionSchema,
   outcome: executionTriggerEventOutcomeSchema,
   outcome_reason: executionTriggerEventOutcomeReasonSchema,

@@ -1,4 +1,5 @@
 import {
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
   type WorkflowExecutionTriggerEventDetailDto,
   type WorkflowExecutionTriggerEventSummaryDto,
@@ -15,8 +16,8 @@ export function toWorkflowExecutionTriggerEventSummaryDto(
   return {
     event_ref: read.eventRef,
     delivery_id: read.deliveryId,
-    source: read.source,
-    event: read.event,
+    source: capUtf8(read.source, WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES),
+    event: capUtf8(read.event, WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES),
     disposition: read.disposition,
     outcome: read.outcome,
     outcome_reason: read.outcomeReason,
@@ -34,7 +35,8 @@ export function toWorkflowExecutionTriggerEventDetailDto(
     return {
       ...summary,
       payload_preview: null,
-      ...(read.storedPayloadBytes > WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES
+      ...(read.payloadPreviewTruncated ||
+      read.storedPayloadBytes > WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES
         ? {
             payload_preview_truncated: true,
             payload_preview_total_bytes: read.storedPayloadBytes,
@@ -57,4 +59,19 @@ export function toWorkflowExecutionTriggerEventDetailDto(
         }
       : {}),
   };
+}
+
+function capUtf8(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).byteLength <= maxBytes) return value;
+
+  let result = '';
+  let bytes = 0;
+  for (const codePoint of value) {
+    const codePointBytes = encoder.encode(codePoint).byteLength;
+    if (bytes + codePointBytes > maxBytes) break;
+    result += codePoint;
+    bytes += codePointBytes;
+  }
+  return result;
 }

@@ -13,6 +13,11 @@ import {
   normalizeWorkflowExecutionEvent,
   type WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
+import type {
+  JobListenerEventDisposition,
+  JobListenerEventOutcome,
+  JobListenerEventOutcomeReason,
+} from '#core/entities/job-listener-event.js';
 import {
   type PersistedEvaluationTraceEntry,
   type StepAttemptStatus,
@@ -145,9 +150,9 @@ export interface WorkflowExecutionTriggerEventSummaryRead {
   deliveryId: string;
   source: string;
   event: string;
-  disposition: 'fire' | 'resolve';
-  outcome: 'pending' | 'consumed' | 'honored' | 'rejected' | 'abandoned';
-  outcomeReason: 'payload_too_large' | 'until' | 'timeout' | 'max_executions' | 'cancelled' | null;
+  disposition: JobListenerEventDisposition;
+  outcome: JobListenerEventOutcome;
+  outcomeReason: JobListenerEventOutcomeReason | null;
   receivedAt: Date;
   storedPayloadBytes: number;
   normalizedEventBytes: number;
@@ -156,6 +161,7 @@ export interface WorkflowExecutionTriggerEventSummaryRead {
 export interface WorkflowExecutionTriggerEventDetailRead
   extends WorkflowExecutionTriggerEventSummaryRead {
   payload: unknown | null;
+  payloadPreviewTruncated: boolean;
 }
 
 export type WorkflowExecutionTriggerEventCursor = TimestampIdCursor;
@@ -548,6 +554,49 @@ async function readWorkflowJobExecutionContext(
   });
 }
 
+function listenerStoredPayloadBytes() {
+  return sql<number>`case
+    when ${jobListenerEvents.storedPayloadBytes} > 0 then ${jobListenerEvents.storedPayloadBytes}
+    when ${jobListenerEvents.payload} is null then 0
+    else octet_length(${jobListenerEvents.payload}::text)
+  end`;
+}
+
+function listenerNormalizedEventBytes() {
+  return sql<number>`case
+    when ${jobListenerEvents.normalizedEventBytes} > 0 then ${jobListenerEvents.normalizedEventBytes}
+    else octet_length(
+      jsonb_build_array(
+        jsonb_build_object(
+          'source', ${jobListenerEvents.source},
+          'event', ${jobListenerEvents.event},
+          'delivery_id', ${jobListenerEvents.deliveryId},
+          'received_at', to_char(
+            ${jobListenerEvents.receivedAt} at time zone 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+          ),
+          'project', ${jobListenerEvents.triggerReference}->'project',
+          'repository', ${jobListenerEvents.triggerReference}->'repository',
+          'ref', ${jobListenerEvents.triggerReference}->'ref',
+          'commit', ${jobListenerEvents.triggerReference}->'commit',
+          'data', ${jobListenerEvents.payload}
+        )
+      )::text
+    )
+  end`;
+}
+
+function listenerPayloadPreviewTruncated() {
+  return sql<boolean>`case
+    when ${listenerStoredPayloadBytes()} > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+      then true
+    when ${jobListenerEvents.payload} is null then false
+    when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+      then true
+    else false
+  end`;
+}
+
 async function readExecutionTriggerEventPage(
   tx: Tx,
   params: {
@@ -586,8 +635,8 @@ async function readExecutionTriggerEventPage(
       outcome: jobListenerEvents.outcome,
       outcomeReason: jobListenerEvents.outcomeReason,
       receivedAt: jobListenerEvents.receivedAt,
-      storedPayloadBytes: jobListenerEvents.storedPayloadBytes,
-      normalizedEventBytes: jobListenerEvents.normalizedEventBytes,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
     })
     .from(jobListenerEvents)
     .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
@@ -640,11 +689,12 @@ async function readExecutionTriggerEvent(
       outcome: jobListenerEvents.outcome,
       outcomeReason: jobListenerEvents.outcomeReason,
       receivedAt: jobListenerEvents.receivedAt,
-      storedPayloadBytes: jobListenerEvents.storedPayloadBytes,
-      normalizedEventBytes: jobListenerEvents.normalizedEventBytes,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
+      payloadPreviewTruncated: listenerPayloadPreviewTruncated(),
       payload: sql<unknown | null>`case
         when ${jobListenerEvents.payload} is null then null
-        when ${jobListenerEvents.storedPayloadBytes} > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+        when ${listenerStoredPayloadBytes()} > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
           then null
         when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
           then null
@@ -714,7 +764,7 @@ async function readCanonicalExecutionTriggerEvents(
   const [aggregate] = await tx
     .select({
       eventCount: count(),
-      normalizedEventBytes: sql<number | null>`sum(${jobListenerEvents.normalizedEventBytes})`,
+      normalizedEventBytes: sql<number | null>`sum(${listenerNormalizedEventBytes()})`,
     })
     .from(jobListenerEvents)
     .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
@@ -738,14 +788,14 @@ async function readCanonicalExecutionTriggerEvents(
       outcome: jobListenerEvents.outcome,
       outcomeReason: jobListenerEvents.outcomeReason,
       receivedAt: jobListenerEvents.receivedAt,
-      storedPayloadBytes: jobListenerEvents.storedPayloadBytes,
-      normalizedEventBytes: jobListenerEvents.normalizedEventBytes,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
       triggerReference: jobListenerEvents.triggerReference,
       payload: sql<unknown | null>`case
         when ${jobListenerEvents.payload} is null then null
-        when ${jobListenerEvents.storedPayloadBytes} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+        when ${listenerStoredPayloadBytes()} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
           then null
-        when ${jobListenerEvents.normalizedEventBytes} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+        when ${listenerNormalizedEventBytes()} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
           then null
         when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
           then null

@@ -829,7 +829,7 @@ function toStepAttemptCursor(
 function decodeExecutionTriggerEventCursor(cursor: string | undefined) {
   if (cursor === undefined) return undefined;
   const decoded = decodeTimestampIdCursor(cursor);
-  if (!decoded) throw new Error('Invalid workflow read cursor');
+  if (!decoded || !isUuid(decoded.id)) throw new Error('Invalid workflow read cursor');
   return decoded;
 }
 

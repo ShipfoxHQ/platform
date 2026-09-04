@@ -1,4 +1,5 @@
 import {
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
   workflowExecutionTriggerEventDetailSchema,
 } from '@shipfox/api-workflows-dto';
@@ -23,6 +24,7 @@ function readEvent(
     receivedAt: new Date('2026-08-31T12:00:00.000Z'),
     storedPayloadBytes: 25,
     normalizedEventBytes: 100,
+    payloadPreviewTruncated: false,
     payload: {action: 'opened'},
     ...overrides,
   };
@@ -46,6 +48,25 @@ describe('workflow execution event DTOs', () => {
     });
     expect(summary).not.toHaveProperty('id');
     expect(summary).not.toHaveProperty('payload');
+  });
+
+  it('caps untrusted source and event labels by UTF-8 byte length', () => {
+    const summary = toWorkflowExecutionTriggerEventSummaryDto(
+      readEvent({source: 'é'.repeat(400), event: '😀'.repeat(400)}),
+    );
+
+    expect(new TextEncoder().encode(summary.source).byteLength).toBeLessThanOrEqual(
+      WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
+    );
+    expect(new TextEncoder().encode(summary.event).byteLength).toBeLessThanOrEqual(
+      WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
+    );
+    expect(workflowExecutionTriggerEventDetailSchema.shape.source.parse(summary.source)).toBe(
+      summary.source,
+    );
+    expect(workflowExecutionTriggerEventDetailSchema.shape.event.parse(summary.event)).toBe(
+      summary.event,
+    );
   });
 
   it('returns valid serialized JSON detail previews within the UTF-8 byte cap', () => {
@@ -89,5 +110,16 @@ describe('workflow execution event DTOs', () => {
       WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
     );
     expect(() => JSON.parse(result.payload_preview ?? '')).not.toThrow();
+  });
+
+  it('keeps deeply nested JSON detail reads valid when recursive measurement overflows', () => {
+    let payload: unknown = {value: 'ok'};
+    for (let index = 0; index < 3_000; index += 1) payload = [payload];
+
+    const result = toWorkflowExecutionTriggerEventDetailDto(readEvent({payload}));
+
+    expect(result.payload_preview).toBe(JSON.stringify(payload));
+    expect(result).not.toHaveProperty('payload_preview_truncated');
+    expect(workflowExecutionTriggerEventDetailSchema.parse(result)).toEqual(result);
   });
 });

@@ -6,7 +6,11 @@ import {
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
-import {decodeNumberIdCursor, decodeTimestampIdCursor} from '@shipfox/node-drizzle';
+import {
+  decodeNumberIdCursor,
+  decodeTimestampIdCursor,
+  encodeTimestampIdCursor,
+} from '@shipfox/node-drizzle';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
@@ -494,6 +498,23 @@ describe('Workflows inter-module presentation', () => {
     await expect(
       presentation.handlers.listExecutionTriggerEvents(
         {workspaceId, jobId, executionId, limit: 25, cursor: 'malformed'},
+        {signal: new AbortController().signal},
+      ),
+    ).rejects.toThrow('Invalid workflow read cursor');
+    expect(mocks.listExecutionTriggerEvents).not.toHaveBeenCalled();
+
+    await expect(
+      presentation.handlers.listExecutionTriggerEvents(
+        {
+          workspaceId,
+          jobId,
+          executionId,
+          limit: 25,
+          cursor: encodeTimestampIdCursor({
+            createdAt: new Date('2026-08-31T12:00:00.000Z'),
+            id: 'not-a-uuid',
+          }),
+        },
         {signal: new AbortController().signal},
       ),
     ).rejects.toThrow('Invalid workflow read cursor');

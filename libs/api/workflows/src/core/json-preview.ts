@@ -19,7 +19,27 @@ export function serializeJsonWithinLimit(value: unknown, maxBytes: number): Json
     if (error instanceof CyclicJsonError) {
       return {value: 'null', truncated: false, totalBytes: 4};
     }
+    if (error instanceof RangeError) {
+      return recoverFromRecursiveSerializationOverflow(value, maxBytes);
+    }
     throw error;
+  }
+}
+
+function recoverFromRecursiveSerializationOverflow(value: unknown, maxBytes: number): JsonPreview {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return {value: 'null', truncated: false, totalBytes: 4};
+
+    const totalBytes = encoder.encode(serialized).byteLength;
+    return totalBytes <= maxBytes
+      ? {value: serialized, truncated: false, totalBytes}
+      : {value: 'null', truncated: true, totalBytes};
+  } catch {
+    // A payload that is too deeply nested for both serializers is not safe to
+    // hydrate further. Keep the response valid and conservatively mark it as
+    // larger than the requested preview budget.
+    return {value: 'null', truncated: true, totalBytes: maxBytes + 1};
   }
 }
 
