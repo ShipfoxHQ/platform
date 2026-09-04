@@ -680,6 +680,20 @@ describe('workflow diagnostic agent-access tools', () => {
     expect(response).toEqual({ok: false, error: {code: 'not-found'}});
     expect(mocks[method]).toHaveBeenCalledWith(expect.objectContaining({workspaceId}));
   });
+
+  test('does not project a mixed-version step payload without complete ancestry', async () => {
+    const mocks = clients();
+    const detail = stepAttemptDetail();
+    Reflect.deleteProperty(detail, 'step_attempt_id');
+    mocks.getWorkflowStepAttemptDetail.mockResolvedValue(detail);
+
+    const response = await tool(mocks, 'get_step_attempt').execute({
+      context,
+      arguments: {step_id: stepId, attempt: 1},
+    });
+
+    expect(response).toEqual({ok: false, error: {code: 'not-found'}});
+  });
 });
 
 function stepAttemptDetail(overrides: Record<string, unknown> = {}): Record<string, unknown> {

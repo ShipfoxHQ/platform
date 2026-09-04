@@ -160,12 +160,12 @@ describe('workflow execution event Agent Access tools', () => {
     expect(detailResponse).toEqual({ok: false, error: {code: 'not-found'}});
   });
 
-  test('preserves long event references and bounded display metadata', async () => {
+  test('preserves long event references and caps display metadata', async () => {
     const mocks = clients();
     const longEventRef = 'r'.repeat(513);
     const source = eventSummary({
       event_ref: longEventRef,
-      delivery_id: 'd'.repeat(512),
+      delivery_id: 'd'.repeat(513),
       source: 's'.repeat(512),
       event: 'e'.repeat(512),
     });
