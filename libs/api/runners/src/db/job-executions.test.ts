@@ -25,6 +25,7 @@ import {
   expireStuckJobExecutions,
   getJobExecutionCleanupStats,
   getJobExecutionQueueDepth,
+  getJobLeaseState,
   isJobLeaseActive,
   reconcileTerminalJobExecution,
   recordHeartbeat,
@@ -390,6 +391,96 @@ describe('claimPendingJobExecution', () => {
       .from(runningJobExecutions)
       .where(eq(runningJobExecutions.jobExecutionId, claimed?.jobExecutionId as string));
     expect(running?.firstHeartbeatAt).toBeNull();
+  });
+
+  it('snapshots renewable inference eligibility at claim and ignores later heartbeat changes', async () => {
+    await db()
+      .update(runnerSessions)
+      .set({
+        toolCapabilities: {
+          features: {renewable_git: false, renewable_inference: true},
+          harnesses: {},
+        },
+        toolCapabilitiesReportedAt: new Date(),
+      })
+      .where(eq(runnerSessions.id, runnerSessionId));
+    const created = await pendingJobFactory.create({workspaceId});
+
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    const [running] = await db()
+      .select({renewableInference: runningJobExecutions.renewableInference})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, created.jobExecutionId));
+
+    expect(running?.renewableInference).toBe(true);
+
+    await recordHeartbeat({
+      jobExecutionId: claimed?.jobExecutionId as string,
+      runnerSessionId,
+      toolCapabilities: null,
+    });
+
+    await expect(
+      getJobLeaseState({
+        jobId: created.jobId,
+        jobExecutionId: created.jobExecutionId,
+        runnerSessionId,
+      }),
+    ).resolves.toEqual({active: true, renewableInference: true});
+  });
+
+  it('does not authorize renewable inference from a stale capability report', async () => {
+    await db()
+      .update(runnerSessions)
+      .set({
+        toolCapabilities: {
+          features: {renewable_git: false, renewable_inference: true},
+          harnesses: {},
+        },
+        toolCapabilitiesReportedAt: new Date('2025-01-01T00:00:00.000Z'),
+      })
+      .where(eq(runnerSessions.id, runnerSessionId));
+    const created = await pendingJobFactory.create({workspaceId});
+
+    await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+    const [running] = await db()
+      .select({renewableInference: runningJobExecutions.renewableInference})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, created.jobExecutionId));
+
+    expect(running?.renewableInference).toBe(false);
+  });
+
+  it('snapshots false for a claim without renewable inference capability', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+
+    await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+
+    const [running] = await db()
+      .select({renewableInference: runningJobExecutions.renewableInference})
+      .from(runningJobExecutions)
+      .where(eq(runningJobExecutions.jobExecutionId, created.jobExecutionId));
+    expect(running?.renewableInference).toBe(false);
+  });
+
+  it('omits the renewable snapshot for legacy running rows', async () => {
+    const created = await pendingJobFactory.create({workspaceId});
+    const claimed = await claimPendingJobExecution({workspaceId, runnerSessionId, maxClaims: null});
+    expect(claimed?.jobExecutionId).toBe(created.jobExecutionId);
+
+    await db()
+      .update(runningJobExecutions)
+      .set({renewableInference: null})
+      .where(eq(runningJobExecutions.jobExecutionId, created.jobExecutionId));
+
+    await expect(
+      getJobLeaseState({
+        jobId: created.jobId,
+        jobExecutionId: created.jobExecutionId,
+        runnerSessionId,
+      }),
+    ).resolves.toEqual({active: true});
   });
 
   it('reports an active lease only for the session that claimed the job', async () => {

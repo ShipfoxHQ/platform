@@ -1,6 +1,10 @@
 import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-module';
 
 const activeLeases = new Set<string>();
+const leaseStates = new Map<
+  string,
+  Awaited<ReturnType<RunnersInterModuleClient['getLeaseState']>>
+>();
 const toolCapabilities = new Map<
   string,
   Awaited<ReturnType<RunnersInterModuleClient['getEffectiveRunnerToolCapabilities']>>
@@ -18,8 +22,16 @@ export function registerActiveRunnerLease(params: {
   jobId: string;
   jobExecutionId: string;
   runnerSessionId: string;
+  renewableInference?: boolean | undefined;
 }): void {
-  activeLeases.add(leaseKey(params));
+  const key = leaseKey(params);
+  activeLeases.add(key);
+  leaseStates.set(key, {
+    active: true,
+    ...(params.renewableInference === undefined
+      ? {}
+      : {renewableInference: params.renewableInference}),
+  });
 }
 
 export function setRunnerToolCapabilities(
@@ -31,11 +43,13 @@ export function setRunnerToolCapabilities(
 
 export function resetRunnersTestClient(): void {
   activeLeases.clear();
+  leaseStates.clear();
   toolCapabilities.clear();
 }
 
 export const runnersTestClient: RunnersInterModuleClient = {
-  getLeaseState: async (params) => ({active: activeLeases.has(leaseKey(params))}),
+  getLeaseState: async (params) =>
+    leaseStates.get(leaseKey(params)) ?? {active: activeLeases.has(leaseKey(params))},
   getEffectiveRunnerToolCapabilities: async ({runnerSessionId}) =>
     toolCapabilities.get(runnerSessionId) ?? {capabilities: {harnesses: {}}, reportFresh: false},
   getWorkspaceJobCounts: async ({workspaceIds}) => ({

@@ -103,6 +103,7 @@ describe('resolveRuntimeCredentials', () => {
         provider: 'shipfox',
         model: 'responses-model',
         thinking: 'high',
+        renewableInference: true,
       },
       {managedProvider: managedProvider(resolveCredentials)},
     );
@@ -113,6 +114,7 @@ describe('resolveRuntimeCredentials', () => {
       stepAttemptId,
       jobIdentity,
       model: 'responses-model',
+      renewableInference: true,
     });
     expect(result).toEqual({
       harness: 'pi',

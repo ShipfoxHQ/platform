@@ -1,6 +1,6 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
-import {check, index, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
+import {boolean, check, index, pgEnum, text, timestamp, uuid} from 'drizzle-orm/pg-core';
 import {pgTable} from './common.js';
 import {runnerSessions} from './runner-sessions.js';
 
@@ -22,6 +22,7 @@ export const runningJobExecutions = pgTable(
     runnerSessionId: uuid('runner_session_id')
       .notNull()
       .references(() => runnerSessions.id),
+    renewableInference: boolean('renewable_inference'),
     provisionerId: uuid('provisioner_id'),
     providerRunnerId: text('provider_runner_id'),
     requiredLabels: text('required_labels').array().notNull(),

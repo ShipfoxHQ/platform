@@ -86,6 +86,7 @@ export const agentInterModuleContract = defineInterModuleContract({
         runId: z.string().uuid(),
         stepAttemptId: z.string().uuid(),
         jobIdentity: managedProviderJobIdentitySchema.optional(),
+        renewableInference: z.boolean().optional(),
         harness: harnessSchema,
         provider: modelProviderRefSchema,
         model: z.string(),

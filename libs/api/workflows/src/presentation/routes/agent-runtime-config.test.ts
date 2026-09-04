@@ -194,6 +194,90 @@ describe('GET /runs/jobs/current/agent-runtime-config', () => {
     expect(res.json().credentials.api_key).toBe('sk-gated-workspace-secret');
   });
 
+  test('forwards the claim-time renewable inference snapshot to credential resolution', async () => {
+    const {run, job, step} = await createRunningAgentStep();
+    await saveWorkspaceCredential(run.workspaceId, 'sk-renewable-workspace-secret');
+    const token = await mintActiveLeaseToken({jobId: job.id, renewableInference: true});
+
+    const res = await app.inject({
+      method: 'GET',
+      url: runtimeConfigUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(resolveRuntimeCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({renewableInference: true}),
+    );
+  });
+
+  test('does not return credentials when the step is cancelled during resolution', async () => {
+    const {job, step} = await createRunningAgentStep();
+    const runtimeConfig: Awaited<ReturnType<AgentInterModuleClient['resolveRuntimeCredentials']>> =
+      {
+        harness: 'pi',
+        provider_id: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'xhigh',
+        credentials: {api_key: 'sk-cancelled-runtime-secret'},
+      };
+    let releaseResolution!: () => void;
+    const resolution = new Promise<typeof runtimeConfig>((resolve) => {
+      releaseResolution = () => resolve(runtimeConfig);
+    });
+    resolveRuntimeCredentials.mockImplementationOnce(() => resolution);
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    const responsePromise = app.inject({
+      method: 'GET',
+      url: runtimeConfigUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    await vi.waitFor(() => expect(resolveRuntimeCredentials).toHaveBeenCalledTimes(1));
+    await db().update(stepsTable).set({status: 'cancelled'}).where(eq(stepsTable.id, step.id));
+    releaseResolution();
+
+    const res = await responsePromise;
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('step-not-running');
+    expect(res.json().credentials).toBeUndefined();
+  });
+
+  test('does not return credentials when the step advances to a new attempt during resolution', async () => {
+    const {job, step} = await createRunningAgentStep();
+    const runtimeConfig: Awaited<ReturnType<AgentInterModuleClient['resolveRuntimeCredentials']>> =
+      {
+        harness: 'pi',
+        provider_id: 'anthropic',
+        model: 'claude-opus-4-8',
+        thinking: 'xhigh',
+        credentials: {api_key: 'sk-superseded-runtime-secret'},
+      };
+    let releaseResolution!: () => void;
+    const resolution = new Promise<typeof runtimeConfig>((resolve) => {
+      releaseResolution = () => resolve(runtimeConfig);
+    });
+    resolveRuntimeCredentials.mockImplementationOnce(() => resolution);
+    const token = await mintActiveLeaseToken({jobId: job.id});
+    const responsePromise = app.inject({
+      method: 'GET',
+      url: runtimeConfigUrl(step.id, step.currentAttempt),
+      headers: {authorization: `Bearer ${token}`},
+    });
+
+    await vi.waitFor(() => expect(resolveRuntimeCredentials).toHaveBeenCalledTimes(1));
+    await db()
+      .update(stepsTable)
+      .set({currentAttempt: step.currentAttempt + 1})
+      .where(eq(stepsTable.id, step.id));
+    releaseResolution();
+
+    const res = await responsePromise;
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('step-attempt-mismatch');
+    expect(res.json().credentials).toBeUndefined();
+  });
+
   test('returns 404 when the lease token is no longer the active job lease', async () => {
     const {run, job, step} = await createRunningAgentStep();
     await insertRunningJobLease({
