@@ -1,10 +1,12 @@
-import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
+import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
 import {buildUserContext, setUserContext} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   workflowRunAnnotationsResponseSchema,
   workflowRunJobExplanationsResponseSchema,
 } from '@shipfox/api-workflows-dto';
+import {defineInterModulePresentation} from '@shipfox/inter-module';
+import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
 import {inArray} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
@@ -36,10 +38,12 @@ const projects = {
   requireProjectForWorkspace: vi.fn(),
 } as unknown as ProjectsModuleClient;
 const listAnnotationsForRunAttempt = vi.fn();
-const annotations = {
-  replaceOrRemoveAnnotation: vi.fn(),
-  listAnnotationsForRunAttempt,
-} as unknown as AnnotationsInterModuleClient;
+const annotations = createFakeInterModuleClients({
+  annotations: defineInterModulePresentation(annotationsInterModuleContract, {
+    replaceOrRemoveAnnotation: () => ({}),
+    listAnnotationsForRunAttempt: (input) => listAnnotationsForRunAttempt(input),
+  }),
+}).annotations;
 
 describe('workflow run annotation and job explanation routes', () => {
   let app: FastifyInstance;
@@ -106,7 +110,7 @@ describe('workflow run annotation and job explanation routes', () => {
       body: 'https://example.com/deployments/1',
     };
     listAnnotationsForRunAttempt.mockResolvedValueOnce({
-      annotations: [annotation],
+      annotations: [{...annotation, createdAt: '2026-09-04T20:25:04.535Z'}],
       hasMore: true,
       nextCursor: {value: 1, id: annotation.id},
     });
@@ -140,7 +144,6 @@ describe('workflow run annotation and job explanation routes', () => {
       workflowRunId: fixture.run.id,
       workflowRunAttempt: 1,
       limit: 1,
-      cursor: undefined,
     });
 
     listAnnotationsForRunAttempt.mockResolvedValueOnce({
@@ -194,7 +197,10 @@ describe('workflow run annotation and job explanation routes', () => {
       body: 'https://example.com/deployments/unavailable',
     };
     listAnnotationsForRunAttempt.mockResolvedValue({
-      annotations: [unavailableAnnotation, validAnnotation],
+      annotations: [unavailableAnnotation, validAnnotation].map((annotation) => ({
+        ...annotation,
+        createdAt: '2026-09-04T20:25:04.535Z',
+      })),
       hasMore: false,
       nextCursor: null,
     });
@@ -280,7 +286,10 @@ describe('workflow run annotation and job explanation routes', () => {
       body: 'https://example.com/deployments/unavailable',
     };
     listAnnotationsForRunAttempt.mockResolvedValue({
-      annotations: [unavailableAnnotation, validAnnotation],
+      annotations: [unavailableAnnotation, validAnnotation].map((annotation) => ({
+        ...annotation,
+        createdAt: '2026-09-04T20:25:04.535Z',
+      })),
       hasMore: false,
       nextCursor: null,
     });

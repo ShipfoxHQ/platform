@@ -18,8 +18,8 @@ import {
 } from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
 import {WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES} from '@shipfox/api-workflows-dto';
-import type {WorkflowsModuleClient as WorkflowsInterModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {decodeStringIdCursor, encodeStringIdCursor} from '@shipfox/node-drizzle';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessWorkflowDiagnosticTools} from './workflow-diagnostic-tools.js';
 
 const workspaceId = uuid(1);
@@ -37,24 +37,13 @@ const context: AgentAccessContext = {
   credential: {kind: 'oauth_grant', grantId: uuid(9), clientId: 'client-1'},
 };
 
-type WorkflowMocks = WorkflowsInterModuleClient & {
-  getWorkflowRunSource: ReturnType<typeof vi.fn>;
-  getWorkflowJobExecutionContext: ReturnType<typeof vi.fn>;
-  getWorkflowStepAttemptDetail: ReturnType<typeof vi.fn>;
-  listWorkflowRunJobExplanations: ReturnType<typeof vi.fn>;
-};
-
-function clients(): WorkflowMocks {
-  return {
-    getWorkflowRunSource: vi.fn(),
-    getWorkflowJobExecutionContext: vi.fn(),
-    getWorkflowStepAttemptDetail: vi.fn(),
-    listWorkflowRunJobExplanations: vi.fn(),
-  } as unknown as WorkflowMocks;
+function clients() {
+  const {workflows, handlers} = createTestWorkflowsClient();
+  return {workflows, ...handlers};
 }
 
-function tool(workflows: WorkflowMocks, name: string) {
-  const result = createAgentAccessWorkflowDiagnosticTools(workflows).find(
+function tool(fixture: ReturnType<typeof clients>, name: string) {
+  const result = createAgentAccessWorkflowDiagnosticTools(fixture.workflows).find(
     (candidate) => candidate.name === name,
   );
   if (!result) throw new Error(`Missing tool ${name}`);
@@ -314,6 +303,21 @@ describe('workflow diagnostic agent-access tools', () => {
     expect(getStepAttemptResultSchema.safeParse(result).success).toBe(true);
   });
 
+  test('omits an absent step attempt from the producer request', async () => {
+    const mocks = clients();
+    mocks.getWorkflowStepAttemptDetail.mockResolvedValue(stepAttemptDetail());
+
+    await tool(mocks, 'get_step_attempt').execute({
+      context,
+      arguments: {step_id: stepId},
+    });
+
+    expect(mocks.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+      workspaceId,
+      stepId,
+    });
+  });
+
   test('marks response and restart feedback when UTF-8 text is truncated', async () => {
     const mocks = clients();
     const largeText = '🙂'.repeat(AGENT_ACCESS_TEXT_MAX_BYTES);
@@ -565,6 +569,12 @@ describe('workflow diagnostic agent-access tools', () => {
     });
     const result = success<ListWorkflowRunJobExplanationsResultDto>(response);
 
+    expect(mocks.listWorkflowRunJobExplanations).toHaveBeenCalledWith({
+      workspaceId,
+      workflowRunId: runId,
+      attempt: 1,
+      limit: 100,
+    });
     expect(result.explanations.length).toBeLessThan(100);
     expect(response).toMatchObject({ok: true, response_truncated: true});
     expect(response.response_total_bytes).toBeGreaterThan(AGENT_ACCESS_RESPONSE_MAX_BYTES);
@@ -576,6 +586,29 @@ describe('workflow diagnostic agent-access tools', () => {
       id: last?.job_id,
     });
     expect(listWorkflowRunJobExplanationsResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('forwards a valid workflow job explanation cursor', async () => {
+    const mocks = clients();
+    const cursor = encodeStringIdCursor({value: '0', id: jobId});
+    mocks.listWorkflowRunJobExplanations.mockResolvedValue({
+      workflow_run_attempt: 1,
+      items: [],
+      nextCursor: null,
+    });
+
+    await tool(mocks, 'list_workflow_run_job_explanations').execute({
+      context,
+      arguments: {run_id: runId, attempt: 1, cursor},
+    });
+
+    expect(mocks.listWorkflowRunJobExplanations).toHaveBeenCalledWith({
+      workspaceId,
+      workflowRunId: runId,
+      attempt: 1,
+      limit: 100,
+      cursor,
+    });
   });
 
   test('bounds a large explanation trace before building the response', async () => {
@@ -650,9 +683,9 @@ describe('workflow diagnostic agent-access tools', () => {
 
   test('does not project a mixed-version step payload without complete ancestry', async () => {
     const mocks = clients();
-    mocks.getWorkflowStepAttemptDetail.mockResolvedValue(
-      stepAttemptDetail({step_attempt_id: undefined}),
-    );
+    const detail = stepAttemptDetail();
+    Reflect.deleteProperty(detail, 'step_attempt_id');
+    mocks.getWorkflowStepAttemptDetail.mockResolvedValue(detail);
 
     const response = await tool(mocks, 'get_step_attempt').execute({
       context,

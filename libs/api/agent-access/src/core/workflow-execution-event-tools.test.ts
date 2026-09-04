@@ -7,8 +7,8 @@ import {
   listExecutionTriggerEventsResultSchema,
 } from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {decodeTimestampIdCursor, encodeTimestampIdCursor} from '@shipfox/node-drizzle';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessWorkflowDiagnosticTools} from './workflow-diagnostic-tools.js';
 
 const workspaceId = uuid(1);
@@ -21,20 +21,13 @@ const context: AgentAccessContext = {
   credential: {kind: 'oauth_grant', grantId: uuid(5), clientId: 'client-1'},
 };
 
-type WorkflowMocks = WorkflowsModuleClient & {
-  listExecutionTriggerEvents: ReturnType<typeof vi.fn>;
-  getExecutionTriggerEvent: ReturnType<typeof vi.fn>;
-};
-
-function clients(): WorkflowMocks {
-  return {
-    listExecutionTriggerEvents: vi.fn(),
-    getExecutionTriggerEvent: vi.fn(),
-  } as unknown as WorkflowMocks;
+function clients() {
+  const {workflows, handlers} = createTestWorkflowsClient();
+  return {workflows, ...handlers};
 }
 
-function tool(workflows: WorkflowMocks, name: string) {
-  const result = createAgentAccessWorkflowDiagnosticTools(workflows).find(
+function tool(fixture: ReturnType<typeof clients>, name: string) {
+  const result = createAgentAccessWorkflowDiagnosticTools(fixture.workflows).find(
     (candidate) => candidate.name === name,
   );
   if (!result) throw new Error(`Missing tool ${name}`);
@@ -53,7 +46,7 @@ describe('workflow execution event Agent Access tools', () => {
     const mocks = clients();
 
     expect(
-      createAgentAccessWorkflowDiagnosticTools(mocks).map((candidate) => candidate.name),
+      createAgentAccessWorkflowDiagnosticTools(mocks.workflows).map((candidate) => candidate.name),
     ).toEqual([
       'get_workflow_run_source',
       'get_workflow_execution_context',
@@ -89,7 +82,6 @@ describe('workflow execution event Agent Access tools', () => {
       jobId,
       executionId,
       limit: 25,
-      cursor: undefined,
     });
     expect(result).toMatchObject({
       job_id: jobId,
@@ -168,14 +160,14 @@ describe('workflow execution event Agent Access tools', () => {
     expect(detailResponse).toEqual({ok: false, error: {code: 'not-found'}});
   });
 
-  test('preserves long event references while capping display metadata', async () => {
+  test('preserves long event references and caps display metadata', async () => {
     const mocks = clients();
     const longEventRef = 'r'.repeat(513);
     const source = eventSummary({
       event_ref: longEventRef,
       delivery_id: 'd'.repeat(513),
-      source: 's'.repeat(513),
-      event: 'e'.repeat(513),
+      source: 's'.repeat(512),
+      event: 'e'.repeat(512),
     });
     mocks.listExecutionTriggerEvents.mockResolvedValue({
       items: [source],

@@ -54,6 +54,7 @@ import {
   encodeTimestampCursor,
   invalidRequest,
   notFound,
+  optionalField,
   parseInput,
   reducePage,
   truncateAgentAccessUtf8,
@@ -101,7 +102,7 @@ function createListProjectsTool(projects: ProjectsModuleClient): AgentAccessTool
       const page = await projects.listProjectCatalogByWorkspace({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       const result = {
         projects: page.projects.map(toProjectResult),
@@ -137,7 +138,7 @@ function createListWorkflowDefinitionsTool(
           workspaceId: context.workspaceId,
           projectId: input.project_id,
           limit: input.limit,
-          cursor,
+          ...optionalField('cursor', cursor),
         });
         const result = {
           definitions: page.definitions.map(toDefinitionResult),
@@ -210,8 +211,8 @@ function createListWorkflowRunsTool(
         workspaceId: context.workspaceId,
         projectId: input.project_id,
         limit: input.limit,
-        cursor,
-        filters: workflowRunFilters(input),
+        ...optionalField('cursor', cursor),
+        ...optionalField('filters', workflowRunFilters(input)),
       });
       const result = {
         runs: page.runs.map(toWorkflowRunResult),
@@ -251,8 +252,8 @@ function createGetRunAnnotationsTool(
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
         workflowRunAttempt: attempt,
-        jobExecutionId: input.job_execution_id,
-        cursor,
+        ...optionalField('jobExecutionId', input.job_execution_id),
+        ...optionalField('cursor', cursor),
         limit: input.limit,
       });
       const result = {
@@ -288,8 +289,8 @@ function createListTriggerEventsTool(triggers: TriggersInterModuleClient): Agent
       const page = await triggers.listTriggerEvents({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        cursor: cursor ? {receivedAt: cursor.createdAt, id: cursor.id} : undefined,
-        filters: triggerEventFilters(input),
+        ...optionalField('cursor', toTriggerEventReadCursor(cursor)),
+        ...optionalField('filters', triggerEventFilters(input)),
       });
       const result = {
         trigger_events: page.events.map(toTriggerEventResult),
@@ -581,6 +582,10 @@ function triggerEventFilters(input: ListTriggerEventsInputDto) {
     ...(input.from === undefined ? {} : {from: input.from}),
     ...(input.to === undefined ? {} : {to: input.to}),
   };
+}
+
+function toTriggerEventReadCursor(cursor: {createdAt: string; id: string} | undefined) {
+  return cursor ? {receivedAt: cursor.createdAt, id: cursor.id} : undefined;
 }
 
 function projectCursor(item: Record<string, unknown>): string {

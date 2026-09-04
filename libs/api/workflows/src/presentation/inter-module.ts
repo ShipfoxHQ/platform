@@ -568,7 +568,7 @@ export function createWorkflowsInterModulePresentation(params: {
         workspaceId: input.workspaceId,
         workflowRunId: scope.id,
         workflowRunAttempt: attempt,
-        cursor: decodeNumberCursor(input.cursor),
+        ...(input.cursor ? {cursor: decodeNumberCursor(input.cursor)} : {}),
         limit: input.limit,
       });
       const origins = await getWorkflowRunAnnotationOrigins({

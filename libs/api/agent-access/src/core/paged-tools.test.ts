@@ -1,16 +1,20 @@
-import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
+import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
 import type {AgentAccessEnvelopeDto} from '@shipfox/api-agent-access-dto';
 import {agentAccessEnvelopeSchema} from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
+import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
+import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
+import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
+import {createInterModuleKnownError, defineInterModulePresentation} from '@shipfox/inter-module';
 import {
-  type DefinitionsInterModuleClient,
-  definitionsInterModuleContract,
-} from '@shipfox/api-definitions-dto/inter-module';
-import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
-import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
-import {createInterModuleKnownError} from '@shipfox/inter-module';
-import {decodeNumberIdCursor, decodeStringIdCursor} from '@shipfox/node-drizzle';
+  decodeNumberIdCursor,
+  decodeStringIdCursor,
+  encodeNumberIdCursor,
+  encodeStringIdCursor,
+  encodeTimestampIdCursor,
+} from '@shipfox/node-drizzle';
+import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessTools} from './paged-tools.js';
 import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
@@ -29,9 +33,9 @@ const context: AgentAccessContext = {
 };
 
 describe('paged agent-access tools', () => {
-  test('projects only the enumerated project fields and passes the producer cursor through', async () => {
+  test('projects only the enumerated project fields and encodes the producer cursor', async () => {
     const mocks = clients();
-    mocks.projects.listProjectCatalogByWorkspace.mockResolvedValue({
+    mocks.projectHandlers.listProjectCatalogByWorkspace.mockResolvedValue({
       projects: [project()],
       nextCursor: {createdAt: isoDate, id: projectId},
     });
@@ -41,10 +45,9 @@ describe('paged agent-access tools', () => {
       arguments: {limit: 1},
     });
 
-    expect(mocks.projects.listProjectCatalogByWorkspace).toHaveBeenCalledWith({
+    expect(mocks.projectHandlers.listProjectCatalogByWorkspace).toHaveBeenCalledWith({
       workspaceId,
       limit: 1,
-      cursor: undefined,
     });
     expect(response).toEqual({
       ok: true,
@@ -66,7 +69,7 @@ describe('paged agent-access tools', () => {
 
   test('caps definition diagnostics while retaining counts and excludes workflow content', async () => {
     const mocks = clients();
-    mocks.definitions.listDefinitionsByProject.mockResolvedValue({
+    mocks.definitionHandlers.listDefinitionsByProject.mockResolvedValue({
       definitions: [definition()],
       sync: {
         ref: 'main',
@@ -112,6 +115,11 @@ describe('paged agent-access tools', () => {
     });
     if (!result.sync) throw new Error('Expected a sync summary');
     expect(result.sync.diagnostics.items).toHaveLength(10);
+    expect(mocks.definitionHandlers.listDefinitionsByProject).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+    });
     const firstDiagnostic = result.sync.diagnostics.items[0];
     expect(firstDiagnostic).toBeDefined();
     if (!firstDiagnostic) throw new Error('Expected a diagnostic');
@@ -130,7 +138,7 @@ describe('paged agent-access tools', () => {
       ref: 'r'.repeat(512),
       sha: 's'.repeat(512),
     }));
-    mocks.definitions.listDefinitionsByProject.mockResolvedValue({
+    mocks.definitionHandlers.listDefinitionsByProject.mockResolvedValue({
       definitions,
       sync: null,
       nextCursor: null,
@@ -156,8 +164,8 @@ describe('paged agent-access tools', () => {
 
   test('checks project ownership before listing runs and excludes payload, inputs, and jobs', async () => {
     const mocks = clients();
-    mocks.projects.requireProjectForWorkspace.mockResolvedValue({project: project()});
-    mocks.workflows.listWorkflowRuns.mockResolvedValue({
+    mocks.projectHandlers.requireProjectForWorkspace.mockResolvedValue({project: project()});
+    mocks.workflowHandlers.listWorkflowRuns.mockResolvedValue({
       runs: [run()],
       nextCursor: null,
       filteredTotalCount: 1,
@@ -169,15 +177,14 @@ describe('paged agent-access tools', () => {
     });
     const result = expectSuccess<RunTestResult>(response);
 
-    expect(mocks.projects.requireProjectForWorkspace).toHaveBeenCalledWith({
+    expect(mocks.projectHandlers.requireProjectForWorkspace).toHaveBeenCalledWith({
       workspaceId,
       projectId,
     });
-    expect(mocks.workflows.listWorkflowRuns).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.listWorkflowRuns).toHaveBeenCalledWith({
       workspaceId,
       projectId,
       limit: 50,
-      cursor: undefined,
       filters: {status: 'failed', triggerSource: 'push'},
     });
     expect(result.runs[0]).not.toHaveProperty('trigger_payload');
@@ -185,10 +192,100 @@ describe('paged agent-access tools', () => {
     expect(result.runs[0]).not.toHaveProperty('jobs');
   });
 
+  test('omits absent filters from initial run and trigger event pages', async () => {
+    const mocks = clients();
+    mocks.projectHandlers.requireProjectForWorkspace.mockResolvedValue({project: project()});
+    mocks.workflowHandlers.listWorkflowRuns.mockResolvedValue({
+      runs: [],
+      nextCursor: null,
+      filteredTotalCount: 0,
+    });
+    mocks.triggerHandlers.listTriggerEvents.mockResolvedValue({events: [], nextCursor: null});
+
+    await tool(mocks, 'list_workflow_runs').execute({
+      context,
+      arguments: {project_id: projectId},
+    });
+    await tool(mocks, 'list_trigger_events').execute({context, arguments: {}});
+
+    expect(mocks.workflowHandlers.listWorkflowRuns).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+    });
+    expect(mocks.triggerHandlers.listTriggerEvents).toHaveBeenCalledWith({
+      workspaceId,
+      limit: 50,
+    });
+  });
+
+  test('forwards valid cursors through every paged catalog read', async () => {
+    const mocks = clients();
+    const timestampCursor = encodeTimestampIdCursor({createdAt: new Date(isoDate), id: projectId});
+    const definitionCursor = encodeStringIdCursor({value: 'Definition', id: definitionId});
+    mocks.projectHandlers.listProjectCatalogByWorkspace.mockResolvedValue({
+      projects: [],
+      nextCursor: null,
+    });
+    mocks.definitionHandlers.listDefinitionsByProject.mockResolvedValue({
+      definitions: [],
+      sync: null,
+      nextCursor: null,
+    });
+    mocks.projectHandlers.requireProjectForWorkspace.mockResolvedValue({project: project()});
+    mocks.workflowHandlers.listWorkflowRuns.mockResolvedValue({
+      runs: [],
+      nextCursor: null,
+      filteredTotalCount: 0,
+    });
+    mocks.triggerHandlers.listTriggerEvents.mockResolvedValue({events: [], nextCursor: null});
+
+    await tool(mocks, 'list_projects').execute({
+      context,
+      arguments: {cursor: timestampCursor},
+    });
+    await tool(mocks, 'list_workflow_definitions').execute({
+      context,
+      arguments: {project_id: projectId, cursor: definitionCursor},
+    });
+    await tool(mocks, 'list_workflow_runs').execute({
+      context,
+      arguments: {project_id: projectId, cursor: timestampCursor},
+    });
+    await tool(mocks, 'list_trigger_events').execute({
+      context,
+      arguments: {cursor: timestampCursor},
+    });
+
+    const timestampReadCursor = {createdAt: isoDate, id: projectId};
+    expect(mocks.projectHandlers.listProjectCatalogByWorkspace).toHaveBeenCalledWith({
+      workspaceId,
+      limit: 50,
+      cursor: timestampReadCursor,
+    });
+    expect(mocks.definitionHandlers.listDefinitionsByProject).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+      cursor: {value: 'Definition', id: definitionId},
+    });
+    expect(mocks.workflowHandlers.listWorkflowRuns).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+      cursor: timestampReadCursor,
+    });
+    expect(mocks.triggerHandlers.listTriggerEvents).toHaveBeenCalledWith({
+      workspaceId,
+      limit: 50,
+      cursor: {receivedAt: isoDate, id: projectId},
+    });
+  });
+
   test('resolves the latest annotation attempt and marks UTF-8 body truncation', async () => {
     const mocks = clients();
-    mocks.workflows.getLatestRunAttempt.mockResolvedValue({attempt: 2});
-    mocks.annotations.listAnnotationsForRunAttempt.mockResolvedValue({
+    mocks.workflowHandlers.getLatestRunAttempt.mockResolvedValue({attempt: 2});
+    mocks.annotationHandlers.listAnnotationsForRunAttempt.mockResolvedValue({
       annotations: [
         {
           id: annotationId,
@@ -213,16 +310,14 @@ describe('paged agent-access tools', () => {
     });
     const result = expectSuccess<AnnotationTestResult>(response);
 
-    expect(mocks.workflows.getLatestRunAttempt).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getLatestRunAttempt).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
     });
-    expect(mocks.annotations.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       workflowRunAttempt: 2,
-      jobExecutionId: undefined,
-      cursor: undefined,
       limit: 50,
     });
     expect(result.annotations[0]).toMatchObject({
@@ -251,13 +346,44 @@ describe('paged agent-access tools', () => {
     });
 
     expect(response).toEqual({ok: false, error: {code: 'invalid-request'}});
-    expect(mocks.workflows.getLatestRunAttempt).not.toHaveBeenCalled();
-    expect(mocks.annotations.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.workflowHandlers.getLatestRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+  });
+
+  test('forwards annotation cursors and job execution filters', async () => {
+    const mocks = clients();
+    const cursor = {value: 4, id: annotationId};
+    const jobExecutionId = uuid(10);
+    mocks.workflowHandlers.getLatestRunAttempt.mockResolvedValue({attempt: 2});
+    mocks.annotationHandlers.listAnnotationsForRunAttempt.mockResolvedValue({
+      annotations: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const response = await tool(mocks, 'get_run_annotations').execute({
+      context,
+      arguments: {
+        run_id: runId,
+        job_execution_id: jobExecutionId,
+        cursor: encodeNumberIdCursor(cursor),
+      },
+    });
+
+    expect(response).toEqual({ok: true, result: {annotations: [], next_cursor: null}});
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+      workspaceId,
+      workflowRunId: runId,
+      workflowRunAttempt: 2,
+      jobExecutionId,
+      cursor,
+      limit: 50,
+    });
   });
 
   test('maps trigger filters and projects connection metadata', async () => {
     const mocks = clients();
-    mocks.triggers.listTriggerEvents.mockResolvedValue({
+    mocks.triggerHandlers.listTriggerEvents.mockResolvedValue({
       events: [
         {
           id: triggerEventId,
@@ -295,10 +421,9 @@ describe('paged agent-access tools', () => {
       },
     });
 
-    expect(mocks.triggers.listTriggerEvents).toHaveBeenCalledWith({
+    expect(mocks.triggerHandlers.listTriggerEvents).toHaveBeenCalledWith({
       workspaceId,
       limit: 50,
-      cursor: undefined,
       filters: {
         source: ['push'],
         event: ['push'],
@@ -319,7 +444,7 @@ describe('paged agent-access tools', () => {
 
   test('keeps cross-workspace project reads 404-shaped without exposing producer details', async () => {
     const mocks = clients();
-    mocks.definitions.listDefinitionsByProject.mockRejectedValue(
+    mocks.definitionHandlers.listDefinitionsByProject.mockRejectedValue(
       createInterModuleKnownError(
         definitionsInterModuleContract.methods.listDefinitionsByProject,
         'project-workspace-mismatch',
@@ -337,7 +462,7 @@ describe('paged agent-access tools', () => {
 
   test('does not query annotations for a run from another workspace', async () => {
     const mocks = clients();
-    mocks.workflows.getLatestRunAttempt.mockResolvedValue({attempt: null});
+    mocks.workflowHandlers.getLatestRunAttempt.mockResolvedValue({attempt: null});
 
     const response = await tool(mocks, 'get_run_annotations').execute({
       context,
@@ -345,12 +470,12 @@ describe('paged agent-access tools', () => {
     });
 
     expect(response).toEqual({ok: false, error: {code: 'not-found'}});
-    expect(mocks.annotations.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
   });
 
   test('reduces an oversized annotation page and anchors its cursor to the retained item', async () => {
     const mocks = clients();
-    mocks.workflows.getLatestRunAttempt.mockResolvedValue({attempt: 1});
+    mocks.workflowHandlers.getLatestRunAttempt.mockResolvedValue({attempt: 1});
     const annotations = Array.from({length: 100}, (_, index) => ({
       id: uuid(100 + index),
       job_id: uuid(200),
@@ -363,7 +488,7 @@ describe('paged agent-access tools', () => {
       body: 'x'.repeat(9_000),
       createdAt: isoDate,
     }));
-    mocks.annotations.listAnnotationsForRunAttempt.mockResolvedValue({
+    mocks.annotationHandlers.listAnnotationsForRunAttempt.mockResolvedValue({
       annotations,
       hasMore: false,
       nextCursor: null,
@@ -390,38 +515,52 @@ describe('paged agent-access tools', () => {
 });
 
 function clients() {
+  const projectHandlers = {
+    listProjectCatalogByWorkspace: vi.fn(),
+    requireProjectForWorkspace: vi.fn(),
+  };
+  const definitionHandlers = {listDefinitionsByProject: vi.fn()};
+  const {workflows, handlers: workflowHandlers} = createTestWorkflowsClient();
+  const listAnnotationsForRunAttempt = vi.fn();
+  const triggerHandlers = {listTriggerEvents: vi.fn()};
+  const fakeClients = createFakeInterModuleClients({
+    projects: defineInterModulePresentation(projectsInterModuleContract, {
+      getProjectById: vi.fn(),
+      getProjectBySource: vi.fn(),
+      findProjectBySourceRepositoryName: vi.fn(),
+      listProjectsBySourceConnection: vi.fn(),
+      listProjectsByWorkspace: vi.fn(),
+      listProjectCatalogByWorkspace: (input) =>
+        projectHandlers.listProjectCatalogByWorkspace(input),
+      requireProjectForWorkspace: (input) => projectHandlers.requireProjectForWorkspace(input),
+      getWorkspaceProjectCounts: vi.fn(),
+      resolveCheckoutTarget: vi.fn(),
+    }),
+    definitions: defineInterModulePresentation(definitionsInterModuleContract, {
+      getDefinitionForWorkflowRun: vi.fn(),
+      listDefinitionsByProject: (input) => definitionHandlers.listDefinitionsByProject(input),
+      resolveDefinitionAtRef: vi.fn(),
+      listDefinitionsAtRef: vi.fn(),
+    }),
+    annotations: defineInterModulePresentation(annotationsInterModuleContract, {
+      replaceOrRemoveAnnotation: () => ({}),
+      listAnnotationsForRunAttempt: (input) => listAnnotationsForRunAttempt(input),
+    }),
+    triggers: defineInterModulePresentation(triggersInterModuleContract, {
+      listTriggerEvents: (input) => triggerHandlers.listTriggerEvents(input),
+      getTriggerEvent: vi.fn(),
+      getTriggerEventFacets: vi.fn(),
+    }),
+  });
+
   return {
-    projects: {
-      listProjectCatalogByWorkspace: vi.fn(),
-      requireProjectForWorkspace: vi.fn(),
-    } as unknown as ProjectsModuleClient & {
-      listProjectCatalogByWorkspace: ReturnType<typeof vi.fn>;
-      requireProjectForWorkspace: ReturnType<typeof vi.fn>;
-    },
-    definitions: {
-      listDefinitionsByProject: vi.fn(),
-    } as unknown as DefinitionsInterModuleClient & {
-      listDefinitionsByProject: ReturnType<typeof vi.fn>;
-    },
-    workflows: {
-      listWorkflowRuns: vi.fn(),
-      getLatestRunAttempt: vi.fn(),
-      getWorkflowRunOverview: vi.fn(),
-    } as unknown as WorkflowsModuleClient & {
-      listWorkflowRuns: ReturnType<typeof vi.fn>;
-      getLatestRunAttempt: ReturnType<typeof vi.fn>;
-      getWorkflowRunOverview: ReturnType<typeof vi.fn>;
-    },
-    annotations: {
-      listAnnotationsForRunAttempt: vi.fn(),
-    } as unknown as AnnotationsInterModuleClient & {
-      listAnnotationsForRunAttempt: ReturnType<typeof vi.fn>;
-    },
-    triggers: {
-      listTriggerEvents: vi.fn(),
-    } as unknown as TriggersInterModuleClient & {
-      listTriggerEvents: ReturnType<typeof vi.fn>;
-    },
+    ...fakeClients,
+    workflows,
+    projectHandlers,
+    definitionHandlers,
+    workflowHandlers,
+    annotationHandlers: {listAnnotationsForRunAttempt},
+    triggerHandlers,
   };
 }
 
