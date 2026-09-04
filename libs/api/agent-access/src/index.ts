@@ -18,6 +18,10 @@ export {
   serializeAgentAccessEnvelope,
 } from '#core/envelope.js';
 export {
+  type AgentAccessLogToolsOptions,
+  createAgentAccessLogTools,
+} from '#core/log-tools.js';
+export {
   type AgentAccessPagedToolsOptions,
   createAgentAccessTools,
 } from '#core/paged-tools.js';

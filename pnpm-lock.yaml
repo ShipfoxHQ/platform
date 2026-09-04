@@ -2145,6 +2145,9 @@ importers:
       '@shipfox/api-definitions-dto':
         specifier: workspace:*
         version: link:../definitions-dto
+      '@shipfox/api-logs-dto':
+        specifier: workspace:*
+        version: link:../logs-dto
       '@shipfox/api-projects-dto':
         specifier: workspace:*
         version: link:../projects-dto
