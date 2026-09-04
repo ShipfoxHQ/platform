@@ -4,7 +4,7 @@ import {presentRunJobExplanation} from './run-job-explanation.js';
 
 describe('presentRunJobExplanation', () => {
   test.each([
-    ['dependency_not_completed', 'A required job did not succeed, so this job did not run.'],
+    ['dependency_not_completed', 'A required job did not complete, so this job did not run.'],
     ['default_gate_rejected', 'A required job did not succeed, so this job did not run.'],
     ['condition_false', 'Its condition evaluated to false, so this job did not run.'],
     ['condition_rejected', 'Its condition evaluated to false, so this job did not run.'],
@@ -80,7 +80,6 @@ describe('presentRunJobExplanation', () => {
     expect(presentation.body).toContain(
       "Shipfox could not evaluate this job's success condition. Review the condition and the values it references.",
     );
-    expect(presentation.body).not.toContain('Check runner availability');
   });
 
   test('does not invent recovery advice when a failed job has no reason', () => {

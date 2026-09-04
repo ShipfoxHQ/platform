@@ -39,6 +39,7 @@ function explanationStyle(explanation: RunJobExplanation): RunAnnotationStyle {
 function skippedJobSummary(reason: RunJobExplanation['statusReason']): string {
   switch (reason) {
     case 'dependency_not_completed':
+      return 'A required job did not complete, so this job did not run.';
     case 'default_gate_rejected':
       return 'A required job did not succeed, so this job did not run.';
     case 'condition_false':
