@@ -183,6 +183,7 @@ describe('createIntegrationsContext', () => {
             repositoryAuthorization: 'enforced',
             adapters: {
               source_control: {
+                checkoutRepositoryAuthorization: 'enforced',
                 listRepositories: vi.fn(),
                 resolveRepository: vi.fn(),
                 listFiles: vi.fn(),

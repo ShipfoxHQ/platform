@@ -40,6 +40,7 @@ describe('createGithubIntegrationProvider', () => {
     });
 
     expect(provider.repositoryAuthorization).toBe(state);
+    expect(provider.adapters?.source_control?.checkoutRepositoryAuthorization).toBe('enforced');
   });
 
   it('shares installation-token cleanup with the direct and composed processors', async () => {

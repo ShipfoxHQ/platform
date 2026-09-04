@@ -4,6 +4,7 @@ import {
   asRecord,
   buildProviderRepositoryId,
   type CheckoutCredentials,
+  type CheckoutRepositoryAuthorizationState,
   type CheckoutSpec,
   type CheckoutTarget,
   type CreateCheckoutCredentialsInput,
@@ -103,6 +104,8 @@ function githubPushReference(
 export class GithubSourceControlProvider
   implements SourceControlProvider<GithubIntegrationConnection>
 {
+  readonly checkoutRepositoryAuthorization: CheckoutRepositoryAuthorizationState = 'enforced';
+
   constructor(
     private readonly github: GithubApiClient,
     private readonly appBotLogin: () => string | undefined = configuredGithubAppBotLogin,

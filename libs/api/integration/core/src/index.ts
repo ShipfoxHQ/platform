@@ -118,6 +118,7 @@ export type {
   CheckoutCredentialRenewal,
   CheckoutCredentials,
   CheckoutPermissions,
+  CheckoutRepositoryAuthorizationState,
   CheckoutSpec,
   CheckoutTarget,
   CheckoutTargetInput,

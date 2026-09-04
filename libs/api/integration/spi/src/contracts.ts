@@ -190,9 +190,13 @@ export interface TriggerReference {
   actor: string | null;
 }
 
+export type CheckoutRepositoryAuthorizationState = 'enforced' | 'unclassified';
+
 export interface SourceControlProvider<
   Connection extends IntegrationConnection = IntegrationConnection,
 > {
+  /** Whether integration core must authorize repository targets before checkout dispatch. */
+  checkoutRepositoryAuthorization?: CheckoutRepositoryAuthorizationState | undefined;
   listRepositories(input: ListRepositoriesInput<Connection>): Promise<RepositoryPage>;
   resolveRepository(input: ResolveRepositoryInput<Connection>): Promise<RepositorySnapshot>;
   listFiles(input: ListFilesInput<Connection>): Promise<FilePage>;

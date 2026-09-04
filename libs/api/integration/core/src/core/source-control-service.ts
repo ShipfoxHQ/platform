@@ -240,7 +240,7 @@ export function createSourceControlIntegrationService({
         connection,
         input,
         repositoryAuthorizer,
-        providerRepositoryAuthorization: registry.get(connection.provider).repositoryAuthorization,
+        checkoutRepositoryAuthorization: sourceControl.checkoutRepositoryAuthorization,
         recordRepositoryAuthorizationMetric,
         getRepositoryAuthorizationMode,
       });
@@ -272,7 +272,7 @@ export function createSourceControlIntegrationService({
         connection,
         input,
         repositoryAuthorizer,
-        providerRepositoryAuthorization: registry.get(connection.provider).repositoryAuthorization,
+        checkoutRepositoryAuthorization: sourceControl.checkoutRepositoryAuthorization,
         recordRepositoryAuthorizationMetric,
         getRepositoryAuthorizationMode,
       });
@@ -302,7 +302,7 @@ async function authorizeCheckoutTarget(params: {
   connection: IntegrationConnection;
   input: CheckoutTargetInput & {workspaceId: string};
   repositoryAuthorizer: RepositoryAuthorizer | undefined;
-  providerRepositoryAuthorization: 'enforced' | 'unclassified' | undefined;
+  checkoutRepositoryAuthorization: 'enforced' | 'unclassified' | undefined;
   recordRepositoryAuthorizationMetric: typeof recordIntegrationCheckoutRepositoryAuthorization;
   getRepositoryAuthorizationMode: (
     connection: IntegrationConnection,
@@ -311,7 +311,7 @@ async function authorizeCheckoutTarget(params: {
   const target = checkoutTarget(params.input);
   if (
     params.repositoryAuthorizer === undefined ||
-    params.providerRepositoryAuthorization !== 'enforced'
+    params.checkoutRepositoryAuthorization !== 'enforced'
   ) {
     return target;
   }

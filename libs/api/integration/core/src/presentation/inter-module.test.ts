@@ -54,6 +54,7 @@ function createClient(
         repositoryAuthorization: 'enforced',
         adapters: {
           source_control: {
+            checkoutRepositoryAuthorization: 'enforced',
             listRepositories: vi.fn(),
             resolveRepository: vi.fn(resolveRepository),
             listFiles: vi.fn(),

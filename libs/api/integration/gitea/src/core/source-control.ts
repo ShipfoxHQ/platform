@@ -5,6 +5,7 @@ import {
   asRecord,
   buildProviderRepositoryId,
   type CheckoutCredentials,
+  type CheckoutRepositoryAuthorizationState,
   type CheckoutSpec,
   type CheckoutTarget,
   type CreateCheckoutCredentialsInput,
@@ -96,6 +97,8 @@ function giteaPushReference(
 export class GiteaSourceControlProvider
   implements SourceControlProvider<GiteaIntegrationConnection>
 {
+  readonly checkoutRepositoryAuthorization: CheckoutRepositoryAuthorizationState = 'enforced';
+
   constructor(private readonly gitea: GiteaApiClient) {}
 
   async listRepositories(

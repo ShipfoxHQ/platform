@@ -7,7 +7,11 @@ import {
   IntegrationRepositoryAuthorizationError,
 } from './errors.js';
 import {createIntegrationProviderRegistry} from './providers/registry.js';
-import type {RepositorySnapshot, SourceControlProvider} from './providers/source-control.js';
+import type {
+  CheckoutRepositoryAuthorizationState,
+  RepositorySnapshot,
+  SourceControlProvider,
+} from './providers/source-control.js';
 import {
   createRepositoryAuthorizer,
   RepositoryAuthorizationTargetInvalidError,
@@ -47,6 +51,7 @@ describe('integration source-control service', () => {
       omitCheckoutSpec?: boolean;
       repositoryAuthorizer?: RepositoryAuthorizer;
       providerRepositoryAuthorization?: 'enforced' | 'unclassified';
+      checkoutRepositoryAuthorization?: CheckoutRepositoryAuthorizationState;
       recordRepositoryAuthorizationMetric?: typeof recordIntegrationCheckoutRepositoryAuthorization;
       getRepositoryAuthorizationMode?: () => 'selected' | 'all';
       connection?: IntegrationConnection;
@@ -77,6 +82,7 @@ describe('integration source-control service', () => {
         return {ref: input.ref, commit: 'a'.repeat(40)};
       },
       resolveTriggerReference: () => null,
+      checkoutRepositoryAuthorization: options.checkoutRepositoryAuthorization ?? 'enforced',
       createCheckoutSpec: async (input) => {
         await Promise.resolve();
         return {repositoryUrl: repository.cloneUrl, ref: input.ref ?? repository.defaultBranch};
@@ -361,7 +367,7 @@ describe('integration source-control service', () => {
     });
   });
 
-  it('does not authorize checkout for an unclassified provider', async () => {
+  it('does not authorize checkout for an unclassified source-control adapter', async () => {
     const createCheckoutSpec = vi.fn(async () => ({
       repositoryUrl: repository.cloneUrl,
       ref: repository.defaultBranch,
@@ -370,7 +376,7 @@ describe('integration source-control service', () => {
     const service = createService(
       {createCheckoutSpec},
       {
-        providerRepositoryAuthorization: 'unclassified',
+        checkoutRepositoryAuthorization: 'unclassified',
         repositoryAuthorizer: {
           enabled: true,
           resolveRepositoryAuthorization,
@@ -388,6 +394,38 @@ describe('integration source-control service', () => {
 
     expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
     expect(createCheckoutSpec).toHaveBeenCalledOnce();
+  });
+
+  it('authorizes checkout independently of the provider tool authorization state', async () => {
+    const createCheckoutSpec = vi.fn(async () => ({
+      repositoryUrl: repository.cloneUrl,
+      ref: repository.defaultBranch,
+    }));
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: false,
+      reason: 'repository_not_granted',
+    } as const);
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        providerRepositoryAuthorization: 'unclassified',
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        externalRepositoryId: repository.externalRepositoryId,
+      }),
+    ).rejects.toBeInstanceOf(IntegrationRepositoryAuthorizationError);
+
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledOnce();
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
   });
 
   it('uses the persisted connection repository mode by default', async () => {
