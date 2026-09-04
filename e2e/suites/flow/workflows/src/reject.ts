@@ -1,5 +1,4 @@
 import type {DefinitionSyncSummaryDto} from '@shipfox/api-definitions-dto';
-import type {WorkflowRunDto} from '@shipfox/api-workflows-dto';
 import {z} from 'zod';
 import type {Mismatch} from './expect.js';
 
@@ -20,7 +19,7 @@ export function parseRejection(raw: unknown): Rejection {
 
 export interface RejectionObservation {
   sync: DefinitionSyncSummaryDto | null;
-  runs: readonly WorkflowRunDto[];
+  runs: readonly {id: string}[];
 }
 
 function nullableString(value: string | null | undefined): string {

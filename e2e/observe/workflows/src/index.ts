@@ -1,4 +1,8 @@
 import type {
+  TriggerEventDetailResponseDto,
+  TriggerEventListResponseDto,
+} from '@shipfox/api-triggers-dto';
+import type {
   JobExecutionSummaryDto,
   StepAttemptDetailResponseDto,
   StepAttemptSummaryDto,
@@ -11,10 +15,10 @@ import type {
   WorkflowJobExecutionDetailDto,
   WorkflowJobExecutionSummariesResponseDto,
   WorkflowRunAttemptDto,
-  WorkflowRunDto,
   WorkflowRunJobListSummaryDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunLineageHeadResponseDto,
+  WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunOverviewHeaderDto,
   WorkflowRunOverviewJobsResponseDto,
@@ -125,6 +129,7 @@ export interface WaitForRunByCommitOptions extends PollingOptions {
 export interface WaitForRunByDeliveryIdOptions extends PollingOptions {
   deliveryId: string;
   projectId: string;
+  workspaceId: string;
 }
 
 export interface ObserveRunOptions extends PollingOptions {
@@ -140,33 +145,14 @@ interface ResourceTracker {
   deadline?: number | undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function headCommitSha(run: WorkflowRunDto): string | null {
-  const payload = run.trigger_payload;
-  if (!isRecord(payload) || !isRecord(payload.data)) return null;
-  const data = payload.data;
-  // Real push payloads use `after`; `headCommitSha` covers normalized test payloads.
-  if (typeof data.headCommitSha === 'string') return data.headCommitSha;
-  if (typeof data.after === 'string') return data.after;
-  if (isRecord(data.head_commit) && typeof data.head_commit.id === 'string') {
-    return data.head_commit.id;
-  }
-  return null;
-}
-
-function deliveryId(run: WorkflowRunDto): string | null {
-  const payload = run.trigger_payload;
-  if (!isRecord(payload)) return null;
-  return typeof payload.deliveryId === 'string' ? payload.deliveryId : null;
+function headCommitSha(run: WorkflowRunListItemDto): string | null {
+  return run.trigger_reference?.commit ?? null;
 }
 
 function formatRunListObserved(
   response: WorkflowRunListResponseDto | null,
   expected: string,
-  runField: (run: WorkflowRunDto) => string,
+  runField: (run: WorkflowRunListItemDto) => string,
 ): string {
   if (!response) return 'no workflow run list response observed';
   const runs = response.runs
@@ -229,12 +215,12 @@ function queryPath(path: string, params?: URLSearchParams): string {
 async function waitForRunMatching(
   options: PollingOptions & {
     expected: string;
-    match: (run: WorkflowRunDto) => boolean;
+    match: (run: WorkflowRunListItemDto) => boolean;
     projectId: string;
-    runField: (run: WorkflowRunDto) => string;
+    runField: (run: WorkflowRunListItemDto) => string;
     timeoutMessage: string;
   },
-): Promise<WorkflowRunDto> {
+): Promise<WorkflowRunListItemDto> {
   const client = makeApiClient({
     apiUrl: options.apiUrl,
     fetch: options.fetch,
@@ -243,7 +229,7 @@ async function waitForRunMatching(
   const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
   let lastResponse: WorkflowRunListResponseDto | null = null;
 
-  return await pollUntil<WorkflowRunDto>(
+  return await pollUntil<WorkflowRunListItemDto>(
     {
       timeoutMs,
       intervalMs: options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
@@ -273,7 +259,7 @@ async function waitForRunMatching(
 
 export async function waitForRunByCommit(
   options: WaitForRunByCommitOptions,
-): Promise<WorkflowRunDto> {
+): Promise<WorkflowRunListItemDto> {
   return await waitForRunMatching({
     ...options,
     expected: `expectedHeadCommitSha=${options.headCommitSha}`,
@@ -285,14 +271,76 @@ export async function waitForRunByCommit(
 
 export async function waitForRunByDeliveryId(
   options: WaitForRunByDeliveryIdOptions,
-): Promise<WorkflowRunDto> {
-  return await waitForRunMatching({
-    ...options,
-    expected: `expectedDeliveryId=${options.deliveryId}`,
-    match: (run) => deliveryId(run) === options.deliveryId,
-    runField: (run) => `deliveryId=${deliveryId(run) ?? 'null'}`,
-    timeoutMessage: 'Timed out waiting for workflow run by delivery ID',
+): Promise<WorkflowRunListItemDto> {
+  const client = makeApiClient({
+    apiUrl: options.apiUrl,
+    fetch: options.fetch,
+    token: options.token,
   });
+  const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
+  let lastResponse: TriggerEventListResponseDto | null = null;
+
+  return await pollUntil<WorkflowRunListItemDto>(
+    {
+      timeoutMs,
+      intervalMs: options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
+      maxIntervalMs: options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
+      backoffFactor: options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR,
+      ...(options.signal ? {signal: options.signal} : {}),
+      describe: () =>
+        `Timed out waiting for workflow run by delivery ID: ${formatTriggerEventsObserved(
+          lastResponse,
+          `expectedDeliveryId=${options.deliveryId}`,
+        )}`,
+    },
+    async () => {
+      options.signal?.throwIfAborted();
+      const params = new URLSearchParams({workspace_id: options.workspaceId, limit: '100'});
+      lastResponse = await client.requestJson<TriggerEventListResponseDto>(
+        'get',
+        `/trigger-events?${params}`,
+        {signal: options.signal},
+      );
+
+      const event = lastResponse.trigger_events.find(
+        (candidate) => candidate.delivery_id === options.deliveryId,
+      );
+      if (!event) return null;
+
+      const detail = await client.requestJson<TriggerEventDetailResponseDto>(
+        'get',
+        `/trigger-events/${encodeURIComponent(event.id)}`,
+        {signal: options.signal},
+      );
+      const runId = detail.decisions.find(
+        (decision) =>
+          decision.project_id === options.projectId &&
+          decision.decision === 'triggered' &&
+          decision.run_id !== null,
+      )?.run_id;
+      if (runId === undefined || runId === null) return null;
+
+      const runParams = new URLSearchParams({project_id: options.projectId, limit: '100'});
+      const runs = await client.requestJson<WorkflowRunListResponseDto>(
+        'get',
+        `/workflows/runs?${runParams}`,
+        {signal: options.signal},
+      );
+      return runs.runs.find((run) => run.id === runId) ?? null;
+    },
+  );
+}
+
+function formatTriggerEventsObserved(
+  response: TriggerEventListResponseDto | null,
+  expected: string,
+): string {
+  if (!response) return `${expected} no trigger event list response observed`;
+  const events = response.trigger_events
+    .slice(0, 5)
+    .map((event) => `deliveryId=${event.delivery_id ?? 'null'}`);
+  const more = response.trigger_events.length > events.length ? ', ...' : '';
+  return `${expected} triggerEvents=[${events.join(', ')}${more}]`;
 }
 
 async function readRunBase(options: {

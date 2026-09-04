@@ -21,6 +21,7 @@ import {
 } from './index.js';
 
 const projectId = '11111111-1111-4111-8111-111111111111';
+const workspaceId = '99999999-9999-4999-8999-999999999999';
 const definitionId = '22222222-2222-4222-8222-222222222222';
 const runId = '33333333-3333-4333-8333-333333333333';
 const attemptId = '44444444-4444-4444-8444-444444444444';
@@ -58,16 +59,12 @@ function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemD
     trigger_provider: valueOr(params.trigger_provider, 'gitea'),
     trigger_source: valueOr(params.trigger_source, 'gitea_e2e'),
     trigger_event: valueOr(params.trigger_event, 'push'),
-    trigger_payload: valueOr(params.trigger_payload, {
-      provider: 'gitea',
-      source: 'gitea_e2e',
-      event: 'push',
-      deliveryId: 'delivery-1',
-      data: {headCommitSha: 'abc123', ref: 'main'},
+    trigger_reference: valueOr(params.trigger_reference, {
+      repository: 'acme/api',
+      ref: 'refs/heads/main',
+      commit: 'abc123',
+      actor: 'e2e',
     }),
-    trigger_reference: valueOr(params.trigger_reference, null),
-    inputs: valueOr(params.inputs, null),
-    source_snapshot: valueOr(params.source_snapshot, null),
     created_at: valueOr(params.created_at, timestamp),
     updated_at: valueOr(params.updated_at, timestamp),
     started_at: valueOr(params.started_at, null),
@@ -291,7 +288,20 @@ describe('waitForRunByCommit', () => {
         calls += 1;
         return response(
           listResponse({
-            runs: [run(calls === 1 ? {trigger_payload: {data: {headCommitSha: 'other'}}} : {})],
+            runs: [
+              run(
+                calls === 1
+                  ? {
+                      trigger_reference: {
+                        repository: 'acme/api',
+                        ref: 'refs/heads/main',
+                        commit: 'other',
+                        actor: 'e2e',
+                      },
+                    }
+                  : {},
+              ),
+            ],
           }),
         );
       },
@@ -304,12 +314,21 @@ describe('waitForRunByCommit', () => {
     expect(calls).toBe(2);
   });
 
-  test('correlates on a raw VCS push payload where the head commit is `after`', async () => {
+  test('correlates on the bounded trigger reference commit', async () => {
     const result = await waitForRunByCommit({
       fetch: () =>
         response(
           listResponse({
-            runs: [run({trigger_payload: {data: {ref: 'refs/heads/main', after: 'abc123'}}})],
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'abc123',
+                  actor: 'e2e',
+                },
+              }),
+            ],
           }),
         ),
       headCommitSha: 'abc123',
@@ -323,7 +342,20 @@ describe('waitForRunByCommit', () => {
   test('times out with a bounded run list summary', async () => {
     const result = waitForRunByCommit({
       fetch: () =>
-        response(listResponse({runs: [run({trigger_payload: {data: {headCommitSha: 'other'}}})]})),
+        response(
+          listResponse({
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'other',
+                  actor: 'e2e',
+                },
+              }),
+            ],
+          }),
+        ),
       headCommitSha: 'abc123',
       initialDelayMs: 1,
       projectId,
@@ -351,37 +383,60 @@ describe('waitForRunByCommit', () => {
 });
 
 describe('waitForRunByDeliveryId', () => {
-  test('polls until a run with the matching delivery ID appears', async () => {
+  test('polls until the matching trigger event resolves to a run', async () => {
     let calls = 0;
+    const eventId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const result = await waitForRunByDeliveryId({
-      fetch: () => {
-        calls += 1;
-        return response(
-          listResponse({
-            runs: [
-              run(calls === 1 ? {trigger_payload: {deliveryId: 'other-delivery', data: {}}} : {}),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname === '/trigger-events') {
+          calls += 1;
+          return response({
+            trigger_events: [
+              {
+                id: eventId,
+                delivery_id: calls === 1 ? 'other-delivery' : 'delivery-1',
+              },
             ],
-          }),
-        );
+            next_cursor: null,
+          });
+        }
+        if (url.pathname === `/trigger-events/${eventId}`) {
+          return response({
+            decisions: [{project_id: projectId, decision: 'triggered', run_id: runId}],
+          });
+        }
+        if (url.pathname === '/workflows/runs') {
+          return response(listResponse({runs: [run()]}));
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`);
       },
       deliveryId: 'delivery-1',
       initialDelayMs: 1,
       projectId,
+      workspaceId,
       token: 'user-token',
     });
     expect(result.id).toBe(runId);
     expect(calls).toBe(2);
   });
 
-  test('times out with a bounded run list summary', async () => {
+  test('times out with a bounded trigger event summary', async () => {
     const result = waitForRunByDeliveryId({
       fetch: () =>
-        response(
-          listResponse({runs: [run({trigger_payload: {deliveryId: 'other-delivery', data: {}}})]}),
-        ),
+        response({
+          trigger_events: [
+            {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              delivery_id: 'other-delivery',
+            },
+          ],
+          next_cursor: null,
+        }),
       deliveryId: 'delivery-1',
       initialDelayMs: 1,
       projectId,
+      workspaceId,
       timeoutMs: 1,
       token: 'user-token',
     });

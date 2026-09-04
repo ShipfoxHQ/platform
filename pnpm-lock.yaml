@@ -1171,6 +1171,9 @@ importers:
 
   e2e/observe/workflows:
     dependencies:
+      '@shipfox/api-triggers-dto':
+        specifier: workspace:*
+        version: link:../../../libs/api/triggers-dto
       '@shipfox/api-workflows-dto':
         specifier: workspace:*
         version: link:../../../libs/api/workflows-dto
