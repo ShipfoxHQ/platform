@@ -90,6 +90,14 @@ export async function persistMaterializedRunGraph(
         finishedAt: jobExecution.finishedAt,
         statusReason: jobExecution.statusReason,
         statusReasonMessage: jobExecution.statusReasonMessage,
+        queuedAt: jobExecution.queuedAt,
+        startedAt: jobExecution.startedAt,
+        runnerLabels: jobExecution.runnerLabels,
+        templateKey: jobExecution.templateKey,
+        provisionerId: jobExecution.provisionerId,
+        provisionerScope: jobExecution.provisionerScope,
+        providerKind: jobExecution.providerKind,
+        launchKind: jobExecution.launchKind,
       });
     }
   }

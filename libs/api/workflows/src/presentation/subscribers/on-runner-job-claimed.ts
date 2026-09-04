@@ -22,6 +22,14 @@ export async function onRunnerJobClaimed(payload: RunnerJobClaimedEvent): Promis
   await recordJobExecutionStartedAt({
     jobExecutionId: payload.jobExecutionId,
     startedAt: new Date(payload.claimedAt),
+    runnerIdentity: {
+      runnerLabels: payload.runnerLabels ?? null,
+      templateKey: payload.templateKey ?? null,
+      provisionerId: payload.provisionerId ?? null,
+      provisionerScope: payload.provisionerScope ?? null,
+      providerKind: payload.providerKind ?? null,
+      launchKind: payload.launchKind ?? null,
+    },
   });
 
   const handle = temporalClient().workflow.getHandle(`job:${payload.jobId}`);

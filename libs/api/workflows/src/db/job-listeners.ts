@@ -116,6 +116,12 @@ const listenerPriorExecutionSelection = {
   sequence: jobExecutions.sequence,
   name: jobExecutions.name,
   runner: jobExecutions.runner,
+  runnerLabels: jobExecutions.runnerLabels,
+  templateKey: jobExecutions.templateKey,
+  provisionerId: jobExecutions.provisionerId,
+  provisionerScope: jobExecutions.provisionerScope,
+  providerKind: jobExecutions.providerKind,
+  launchKind: jobExecutions.launchKind,
   status: jobExecutions.status,
   statusReason: jobExecutions.statusReason,
   statusReasonMessage: jobExecutions.statusReasonMessage,
@@ -669,6 +675,14 @@ export async function settleListenerJobExecution(params: {
       finishedAt: execution.finishedAt,
       statusReason: execution.statusReason,
       statusReasonMessage: execution.statusReasonMessage,
+      queuedAt: execution.queuedAt,
+      startedAt: execution.startedAt,
+      runnerLabels: execution.runnerLabels,
+      templateKey: execution.templateKey,
+      provisionerId: execution.provisionerId,
+      provisionerScope: execution.provisionerScope,
+      providerKind: execution.providerKind,
+      launchKind: execution.launchKind,
     });
     await bulkUpdateStepStatuses(
       {jobExecutionId: params.jobExecutionId, status: params.status},
@@ -914,6 +928,14 @@ async function persistMaterializedListenerExecution(
       finishedAt: execution.finishedAt,
       statusReason: execution.statusReason,
       statusReasonMessage: execution.statusReasonMessage,
+      queuedAt: execution.queuedAt,
+      startedAt: execution.startedAt,
+      runnerLabels: execution.runnerLabels,
+      templateKey: execution.templateKey,
+      provisionerId: execution.provisionerId,
+      provisionerScope: execution.provisionerScope,
+      providerKind: execution.providerKind,
+      launchKind: execution.launchKind,
     });
   }
 
@@ -977,6 +999,14 @@ async function persistRejectedMaterializedListenerExecution(
     finishedAt: execution.finishedAt,
     statusReason: execution.statusReason,
     statusReasonMessage: execution.statusReasonMessage,
+    queuedAt: execution.queuedAt,
+    startedAt: execution.startedAt,
+    runnerLabels: execution.runnerLabels,
+    templateKey: execution.templateKey,
+    provisionerId: execution.provisionerId,
+    provisionerScope: execution.provisionerScope,
+    providerKind: execution.providerKind,
+    launchKind: execution.launchKind,
   });
   await tx
     .update(jobListenerEvents)

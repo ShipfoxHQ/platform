@@ -150,6 +150,14 @@ async function terminateRunAttempt(
         finishedAt: jobExecutions.finishedAt,
         statusReason: jobExecutions.statusReason,
         statusReasonMessage: jobExecutions.statusReasonMessage,
+        queuedAt: jobExecutions.queuedAt,
+        startedAt: jobExecutions.startedAt,
+        runnerLabels: jobExecutions.runnerLabels,
+        templateKey: jobExecutions.templateKey,
+        provisionerId: jobExecutions.provisionerId,
+        provisionerScope: jobExecutions.provisionerScope,
+        providerKind: jobExecutions.providerKind,
+        launchKind: jobExecutions.launchKind,
       });
     for (const jobExecution of terminatedExecutions) {
       await writeJobExecutionTerminatedOutbox(tx, {
@@ -159,6 +167,14 @@ async function terminateRunAttempt(
         finishedAt: jobExecution.finishedAt,
         statusReason: jobExecution.statusReason,
         statusReasonMessage: jobExecution.statusReasonMessage,
+        queuedAt: jobExecution.queuedAt,
+        startedAt: jobExecution.startedAt,
+        runnerLabels: jobExecution.runnerLabels,
+        templateKey: jobExecution.templateKey,
+        provisionerId: jobExecution.provisionerId,
+        provisionerScope: jobExecution.provisionerScope,
+        providerKind: jobExecution.providerKind,
+        launchKind: jobExecution.launchKind,
       });
       await bulkUpdateStepStatuses(
         {jobExecutionId: jobExecution.id, status: spec.terminalStatus},

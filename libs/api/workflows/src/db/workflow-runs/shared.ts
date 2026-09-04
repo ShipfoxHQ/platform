@@ -60,19 +60,25 @@ export async function getWorkflowContextForJob(
   tx: Tx,
 ): Promise<{
   jobId: string;
+  jobKey: string;
   workflowRunId: string;
   workflowRunAttemptId: string;
   workspaceId: string;
   projectId: string;
+  definitionId: string;
+  runNumber: number;
   vars: Record<string, string> | null;
 }> {
   const rows = await tx
     .select({
       jobId: jobs.id,
+      jobKey: jobs.key,
       workflowRunId: workflowRuns.id,
       workflowRunAttemptId: workflowRunAttempts.id,
       workspaceId: workflowRuns.workspaceId,
       projectId: workflowRuns.projectId,
+      definitionId: workflowRuns.definitionId,
+      runNumber: workflowRuns.number,
       vars: workflowRunAttempts.vars,
     })
     .from(jobs)

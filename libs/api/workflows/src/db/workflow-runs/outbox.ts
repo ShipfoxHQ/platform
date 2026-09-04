@@ -37,6 +37,9 @@ export async function writeJobExecutionQueuedOutbox(
       projectId: identity.projectId,
       requiredLabels: params.requiredLabels,
       queuedAt: params.queuedAt.toISOString(),
+      jobKey: identity.jobKey,
+      definitionId: identity.definitionId,
+      runNumber: identity.runNumber,
     },
   });
 }
@@ -50,6 +53,18 @@ export async function writeJobExecutionTerminatedOutbox(
     finishedAt?: Date | null | undefined;
     statusReason: JobStatusReason | null;
     statusReasonMessage?: string | null | undefined;
+    // Runner identity and lifecycle timestamps carried on the job_executions row, so the
+    // terminated event is a self-sufficient usage record. Null when the execution was never
+    // queued or never claimed, and startedAt/runner identity can also be null for a claimed
+    // execution if the runners.job.claimed projection has not landed yet (see events.ts).
+    queuedAt: Date | null;
+    startedAt: Date | null;
+    runnerLabels: string[] | null;
+    templateKey: string | null;
+    provisionerId: string | null;
+    provisionerScope: string | null;
+    providerKind: string | null;
+    launchKind: string | null;
   },
 ): Promise<void> {
   if (
@@ -68,14 +83,26 @@ export async function writeJobExecutionTerminatedOutbox(
       jobExecutionId: params.jobExecutionId,
       workflowRunId: identity.workflowRunId,
       workflowRunAttemptId: identity.workflowRunAttemptId,
+      workspaceId: identity.workspaceId,
+      projectId: identity.projectId,
+      definitionId: identity.definitionId,
+      jobKey: identity.jobKey,
       status: params.status,
       finishedAt: (params.finishedAt ?? new Date()).toISOString(),
+      queuedAt: params.queuedAt ? params.queuedAt.toISOString() : null,
+      startedAt: params.startedAt ? params.startedAt.toISOString() : null,
       statusReason: params.statusReason,
       cancellationReason:
         params.statusReason === 'run_cancelled' || params.statusReason === 'timed_out'
           ? params.statusReason
           : null,
       statusReasonMessage: params.statusReasonMessage ?? null,
+      runnerLabels: params.runnerLabels,
+      templateKey: params.templateKey,
+      provisionerId: params.provisionerId,
+      provisionerScope: params.provisionerScope,
+      providerKind: params.providerKind,
+      launchKind: params.launchKind,
     },
   });
 }
