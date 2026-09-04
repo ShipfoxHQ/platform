@@ -116,7 +116,11 @@ export class ProviderInstallScreen {
 }
 
 export class ConnectionDetailsScreen {
-  constructor(private readonly page: Page) {}
+  private readonly toast: Toast;
+
+  constructor(private readonly page: Page) {
+    this.toast = new Toast(page);
+  }
 
   async goto(workspaceSlug: string, connectionSlug: string): Promise<void> {
     await this.page.goto(
@@ -146,6 +150,11 @@ export class ConnectionDetailsScreen {
 
   saveButton(): Locator {
     return this.page.getByRole('button', {name: 'Save changes'});
+  }
+
+  async saveMode(): Promise<void> {
+    await this.saveButton().click();
+    await this.toast.expectVisible('Access mode saved.');
   }
 
   providerNotice(): Locator {

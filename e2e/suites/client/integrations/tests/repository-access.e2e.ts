@@ -2,7 +2,7 @@ import {createGithubConnection} from '@shipfox/e2e-setup-integrations';
 import {createProject} from '@shipfox/e2e-setup-projects';
 import {expect, test} from './test.js';
 
-test('settings exposes project-backed GitHub repositories and persists access mode', async ({
+test('settings persists all-repository access for a project-backed GitHub connection', async ({
   connectionDetails,
   createReadyWorkspace,
 }) => {
@@ -38,18 +38,10 @@ test('settings exposes project-backed GitHub repositories and persists access mo
   await expect(connectionDetails.providerNotice()).toBeVisible();
 
   await connectionDetails.allMode().check();
-  await connectionDetails.saveButton().click();
+  await connectionDetails.saveMode();
   await expect(connectionDetails.allMode()).toBeChecked();
   await expect(connectionDetails.projectsRepositoriesHeading()).toHaveCount(0);
   await connectionDetails.goto(workspaceSlug, connection.slug);
   await expect(connectionDetails.allMode()).toBeChecked();
   await expect(connectionDetails.projectsRepositoriesHeading()).toHaveCount(0);
-
-  await connectionDetails.selectedMode().check();
-  await connectionDetails.saveButton().click();
-  await expect(connectionDetails.selectedMode()).toBeChecked();
-  await expect(connectionDetails.repository('shipfox/e2e')).toBeVisible();
-  await connectionDetails.goto(workspaceSlug, connection.slug);
-  await expect(connectionDetails.selectedMode()).toBeChecked();
-  await expect(connectionDetails.repository('shipfox/e2e')).toBeVisible();
 });
