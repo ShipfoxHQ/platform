@@ -1,4 +1,3 @@
-import type {Step} from '#core/workflow-run.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -10,7 +9,6 @@ import {
   jobSucceededSummary,
   outputFailureDescriptionForExecution,
   skippedJobDescription,
-  toSelectedAttemptError,
 } from './job-empty-states.js';
 
 describe('jobSucceededSummary', () => {
@@ -31,99 +29,6 @@ describe('jobSucceededSummary', () => {
     if (!execution) throw new Error('Expected a job execution');
 
     expect(jobSucceededSummary(job, execution)).toBe('1 step succeeded');
-  });
-});
-
-describe('toSelectedAttemptError', () => {
-  test('preserves managed-provider metadata from a historical attempt', () => {
-    const error = toSelectedAttemptError({type: 'agent'} as Step, {
-      message: 'This instance only supports provider `shipfox`.',
-      code: 'workspace-providers-disabled',
-      managedProviderId: 'shipfox',
-      reason: 'agent_config_invalid',
-      agentConfigIssue: 'provider_unsupported',
-    });
-
-    expect(error).toMatchObject({
-      code: 'workspace-providers-disabled',
-      managedProviderId: 'shipfox',
-      reason: 'agent_config_invalid',
-      agentConfigIssue: 'provider_unsupported',
-    });
-  });
-
-  test.each([
-    'setup',
-    'checkout',
-    'agent',
-    'run',
-  ] as const)('derives the error category for %s steps', (type) => {
-    for (const reason of [
-      'checkout_auth_failed',
-      'checkout_unavailable',
-      'checkout_failed',
-      'checkout_path_invalid',
-      'checkout_destination_occupied',
-      'git_unavailable',
-      'workspace_prep_failed',
-      'setup_aborted',
-    ] as const) {
-      const error = toSelectedAttemptError({type} as Step, {
-        message: 'Checkout failed',
-        reason,
-      });
-
-      expect(error).toMatchObject({
-        reason,
-        category: 'setup',
-      });
-    }
-  });
-
-  test.each([
-    ['setup', 'setup'],
-    ['checkout', 'setup'],
-    ['agent', 'user'],
-    ['run', 'user'],
-  ] as const)('keeps config failures in the expected category for %s steps', (type, category) => {
-    const error = toSelectedAttemptError({type} as Step, {
-      message: 'Command failed',
-      reason: 'config_unresolvable',
-    });
-
-    expect(error).toMatchObject({reason: 'config_unresolvable', category});
-  });
-
-  test.each([
-    'execution_payload_too_large',
-    'step_result_too_large',
-  ] as const)('preserves bounded failure reason %s', (reason) => {
-    const error = toSelectedAttemptError({type: 'run'} as Step, {
-      message: 'Bounded workflow value exceeded its limit',
-      reason,
-    });
-
-    expect(error).toMatchObject({reason, category: 'user'});
-  });
-
-  test('preserves structured payload limits from a historical attempt', () => {
-    const error = toSelectedAttemptError({type: 'run'} as Step, {
-      message: 'Resolved configuration exceeds execution payload limit',
-      reason: 'execution_payload_too_large',
-      field: 'resolved_config',
-      retryable: false,
-      limitBytes: 65_536,
-      measured_bytes: 75_644,
-      overshootBytes: 10_108,
-    });
-
-    expect(error).toMatchObject({
-      field: 'resolved_config',
-      retryable: false,
-      limitBytes: 65_536,
-      measuredBytes: 75_644,
-      overshootBytes: 10_108,
-    });
   });
 });
 
@@ -208,7 +113,7 @@ describe('materialized output failure descriptions', () => {
           status: 'failed',
           status_reason: 'output_too_large',
           status_reason_message:
-            'Workflow diagnostic field "trigger_events" measured 97834 bytes, exceeding the 65536 byte limit.',
+            'Workflow diagnostic field "trigger_events" exceeds the size limit of 65536 bytes (measured 97834 bytes; overshoot 32298 bytes).',
           steps: [],
         }),
       ],

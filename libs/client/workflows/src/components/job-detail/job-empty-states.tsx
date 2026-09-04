@@ -1,13 +1,7 @@
-import {deriveStepErrorCategory} from '@shipfox/api-workflows-dto';
 import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import type {Job, JobExecution, Step, StepError} from '#core/workflow-run.js';
-import {
-  AGENT_CONFIG_ISSUES,
-  deriveJobDisplayStatus,
-  deriveJobExecutionDisplayStatus,
-  STEP_ERROR_REASONS,
-} from '#core/workflow-run.js';
+import {deriveJobDisplayStatus, deriveJobExecutionDisplayStatus} from '#core/workflow-run.js';
 import type {StepListEmptyState} from '../step-list/index.js';
 import {formatJobExecutionTime} from './job-execution-time-text.js';
 
@@ -283,92 +277,6 @@ export function CarriedOverStepPanel() {
       variant="panel"
     />
   );
-}
-
-export function toSelectedAttemptError(
-  step: Step,
-  error: Record<string, unknown> | null,
-): StepError | null {
-  if (error === null) return null;
-
-  const parsedReason = parsedStepErrorReason(error.reason);
-  const rawAgentConfigIssue = error.agentConfigIssue ?? error.agent_config_issue;
-  const agentConfigIssue = parsedAgentConfigIssue(rawAgentConfigIssue);
-  const exitCode = error.exitCode ?? error.exit_code;
-  const resolvedReason = parsedReason ?? (agentConfigIssue ? 'agent_config_invalid' : undefined);
-
-  if (resolvedReason === undefined) return null;
-
-  const stringFields = selectedErrorStringFields(error);
-  const managedProviderId = selectedManagedProviderId(error);
-  const sizeFields = selectedErrorSizeFields(error);
-  const retryable = typeof error.retryable === 'boolean' ? error.retryable : undefined;
-
-  return {
-    message: typeof error.message === 'string' ? error.message : '',
-    ...stringFields,
-    ...sizeFields,
-    ...(managedProviderId === undefined ? {} : {managedProviderId}),
-    ...(retryable === undefined ? {} : {retryable}),
-    exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
-    signal: typeof error.signal === 'string' ? error.signal : undefined,
-    reason: resolvedReason,
-    agentConfigIssue,
-    category: deriveStepErrorCategory(step.type, resolvedReason),
-  };
-}
-
-function selectedErrorSizeFields(
-  error: Record<string, unknown>,
-): Pick<StepError, 'limitBytes' | 'measuredBytes' | 'overshootBytes'> {
-  const limitBytes = selectedPositiveNumber(error, 'limitBytes', 'limit_bytes');
-  const measuredBytes = selectedPositiveNumber(error, 'measuredBytes', 'measured_bytes');
-  const overshootBytes = selectedPositiveNumber(error, 'overshootBytes', 'overshoot_bytes');
-  return {
-    ...(limitBytes === undefined ? {} : {limitBytes}),
-    ...(measuredBytes === undefined ? {} : {measuredBytes}),
-    ...(overshootBytes === undefined ? {} : {overshootBytes}),
-  };
-}
-
-function selectedPositiveNumber(
-  error: Record<string, unknown>,
-  camelCaseKey: string,
-  snakeCaseKey: string,
-): number | undefined {
-  const value = error[camelCaseKey] ?? error[snakeCaseKey];
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function selectedErrorStringFields(
-  error: Record<string, unknown>,
-): Pick<StepError, 'code' | 'field' | 'source'> {
-  return {
-    ...(typeof error.code === 'string' ? {code: error.code} : {}),
-    ...(typeof error.field === 'string' ? {field: error.field} : {}),
-    ...(typeof error.source === 'string' ? {source: error.source} : {}),
-  };
-}
-
-function parsedStepErrorReason(value: unknown): NonNullable<StepError['reason']> | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (!STEP_ERROR_REASONS.has(value as StepError['reason'] & string)) return undefined;
-  return value as NonNullable<StepError['reason']>;
-}
-
-function parsedAgentConfigIssue(
-  value: unknown,
-): NonNullable<StepError['agentConfigIssue']> | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (!AGENT_CONFIG_ISSUES.has(value as NonNullable<StepError['agentConfigIssue']>))
-    return undefined;
-  return value as NonNullable<StepError['agentConfigIssue']>;
-}
-
-function selectedManagedProviderId(error: Record<string, unknown>): string | undefined {
-  if (typeof error.managedProviderId === 'string') return error.managedProviderId;
-  if (typeof error.managed_provider_id === 'string') return error.managed_provider_id;
-  return undefined;
 }
 
 export function isAgentConfigFailure(step: Step, error: StepError | null): boolean {

@@ -308,6 +308,7 @@ function toLegacyStepAttempt(
     outputs: null,
     response: null,
     error: attempt.error ? {...attempt.error} : null,
+    stepError: attempt.error,
     gateResult: attempt.gateResult,
     restartFeedback: null,
     invocations: [],

@@ -33,7 +33,11 @@ import type {
   StepError,
   WorkflowDiagnosticUnavailableField,
 } from '#core/workflow-run.js';
-import {presentStepAttemptDiagnostics} from '#core/workflow-run.js';
+import {
+  isWorkflowConfigurationPayloadField,
+  presentStepAttemptDiagnostics,
+  workflowPayloadFieldLabel,
+} from '#core/workflow-run.js';
 import {useStepAttemptDetailQuery} from '#hooks/api/step-attempt-detail.js';
 import {workflowRunSearchParams} from '#routes/inputs.js';
 import {humanizeStatus, type StepListEntryModel} from '../step-list/step-list-model.js';
@@ -42,7 +46,6 @@ import {
   DiagnosticUnavailableAnnouncement,
   DiagnosticUnavailableField,
 } from './diagnostic-unavailable.js';
-import {toSelectedAttemptError} from './job-empty-states.js';
 import {JsonCode, type JsonCodeEntry, JsonCodeTabs} from './json-code.js';
 
 export interface StepInspectorSheetProps {
@@ -70,7 +73,7 @@ export function StepInspectorSheet({
   annotationCount,
   onViewLogs,
 }: StepInspectorSheetProps) {
-  const error = selectedStepError(entry.step, entry.error);
+  const error = entry.stepError ?? entry.step.error;
   const inspectorQuery = useStepAttemptDetailQuery(entry.step.id, entry.attempt, {
     enabled: open,
     polling: open && entry.status === 'running',
@@ -166,7 +169,7 @@ function StepFailureCallout({
           <div className="flex min-w-0 flex-wrap items-center gap-x-inline gap-y-tight">
             <div className="flex min-w-0 flex-1 flex-col gap-tight">
               <span>{description}</span>
-              <FailureMessage reason={reason} message={error?.message} />
+              <FailureMessage reason={reason} error={error} />
               <WorkflowPayloadSizeDetails reason={reason} error={error} />
             </div>
             <Code as="span" variant="label" className="text-tag-error-text">
@@ -195,13 +198,14 @@ function StepFailureCallout({
 
 function FailureMessage({
   reason,
-  message,
+  error,
 }: {
   reason: string | JobStatusReason;
-  message: string | undefined;
+  error: StepError | null;
 }) {
-  if (!message || isWorkflowPayloadFailure(reason)) return null;
-  return <span className="text-foreground-neutral-muted">{message}</span>;
+  if (!error?.message) return null;
+  if (isWorkflowPayloadFailure(reason) && hasWorkflowPayloadDetails(error)) return null;
+  return <span className="text-foreground-neutral-muted">{error.message}</span>;
 }
 
 function FailureRecoveryLinks({
@@ -307,11 +311,12 @@ function StepInspector({
   const detail = query.data;
   const hasAnnotations = annotationCount !== undefined && annotationCount > 0;
   const configurationSectionId = useId();
+  const reason = error?.reason ?? step.statusReason;
   const hasConfigurationDetail = Boolean(
     detail && inspectorHasInputValues(detail.authoredConfig, detail.config),
   );
   const onViewConfiguration =
-    hasConfigurationDetail && isConfigurationPayloadFailure(error)
+    hasConfigurationDetail && isConfigurationPayloadFailure(reason, error)
       ? () => {
           const section = document.getElementById(configurationSectionId);
           section?.scrollIntoView?.({behavior: 'smooth', block: 'nearest'});
@@ -617,11 +622,12 @@ function ToolStepDetails({
 }) {
   const result = toolResult(attempt);
   const mappedOutputs = toolMappedOutputs(attempt);
+  const hasConfiguration = inspectorHasInputValues(detail.authoredConfig, detail.config);
   return (
     <>
-      {countConfigValues(detail.authoredConfig) > 0 ? (
-        <InspectorSection title="Authored configuration" id={configurationSectionId}>
-          <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={null} />
+      {hasConfiguration ? (
+        <InspectorSection title="Configuration" id={configurationSectionId}>
+          <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={detail.config} />
         </InspectorSection>
       ) : null}
       <InspectorSection title="Arguments">
@@ -849,7 +855,7 @@ function InspectorSection({
     <section
       id={id}
       tabIndex={id ? -1 : undefined}
-      className="flex min-w-0 flex-col gap-inline rounded-6 focus:outline-none focus:ring-2 focus:ring-border-interactive-base focus:ring-offset-4"
+      className="flex min-w-0 flex-col gap-inline rounded-6 focus:outline-none focus:ring-2 focus:ring-border-highlights-interactive focus:ring-offset-4"
       aria-label={title}
     >
       <Text size="xs" bold className="text-foreground-neutral-base">
@@ -970,13 +976,6 @@ function EmptyInspector() {
       No additional troubleshooting details were recorded.
     </Text>
   );
-}
-
-function selectedStepError(
-  step: Step,
-  attemptError: Record<string, unknown> | null,
-): StepError | null {
-  return toSelectedAttemptError(step, attemptError) ?? step.error;
 }
 
 function failureTitle(reason: string | JobStatusReason): string {
@@ -1171,13 +1170,12 @@ function isWorkflowPayloadFailure(reason: string | JobStatusReason): boolean {
   );
 }
 
-function isConfigurationPayloadFailure(error: StepError | null): boolean {
-  if (error?.reason !== 'execution_payload_too_large') return false;
+function isConfigurationPayloadFailure(
+  reason: string | JobStatusReason | null,
+  error: StepError | null,
+): boolean {
   return (
-    error.field === 'authored_config' ||
-    error.field === 'resolved_config' ||
-    error.field === 'config_plan' ||
-    error.field === 'condition'
+    reason === 'execution_payload_too_large' && isWorkflowConfigurationPayloadField(error?.field)
   );
 }
 
@@ -1202,6 +1200,17 @@ function workflowPayloadFailureGuidance(
   }
   if (reason === 'step_result_too_large') {
     const resultFieldLabel = error?.field ? workflowPayloadFieldLabel(error.field) : 'Step result';
+    if (
+      error?.field === 'error' ||
+      error?.field === 'gate_result' ||
+      error?.field === 'restart_feedback'
+    ) {
+      return {
+        title: `${resultFieldLabel} exceeds the step result limit`,
+        description:
+          'Shipfox recorded the step outcome, but this generated detail exceeded its retention limit. Review the bounded details available below.',
+      };
+    }
     return {
       title: `${resultFieldLabel} exceeds the step result limit`,
       description:
@@ -1228,7 +1237,10 @@ function WorkflowPayloadSizeDetails({
   if (!isWorkflowPayloadFailure(reason) || !error) return null;
   const measuredBytes = validByteCount(error.measuredBytes);
   const limitBytes = validByteCount(error.limitBytes);
-  if (!error.field && measuredBytes === null && limitBytes === null) return null;
+  const overshootBytes = validByteCount(error.overshootBytes);
+  if (!error.field && measuredBytes === null && limitBytes === null && overshootBytes === null) {
+    return null;
+  }
 
   return (
     <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-inline gap-y-tight text-xs text-foreground-neutral-muted">
@@ -1254,42 +1266,29 @@ function WorkflowPayloadSizeDetails({
           </dd>
         </>
       ) : null}
+      {overshootBytes !== null ? (
+        <>
+          <dt>Over by</dt>
+          <dd className="font-code text-foreground-neutral-base">
+            {overshootBytes.toLocaleString()} bytes
+          </dd>
+        </>
+      ) : null}
     </dl>
+  );
+}
+
+function hasWorkflowPayloadDetails(error: StepError): boolean {
+  return (
+    error.field !== undefined ||
+    validByteCount(error.measuredBytes) !== null ||
+    validByteCount(error.limitBytes) !== null ||
+    validByteCount(error.overshootBytes) !== null
   );
 }
 
 function validByteCount(value: number | undefined): number | null {
   return value !== undefined && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function workflowPayloadFieldLabel(field: string | undefined): string {
-  switch (field) {
-    case 'authored_config':
-      return 'Authored configuration';
-    case 'resolved_config':
-      return 'Resolved configuration';
-    case 'config_plan':
-      return 'Configuration plan';
-    case 'condition':
-      return 'Condition input';
-    case 'listener_batch':
-    case 'trigger_events':
-      return 'Trigger events';
-    case 'response':
-      return 'Response';
-    case 'output':
-      return 'Step output';
-    case 'outputs':
-      return 'Outputs';
-    case 'error':
-      return 'Failure details';
-    case 'gate_result':
-      return 'Gate result';
-    case 'restart_feedback':
-      return 'Restart feedback';
-    default:
-      return 'Workflow value';
-  }
 }
 
 function sourceLinkForFailure(reason: string | JobStatusReason): boolean {

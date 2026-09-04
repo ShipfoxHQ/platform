@@ -3,6 +3,7 @@ import type {
   WorkflowDiagnosticField,
   WorkflowDiagnosticUnavailableReason,
 } from '#core/workflow-run.js';
+import {workflowPayloadFieldLabel} from '#core/workflow-run.js';
 
 export function DiagnosticUnavailableField({
   field,
@@ -18,10 +19,11 @@ export function DiagnosticUnavailableField({
   return (
     <div className="flex min-w-0 flex-col gap-tight rounded-6 border border-tag-warning-border bg-tag-warning-bg p-panel-compact">
       <Text size="xs" bold className="text-foreground-neutral-base">
-        {diagnosticFieldLabel(field)} {copy.titleSuffix}
+        {workflowPayloadFieldLabel(field)} {copy.titleSuffix}
       </Text>
       <Text size="xs" className="text-tag-warning-text">
-        {copy.description} Measured {storedBytes.toLocaleString()} bytes.
+        {copy.description} Measured{' '}
+        <span className="font-code">{storedBytes.toLocaleString()} bytes</span>.
       </Text>
     </div>
   );
@@ -43,7 +45,7 @@ function diagnosticUnavailableCopy(reason: WorkflowDiagnosticUnavailableReason):
     case 'legacy_value_exceeds_inline_limit':
       return {
         titleSuffix: 'is unavailable in this view',
-        description: 'This value was recorded by an older server and exceeds the display limit.',
+        description: 'The complete value exceeds the display limit and is not shown here.',
       };
     case 'value_exceeds_inline_limit':
       return {
@@ -56,38 +58,5 @@ function diagnosticUnavailableCopy(reason: WorkflowDiagnosticUnavailableReason):
         titleSuffix: 'was not fully recorded',
         description: 'Shipfox preserved the workflow outcome and omitted the oversized detail.',
       };
-  }
-}
-
-export function diagnosticFieldLabel(field: WorkflowDiagnosticField): string {
-  switch (field) {
-    case 'authored_config':
-      return 'Authored configuration';
-    case 'config':
-      return 'Resolved configuration';
-    case 'evaluation_trace':
-    case 'job_evaluation_trace':
-    case 'execution_evaluation_trace':
-      return 'Evaluation';
-    case 'output':
-      return 'Step output';
-    case 'outputs':
-      return 'Outputs';
-    case 'response':
-      return 'Response';
-    case 'error':
-      return 'Failure details';
-    case 'gate_result':
-      return 'Gate result';
-    case 'restart_feedback':
-      return 'Restart feedback';
-    case 'job_outputs':
-      return 'Job outputs';
-    case 'execution_outputs':
-      return 'Execution outputs';
-    case 'condition':
-      return 'Condition';
-    case 'trigger_events':
-      return 'Trigger events';
   }
 }

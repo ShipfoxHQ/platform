@@ -74,7 +74,12 @@ export type {
   WorkflowJobPage,
   WorkflowJobStepAttemptSummary,
   WorkflowJobStepSummary,
+  WorkflowPayloadField,
   WorkflowStepAttemptPage,
+} from './entities/workflow-job-detail.js';
+export {
+  isWorkflowConfigurationPayloadField,
+  workflowPayloadFieldLabel,
 } from './entities/workflow-job-detail.js';
 export type {
   DevRunLaunch,

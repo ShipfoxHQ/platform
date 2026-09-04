@@ -1,4 +1,5 @@
 import {type Duration, intervalToDuration} from 'date-fns';
+import type {StepError} from './step.js';
 import type {WorkflowDiagnosticUnavailableField} from './workflow-diagnostics.js';
 
 export type StepGateResult =
@@ -57,6 +58,7 @@ interface StepAttemptFields {
   outputs: Record<string, unknown> | null;
   response: string | null;
   error: Record<string, unknown> | null;
+  stepError: StepError | null;
   gateResult: StepGateResult;
   restartFeedback: string | null;
   invocations: StepAttemptInvocation[];
@@ -76,6 +78,7 @@ export class StepAttempt {
   outputs!: Record<string, unknown> | null;
   response!: string | null;
   error!: Record<string, unknown> | null;
+  stepError!: StepError | null;
   gateResult!: StepGateResult;
   restartFeedback!: string | null;
   invocations!: StepAttemptInvocation[];

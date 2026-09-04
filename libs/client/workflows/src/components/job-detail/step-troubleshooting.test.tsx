@@ -32,7 +32,10 @@ const ATTEMPT_ID = '66666666-6666-4666-8666-666666666666';
 const EXECUTION_ID = '77777777-7777-4777-8777-777777777777';
 const INSPECTOR_TRIGGER_NAME = 'Open inspector';
 const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the invocation log\./u;
-const REDUCE_DIAGNOSTIC_COPY = /reduce.*diagnostic/iu;
+const REDUCE_AUTHORED_VALUE_DESCRIPTION =
+  "Reduce the authored value or its upstream input before starting a new run. Re-running failed jobs preserves this attempt's inputs; re-running all jobs can recompute upstream outputs.";
+const REDUCE_STEP_RESULT_DESCRIPTION =
+  "Reduce the user-controlled result before re-running. Re-running failed jobs preserves this attempt's inputs.";
 
 describe('StepInspectorSheet', () => {
   afterEach(() => {
@@ -179,7 +182,13 @@ describe('StepInspectorSheet', () => {
     await renderPanel({entry: toolStepEntry({status: 'succeeded'})});
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
 
-    expect(await screen.findByRole('region', {name: 'Authored configuration'})).toBeInTheDocument();
+    const configuration = await screen.findByRole('region', {name: 'Configuration'});
+    expect(
+      within(configuration).getByRole('tab', {name: 'Authored configuration'}),
+    ).toBeInTheDocument();
+    expect(
+      within(configuration).getByRole('tab', {name: 'Resolved configuration'}),
+    ).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'Invocations'})).toHaveTextContent('Succeeded');
     expect(screen.getByText('provider response')).toBeInTheDocument();
     expect(screen.getByRole('region', {name: 'Attempt diagnostics'})).toHaveTextContent(
@@ -244,7 +253,7 @@ describe('StepInspectorSheet', () => {
     const unavailable = await screen.findByRole('region', {name: 'Unavailable diagnostics'});
     expect(unavailable).toHaveTextContent('Resolved configuration is unavailable in this view');
     expect(unavailable).toHaveTextContent(
-      'This value was recorded by an older server and exceeds the display limit.',
+      'The complete value exceeds the display limit and is not shown here.',
     );
     expect(unavailable).toHaveTextContent('Step output exceeds the display limit');
     expect(unavailable).toHaveTextContent(
@@ -255,6 +264,7 @@ describe('StepInspectorSheet', () => {
       'Shipfox preserved the workflow outcome and omitted the oversized detail.',
     );
     expect(unavailable).toHaveTextContent('300,000 bytes');
+    expect(within(unavailable).getByText('300,000 bytes')).toHaveClass('font-code');
   });
 
   it('explains deterministic payload failures and opens bounded configuration detail', async () => {
@@ -288,11 +298,9 @@ describe('StepInspectorSheet', () => {
     expect(screen.getByText('Affected value')).toBeInTheDocument();
     expect(screen.getByText(`${(75_644).toLocaleString()} bytes`)).toBeInTheDocument();
     expect(screen.getByText(`${(65_536).toLocaleString()} bytes`)).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Reduce the authored value or its upstream input before starting a new run. Re-running failed jobs preserves this attempt's inputs; re-running all jobs can recompute upstream outputs.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Over by')).toBeInTheDocument();
+    expect(screen.getByText(`${(10_108).toLocaleString()} bytes`)).toBeInTheDocument();
+    expect(screen.getByText(REDUCE_AUTHORED_VALUE_DESCRIPTION)).toBeInTheDocument();
     expect(screen.queryByText('Agent dispatch failed')).toBeNull();
 
     const inputs = await screen.findByRole('region', {name: 'Inputs'});
@@ -300,6 +308,144 @@ describe('StepInspectorSheet', () => {
     expect(within(inputs).getByRole('tab', {name: 'Resolved configuration'})).toBeInTheDocument();
     await user.click(screen.getByRole('button', {name: 'View configuration'}));
     expect(inputs).toHaveFocus();
+  });
+
+  it('uses the step status reason for mixed-version configuration failures', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(stepDetailResponse({authored_config: {run: 'pnpm test'}, config: null})),
+      ),
+    });
+
+    const entry = stepEntry(
+      'execution_payload_too_large',
+      undefined,
+      {field: 'authored_config'},
+      true,
+    );
+    entry.step.statusReason = 'execution_payload_too_large';
+    await renderPanel({entry});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    const inputs = await screen.findByRole('region', {name: 'Inputs'});
+    await user.click(screen.getByRole('button', {name: 'View configuration'}));
+    expect(inputs).toHaveFocus();
+  });
+
+  it('opens resolved tool configuration when authored configuration is unavailable', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            authored_config: null,
+            config: {tool: {provider: 'slack', with: {channel: '#releases'}}},
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({
+      entry: toolStepEntry({
+        status: 'failed',
+        reason: 'execution_payload_too_large',
+        field: 'resolved_config',
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    const configuration = await screen.findByRole('region', {name: 'Configuration'});
+    expect(within(configuration).queryByRole('tab', {name: 'Authored configuration'})).toBeNull();
+    expect(
+      within(configuration).getByRole('tab', {name: 'Resolved configuration'}),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'View configuration'}));
+    expect(configuration).toHaveFocus();
+  });
+
+  it('does not link unrelated payload failures to configuration', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            authored_config: {run: 'pnpm test'},
+            config: {run: 'pnpm test --filter=client'},
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({
+      entry: stepEntry('step_result_too_large', undefined, {field: 'output'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    await screen.findByRole('region', {name: 'Inputs'});
+    expect(screen.queryByRole('button', {name: 'View configuration'})).toBeNull();
+  });
+
+  it('explains a user-controlled oversized step response', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('step_result_too_large', undefined, {field: 'response'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Response exceeds the step result limit')).toBeInTheDocument();
+    expect(screen.getByText(REDUCE_STEP_RESULT_DESCRIPTION)).toBeInTheDocument();
+  });
+
+  it('explains an oversized generated step detail without asking the user to reduce it', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('step_result_too_large', undefined, {field: 'gate_result'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(
+      await screen.findByText('Gate result exceeds the step result limit'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Shipfox recorded the step outcome, but this generated detail exceeded its retention limit. Review the bounded details available below.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(REDUCE_STEP_RESULT_DESCRIPTION)).toBeNull();
+  });
+
+  it('explains an oversized listener batch without suggesting a failed-job rerun', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('execution_payload_too_large', undefined, {field: 'listener_batch'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(
+      await screen.findByText('Trigger events exceed the execution limit'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Adjust the listener batch or source event before starting a new run. Re-running failed jobs preserves the same trigger events.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('falls back to the server message when structured payload details are absent', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({entry: stepEntry('execution_payload_too_large')});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Agent dispatch failed')).toBeInTheDocument();
   });
 
   it('does not ask users to reduce an internal diagnostic', async () => {
@@ -317,7 +463,8 @@ describe('StepInspectorSheet', () => {
         'The workflow outcome was preserved, but this server could not retain all troubleshooting details. Review the bounded details available below.',
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(REDUCE_DIAGNOSTIC_COPY)).toBeNull();
+    expect(screen.queryByText(REDUCE_AUTHORED_VALUE_DESCRIPTION)).toBeNull();
+    expect(screen.queryByText(REDUCE_STEP_RESULT_DESCRIPTION)).toBeNull();
   });
 
   it('shows the session descriptor without transcript data', async () => {
@@ -756,6 +903,7 @@ function stepEntry(
   reason: StepErrorReason = 'agent_invocation_failed',
   code?: string,
   errorOverrides: Partial<NonNullable<WorkflowRunStepDetailDto['error']>> = {},
+  omitErrorReason = false,
 ): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const job = workflowJob({
@@ -778,7 +926,7 @@ function stepEntry(
             config: {run: 'pnpm test'},
             error: {
               message: 'Agent dispatch failed',
-              reason,
+              ...(omitErrorReason ? {} : {reason}),
               ...(code ? {code} : {}),
               ...errorOverrides,
             },
