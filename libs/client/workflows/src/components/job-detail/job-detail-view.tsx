@@ -337,7 +337,7 @@ export function JobDetailView({
                   ) : undefined
                 }
               />
-              {usageQuery.data ? (
+              {usageQuery.data?.inferenceSegments.length ? (
                 <div className="px-row pb-row">
                   <StepInferenceTable
                     usage={usageQuery.data}

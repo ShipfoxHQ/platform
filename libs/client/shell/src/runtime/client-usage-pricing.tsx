@@ -87,7 +87,9 @@ function createSafeClientUsagePricing(pricing: ClientUsagePricing): ClientUsageP
   return {
     resolveCosts(refs) {
       try {
-        return Promise.resolve(pricing.resolveCosts(refs)).catch(() => new Map());
+        return Promise.resolve(pricing.resolveCosts(refs))
+          .then((resolution) => resolution ?? new Map())
+          .catch(() => new Map());
       } catch {
         return new Map();
       }

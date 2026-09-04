@@ -7,7 +7,7 @@ import {
   usagePricingReferenceKey,
   useUsagePricing,
 } from '@shipfox/client-shell/runtime';
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 
 export interface UsageCostRequest {
   reference: UsagePricingReference;
@@ -18,7 +18,18 @@ export function useUsageCosts(
   inputs: readonly UsageCostRequest[],
 ): ReadonlyMap<string, UsagePricingCost> {
   const pricing = useUsagePricing();
-  const requests = useMemo(() => inputs.map((input) => ({...input})), [inputs]);
+  const requestSignature = usageCostRequestSignature(inputs);
+  const requestsCache = useRef<{signature: string; requests: UsageCostRequest[]}>({
+    signature: '',
+    requests: [],
+  });
+  if (requestsCache.current.signature !== requestSignature) {
+    requestsCache.current = {
+      signature: requestSignature,
+      requests: inputs.map((input) => ({...input})),
+    };
+  }
+  const requests = requestsCache.current.requests;
   const [costs, setCosts] = useState<ReadonlyMap<string, UsagePricingCost>>(() => new Map());
 
   useEffect(() => {
@@ -93,15 +104,33 @@ async function loadUsageCosts({
   }
 
   const costs = new Map<string, UsagePricingCost>();
-  const missing = requests.filter(({reference}) => {
+  const missing = new Map<string, UsageCostRequest>();
+  for (const request of requests) {
+    const {reference} = request;
     const cost = usagePricingCostFromResolution(resolution, reference);
-    if (!cost) return true;
-    costs.set(usagePricingReferenceKey(reference), cost);
-    return false;
-  });
+    const key = usagePricingReferenceKey(reference);
+    if (cost) {
+      costs.set(key, cost);
+      continue;
+    }
+    if (!request.quantities) continue;
+    const current = missing.get(key);
+    missing.set(
+      key,
+      current
+        ? {
+            ...request,
+            quantities: addUsagePricingQuantities(
+              current.quantities ?? request.quantities,
+              request.quantities,
+            ),
+          }
+        : request,
+    );
+  }
 
   await Promise.all(
-    missing.map(async ({reference, quantities}) => {
+    [...missing.values()].map(async ({reference, quantities}) => {
       if (!quantities) return;
       try {
         const estimate = await pricing.estimate({reference, quantities});
@@ -113,6 +142,37 @@ async function loadUsageCosts({
     }),
   );
   return costs;
+}
+
+function usageCostRequestSignature(inputs: readonly UsageCostRequest[]): string {
+  return JSON.stringify(
+    inputs.map(({reference, quantities}) => [
+      reference.kind,
+      reference.id,
+      quantities?.computeSeconds ?? null,
+      quantities?.requestCount ?? null,
+      quantities?.inputTokens ?? null,
+      quantities?.outputTokens ?? null,
+      quantities?.cacheCreationTokens ?? null,
+      quantities?.cacheReadTokens ?? null,
+      quantities?.reasoningTokens ?? null,
+    ]),
+  );
+}
+
+function addUsagePricingQuantities(
+  left: UsagePricingQuantities,
+  right: UsagePricingQuantities,
+): UsagePricingQuantities {
+  return {
+    computeSeconds: left.computeSeconds + right.computeSeconds,
+    requestCount: left.requestCount + right.requestCount,
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    cacheCreationTokens: left.cacheCreationTokens + right.cacheCreationTokens,
+    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+  };
 }
 
 function uniqueReferences(references: readonly UsagePricingReference[]): UsagePricingReference[] {

@@ -130,4 +130,16 @@ describe('Usage aggregation', () => {
       requestCount: 1,
     });
   });
+
+  test('keeps provider and model values containing separators distinct', () => {
+    const rows = groupInferenceSegmentsByStepAttempt([
+      segment({upstream: 'provider:one', model: 'model'}),
+      segment({upstream: 'provider', model: 'one:model'}),
+    ]);
+
+    expect(rows.map(({upstream, model}) => [upstream, model])).toEqual([
+      ['provider', 'one:model'],
+      ['provider:one', 'model'],
+    ]);
+  });
 });

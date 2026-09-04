@@ -133,6 +133,101 @@ describe('Usage components', () => {
     expect(screen.getByText('est. $0.90')).toHaveAttribute('data-usage-cost-state', 'estimated');
   });
 
+  test('does not estimate a running job with an unknown duration', async () => {
+    const resolveCosts = vi.fn(() => new Map());
+    const estimate = vi.fn(() => ({amount: 0.9, state: 'estimated' as const}));
+    const runningUsage: JobExecutionUsage = {
+      ...jobUsage,
+      jobExecution: {
+        ...jobExecution,
+        durationSeconds: null,
+        finishedAt: null,
+        state: 'running',
+        status: null,
+      },
+    };
+    render(
+      <ClientUsagePricingProvider usagePricing={{...pricing, resolveCosts, estimate}}>
+        <JobUsageCells usage={runningUsage} />
+      </ClientUsagePricingProvider>,
+    );
+
+    expect(screen.getByText('— compute')).toBeVisible();
+    await waitFor(() => expect(resolveCosts).toHaveBeenCalledTimes(1));
+    expect(estimate).not.toHaveBeenCalled();
+  });
+
+  test('normalizes an absent pricing resolution before estimating usage', async () => {
+    render(
+      <ClientUsagePricingProvider
+        usagePricing={{...pricing, resolveCosts: () => undefined as never}}
+      >
+        <JobUsageCells usage={jobUsage} />
+      </ClientUsagePricingProvider>,
+    );
+
+    expect(screen.getByText('1,880 tokens')).toBeVisible();
+    await waitFor(() => expect(screen.getByText('est. $0.90')).toBeVisible());
+  });
+
+  test('estimates one aggregate cost for multiple rows sharing a step attempt', async () => {
+    const estimate = vi.fn(({quantities}: {quantities: {requestCount: number}}) => ({
+      amount: quantities.requestCount,
+      state: 'estimated' as const,
+    }));
+    const secondSegment: UsageInferenceSegment = {
+      ...segment,
+      id: '77777777-7777-4777-8777-777777777777',
+      upstream: 'openai',
+      model: 'gpt-5',
+      requestCount: 3,
+      inputTokens: 400,
+    };
+    const multipleRowsUsage: JobExecutionUsage = {
+      ...jobUsage,
+      inferenceSegments: [segment, secondSegment],
+    };
+    render(
+      <ClientUsagePricingProvider
+        usagePricing={{...pricing, resolveCosts: () => new Map(), estimate}}
+      >
+        <StepInferenceTable usage={multipleRowsUsage} />
+      </ClientUsagePricingProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('est. $5.00')).toBeVisible());
+    expect(estimate).toHaveBeenCalledTimes(1);
+    expect(estimate).toHaveBeenCalledWith({
+      reference: {kind: 'step-attempt', id: STEP_ATTEMPT_ID},
+      quantities: expect.objectContaining({requestCount: 5, inputTokens: 1_600}),
+    });
+  });
+
+  test('does not reload pricing when equivalent request inputs are recreated', async () => {
+    const resolveCosts = vi.fn(() => new Map());
+    const estimatingPricing: ClientUsagePricing = {
+      ...pricing,
+      resolveCosts,
+    };
+    function Usage({revision}: {revision: number}) {
+      return (
+        <ClientUsagePricingProvider usagePricing={estimatingPricing}>
+          <JobUsageCells
+            usage={{...jobUsage, inferenceSegments: [...jobUsage.inferenceSegments]}}
+            className={String(revision)}
+          />
+        </ClientUsagePricingProvider>
+      );
+    }
+
+    const {rerender} = render(<Usage revision={1} />);
+    await waitFor(() => expect(resolveCosts).toHaveBeenCalledTimes(1));
+
+    rerender(<Usage revision={2} />);
+
+    expect(resolveCosts).toHaveBeenCalledTimes(1);
+  });
+
   test('renders step inference quantities and hides the absent cost column', () => {
     render(
       <StepInferenceTable

@@ -147,7 +147,7 @@ export function groupInferenceSegmentsByStepAttempt(
 ): StepInferenceUsage[] {
   const grouped = new Map<string, StepInferenceUsage>();
   for (const segment of segments) {
-    const key = `${segment.stepAttemptId}:${segment.upstream}:${segment.model}`;
+    const key = JSON.stringify([segment.stepAttemptId, segment.upstream, segment.model]);
     const current = grouped.get(key);
     if (current) {
       addUsageTokenTotalsInPlace(current, segment);

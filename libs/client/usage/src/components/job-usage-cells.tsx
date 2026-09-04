@@ -16,23 +16,24 @@ export function JobUsageCells({usage, className}: JobUsageCellsProps) {
     () => (usage ? usageTokenTotalsForSegments(usage.inferenceSegments) : undefined),
     [usage],
   );
+  const jobExecutionId = usage?.jobExecution.jobExecutionId;
+  const durationSeconds = usage?.jobExecution.durationSeconds;
   const pricingInputs = useMemo(
     () =>
-      usage && totals
+      jobExecutionId && totals
         ? [
             {
-              reference: {kind: 'job-execution' as const, id: usage.jobExecution.jobExecutionId},
-              quantities: usageQuantitiesFromTotals(
-                totals,
-                usage.jobExecution.durationSeconds ?? 0,
-              ),
+              reference: {kind: 'job-execution' as const, id: jobExecutionId},
+              ...(durationSeconds === null || durationSeconds === undefined
+                ? {}
+                : {quantities: usageQuantitiesFromTotals(totals, durationSeconds)}),
             },
           ]
         : [],
-    [totals, usage],
+    [durationSeconds, jobExecutionId, totals],
   );
   const costs = useUsageCosts(pricingInputs);
-  const cost = usage ? costs.get(`job-execution:${usage.jobExecution.jobExecutionId}`) : undefined;
+  const cost = jobExecutionId ? costs.get(`job-execution:${jobExecutionId}`) : undefined;
 
   if (!usage || !totals) return null;
 
@@ -42,7 +43,7 @@ export function JobUsageCells({usage, className}: JobUsageCellsProps) {
       className={`flex shrink-0 items-center gap-inline text-foreground-neutral-muted${className ? ` ${className}` : ''}`}
     >
       <Code as="span" variant="label" className="whitespace-nowrap text-current">
-        {formatUsageDuration(usage.jobExecution.durationSeconds ?? 0)} compute
+        {formatUsageDuration(durationSeconds)} compute
       </Code>
       <Code as="span" variant="label" className="whitespace-nowrap text-current">
         {formatUsageNumber(totals.totalTokens)} tokens

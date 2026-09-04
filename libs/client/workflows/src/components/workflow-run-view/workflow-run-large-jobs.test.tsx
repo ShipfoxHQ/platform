@@ -71,6 +71,57 @@ describe('WorkflowRunLargeJobs', () => {
     expect(await screen.findByText('deploy')).toBeInTheDocument();
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
   });
+
+  test('does not attach usage from another attempt when a job has no selected execution', async () => {
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const {container} = render(
+      <QueryClientProvider client={queryClient}>
+        <WorkflowRunLargeJobs
+          run={largeRun()}
+          usage={{
+            jobExecutions: [
+              {
+                jobId: FIRST_JOB_ID,
+                jobExecutionId: '55555555-5555-4555-8555-555555555555',
+                workflowRunId: RUN_ID,
+                workflowRunAttemptId: '66666666-6666-4666-8666-666666666666',
+                workspaceId: '77777777-7777-4777-8777-777777777777',
+                projectId: '88888888-8888-4888-8888-888888888888',
+                definitionId: null,
+                jobKey: 'build',
+                runNumber: 42,
+                requestedLabels: null,
+                runnerLabels: null,
+                templateKey: null,
+                provisionerId: null,
+                provisionerScope: null,
+                providerKind: null,
+                launchKind: null,
+                runnerClass: null,
+                runnerArch: null,
+                runnerCpu: null,
+                managed: null,
+                queuedAt: null,
+                startedAt: null,
+                finishedAt: null,
+                leaseExpiredAt: null,
+                status: 'succeeded',
+                statusReason: null,
+                cancellationReason: null,
+                durationSeconds: 60,
+                state: 'terminated',
+                recordedAt: null,
+              },
+            ],
+            inferenceSegments: [],
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('build')).toBeInTheDocument();
+    expect(container.querySelector('[data-usage-job-cells]')).not.toBeInTheDocument();
+  });
 });
 
 function largeRun(): WorkflowRunOverview {

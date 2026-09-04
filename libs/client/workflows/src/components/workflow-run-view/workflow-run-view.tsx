@@ -783,7 +783,9 @@ function RunViewLayout({
     workspaceId,
     workflowRunId: shellRun?.id,
     enabled: shellRun !== undefined,
-    polling: shellRun ? !isWorkflowRunTerminal(shellRun.runAttempt.status) : false,
+    polling: shellRun
+      ? !isWorkflowRunTerminal(headQuery.data?.currentStatus ?? shellRun.runAttempt.status)
+      : false,
   });
   const newerAttempt =
     shellRun && headQuery.data && headQuery.data.latestAttempt > shellRun.runAttempt.attempt

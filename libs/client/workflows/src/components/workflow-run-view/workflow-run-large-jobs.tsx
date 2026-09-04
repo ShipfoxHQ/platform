@@ -158,11 +158,9 @@ function LargeWorkflowJobRow({
   runAttempt: number;
 }) {
   const jobExecutionId = job.defaultExecution?.id;
-  const jobExecution = usage?.jobExecutions.find(
-    (candidate) =>
-      candidate.jobExecutionId === jobExecutionId ||
-      (jobExecutionId === undefined && candidate.jobId === job.id),
-  );
+  const jobExecution = jobExecutionId
+    ? usage?.jobExecutions.find((candidate) => candidate.jobExecutionId === jobExecutionId)
+    : undefined;
   const jobUsage = jobExecution
     ? {
         jobExecution,

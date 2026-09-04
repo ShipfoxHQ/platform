@@ -6,11 +6,14 @@ export function formatUsageNumber(value: number): string {
   return numberFormatter.format(value);
 }
 
-export function formatUsageDuration(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '—';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60);
+export function formatUsageDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds < 0) {
+    return '—';
+  }
+  const totalSeconds = Math.round(seconds);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
   if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
