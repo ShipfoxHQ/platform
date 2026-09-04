@@ -1,6 +1,7 @@
 import {globSync, readFileSync} from 'node:fs';
 import {dirname, join, relative} from 'node:path';
 import Ajv2020, {type ValidateFunction} from 'ajv/dist/2020.js';
+import {parse as parseYaml, stringify as stringifyYaml} from 'yaml';
 
 const WORKSPACE_MANIFEST_GLOB = '{apps,e2e,infra,libs,tools,turbo}/**/package.json';
 const RUNTIME_DEPENDENCY_FIELDS = [
@@ -319,4 +320,48 @@ function formatErrors(validator: ValidateFunction): string {
       ?.map((error) => `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`)
       .join('; ') ?? 'unknown schema error'
   );
+}
+
+export interface FixtureWorkspaceConfigOptions {
+  repositoryRoot: string;
+  overrides: Record<string, string>;
+}
+
+interface ReleaseAgePolicy {
+  minimumReleaseAge?: number;
+  minimumReleaseAgeExclude?: string[];
+}
+
+/**
+ * Renders the `pnpm-workspace.yaml` of a packed-consumer fixture. Fixtures resolve
+ * third-party dependencies fresh, so they carry the repository's release-age policy;
+ * otherwise a release published minutes earlier can break a fixture that the pinned
+ * workspace itself never installs.
+ */
+export function renderFixtureWorkspaceConfig(options: FixtureWorkspaceConfigOptions): string {
+  const workspaceConfig: unknown = parseYaml(
+    readFileSync(join(options.repositoryRoot, 'pnpm-workspace.yaml'), 'utf8'),
+  );
+  return stringifyYaml({
+    packages: ['.'],
+    overrides: options.overrides,
+    ...releaseAgePolicy(workspaceConfig),
+  });
+}
+
+function releaseAgePolicy(workspaceConfig: unknown): ReleaseAgePolicy {
+  if (typeof workspaceConfig !== 'object' || workspaceConfig === null) return {};
+  const config = workspaceConfig as Record<string, unknown>;
+  const policy: ReleaseAgePolicy = {};
+  if (typeof config.minimumReleaseAge === 'number') {
+    policy.minimumReleaseAge = config.minimumReleaseAge;
+  }
+  const exclude = config.minimumReleaseAgeExclude;
+  if (
+    Array.isArray(exclude) &&
+    exclude.every((entry): entry is string => typeof entry === 'string')
+  ) {
+    policy.minimumReleaseAgeExclude = exclude;
+  }
+  return policy;
 }

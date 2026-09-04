@@ -72,6 +72,8 @@ const PENDING_REVIEW_PAGE_TIMEOUT_MS = 5_000;
 const PENDING_REVIEW_PAGE_PATTERN = /[?&]page=(\d+)/u;
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
+const NO_REVIEW_THREAD_MESSAGE =
+  'GitHub did not create the review thread. Check that path, line, side, and any start_line range describe a line in the pull request diff.';
 
 const ADD_PENDING_REVIEW_COMMENT_MUTATION = `
   mutation AddCommentToPendingReview($input: AddPullRequestReviewThreadInput!) {
@@ -226,9 +228,9 @@ export class GithubAgentToolsProvider
           permissionProfile.permissions,
         );
         const token = await tokenPromise;
-        if (!hasGrantedPermissions(token.permissions ?? {}, tool, call)) {
-          return githubToolError(githubPermissionDeniedMessage(tool, call), 'access-denied');
-        }
+        const permissionDenial = githubPermissionDenial(token.permissions ?? {}, tool, call);
+        if (permissionDenial !== undefined)
+          return githubToolError(permissionDenial, 'access-denied');
         const client = (this.options.createClient ?? createOctokitClient)(token.token);
         const method =
           typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
@@ -249,10 +251,9 @@ async function executeGithubToolOperation(
     const data = await mapGithubError(() =>
       executeGithubGraphqlOperation(client, toolId, method, operation.parameters),
     );
-    if (data === undefined && tool.id === 'add_comment_to_pending_review') {
-      return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
-    }
-    return githubToolResult(toolId, data);
+    return toolId === 'add_comment_to_pending_review'
+      ? pendingReviewCommentResult(data)
+      : githubToolResult(toolId, data);
   }
   const parameters = await mapGithubError(() =>
     resolveGithubOperationParameters(client, operation.parameters, toolId, method),
@@ -264,6 +265,24 @@ async function executeGithubToolOperation(
     executeGithubRestOperation(client, operation.route, parameters, toolId),
   );
   return githubToolResult(toolId, response.data, response, parameters, operation.route);
+}
+
+// GitHub answers a malformed thread position with a null thread and no error, so the
+// success shape has to be checked explicitly.
+function pendingReviewCommentResult(data: unknown): GithubToolCallResult {
+  if (data === undefined) return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
+  if (createdReviewThreadId(data) === undefined) {
+    return githubToolError(NO_REVIEW_THREAD_MESSAGE, 'provider-rejected');
+  }
+  return githubToolResult('add_comment_to_pending_review', data);
+}
+
+function createdReviewThreadId(data: unknown): string | undefined {
+  if (!isRecord(data) || !isRecord(data.addPullRequestReviewThread)) return undefined;
+  const thread = data.addPullRequestReviewThread.thread;
+  return isRecord(thread) && typeof thread.id === 'string' && thread.id.length > 0
+    ? thread.id
+    : undefined;
 }
 
 export interface GithubAgentToolsProviderOptions {
@@ -294,7 +313,7 @@ interface GithubAgentToolsScope {
 function intersectGithubToolsWithLiveCatalog(
   tools: readonly GithubToolSelection[],
   liveCatalog: readonly GithubAgentToolCatalogEntry[],
-): AgentToolCatalogEntry<GithubAgentToolRequiredScope>[] {
+): GithubAgentToolCatalogEntry[] {
   return tools.flatMap((tool) => {
     const authorizedTool = intersectGithubToolWithLiveCatalog(tool, liveCatalog);
     return authorizedTool === undefined ? [] : [authorizedTool];
@@ -304,7 +323,7 @@ function intersectGithubToolsWithLiveCatalog(
 function intersectGithubToolWithLiveCatalog(
   tool: GithubToolSelection,
   liveCatalog: readonly GithubAgentToolCatalogEntry[],
-): AgentToolCatalogEntry<GithubAgentToolRequiredScope> | undefined {
+): GithubAgentToolCatalogEntry | undefined {
   const liveTool = liveCatalog.find((candidate) => candidate.id === tool.id);
   if (liveTool === undefined) return undefined;
   if (tool.methods === undefined) return liveTool;
@@ -453,9 +472,7 @@ export function githubOperationRoute(
     case 'issue_read.get_labels':
       return `GET ${repoPath}/issues/${issue}/labels`;
     case 'list_issue_types.':
-      return args.repo === undefined
-        ? 'GET /orgs/{owner}/issue-types'
-        : `GET ${repoPath}/issue-types`;
+      return `GET ${repoPath}/issue-types`;
     case 'list_issues.':
       return `GET ${repoPath}/issues`;
     case 'search_issues.':
@@ -473,7 +490,8 @@ export function githubOperationRoute(
     case 'sub_issue_write.add':
       return `POST ${repoPath}/issues/${issue}/sub_issues`;
     case 'sub_issue_write.remove':
-      return `DELETE ${repoPath}/issues/${issue}/sub_issues/{sub_issue_id}`;
+      // GitHub's removal endpoint is singular and takes sub_issue_id in the request body.
+      return `DELETE ${repoPath}/issues/${issue}/sub_issue`;
     case 'sub_issue_write.reprioritize':
       return `PATCH ${repoPath}/issues/${issue}/sub_issues/priority`;
     case 'pull_request_read.get':
@@ -849,7 +867,85 @@ async function executeGithubRestOperation(
   toolId: GithubAgentToolId,
 ): Promise<GithubToolResponse> {
   if (toolId === 'create_branch') return await createGitBranch(client, parameters);
+  if (toolId === 'create_pull_request' || toolId === 'update_pull_request') {
+    return await savePullRequestWithReviewers(client, route, parameters);
+  }
   return await client.request(route, parameters);
+}
+
+const REQUESTED_REVIEWERS_ROUTE =
+  'POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers';
+
+async function savePullRequestWithReviewers(
+  client: GithubToolClient,
+  route: string,
+  parameters: Record<string, unknown>,
+): Promise<GithubToolResponse> {
+  const {reviewers, ...pullRequestParameters} = parameters;
+  const response = await client.request(route, pullRequestParameters);
+  const requested = splitRequestedReviewers(reviewers);
+  if (requested === undefined) return response;
+
+  const pullNumber =
+    isRecord(response.data) && typeof response.data.number === 'number'
+      ? response.data.number
+      : pullRequestParameters.pull_number;
+  if (typeof pullNumber !== 'number') {
+    throw new GithubIntegrationProviderError(
+      'malformed-provider-response',
+      'Pull request was saved but GitHub did not return its number, so reviewers were not requested',
+    );
+  }
+  try {
+    return await mapGithubError(
+      () =>
+        client.request(REQUESTED_REVIEWERS_ROUTE, {
+          owner: pullRequestParameters.owner,
+          repo: pullRequestParameters.repo,
+          pull_number: pullNumber,
+          ...requested,
+        }),
+      'provider-rejected',
+    );
+  } catch (error) {
+    throw reviewerRequestFailure(pullNumber, error);
+  }
+}
+
+// Every failure after the save must carry the pull request number so the agent
+// does not retry the whole write and open a duplicate.
+function reviewerRequestFailure(
+  pullNumber: number,
+  error: unknown,
+): GithubIntegrationProviderError {
+  const prefix = `Pull request #${pullNumber} was saved but requesting reviewers failed`;
+  if (error instanceof GithubIntegrationProviderError) {
+    return new GithubIntegrationProviderError(
+      error.reason,
+      `${prefix}: ${error.message}`,
+      error.retryAfterSeconds,
+      error.status,
+    );
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new GithubIntegrationProviderError('provider-unavailable', `${prefix}: ${message}`);
+}
+
+/** Splits `login` and `org/team-slug` entries into GitHub's user and team reviewer lists. */
+function splitRequestedReviewers(
+  reviewers: unknown,
+): {reviewers: string[]; team_reviewers: string[]} | undefined {
+  if (!Array.isArray(reviewers)) return undefined;
+  const users: string[] = [];
+  const teams: string[] = [];
+  for (const reviewer of reviewers) {
+    if (typeof reviewer !== 'string' || reviewer.length === 0) continue;
+    const slashIndex = reviewer.indexOf('/');
+    if (slashIndex === -1) users.push(reviewer);
+    else teams.push(reviewer.slice(slashIndex + 1));
+  }
+  if (users.length === 0 && teams.length === 0) return undefined;
+  return {reviewers: users, team_reviewers: teams};
 }
 
 async function resolveCreateBranchParameters(
@@ -1335,7 +1431,93 @@ function validateGithubToolArguments(
   const argumentValidationError = validateGithubArgumentProperties(tool.inputSchema, arguments_);
   if (argumentValidationError !== undefined) return argumentValidationError;
 
+  if (tool.id === 'create_pull_request' || tool.id === 'update_pull_request') {
+    return validateRequestedReviewers(arguments_.reviewers);
+  }
+  if (tool.id === 'pull_request_review_write') return validateReviewWriteArguments(arguments_);
+  if (tool.id === 'add_comment_to_pending_review') {
+    return validatePendingReviewCommentArguments(arguments_);
+  }
   return tool.id === 'create_commit' ? validateCreateCommitArguments(arguments_) : undefined;
+}
+
+// The shared input schema lists every review field; GitHub only accepts each field on one
+// method, and a submission event on create would publish a review the caller meant to stage.
+function validateReviewWriteArguments(arguments_: Record<string, unknown>): string | undefined {
+  switch (arguments_.method) {
+    case 'create':
+      return arguments_.event === undefined
+        ? undefined
+        : 'Parameter event is not accepted by create, which opens a pending review; submit it with submit_pending';
+    case 'submit_pending':
+      return validateSubmitPendingArguments(arguments_);
+    case 'delete_pending':
+      return arguments_.body === undefined &&
+        arguments_.event === undefined &&
+        arguments_.commit_id === undefined
+        ? undefined
+        : 'Parameters body, event, and commit_id are not accepted by delete_pending';
+    default:
+      return undefined;
+  }
+}
+
+function validateSubmitPendingArguments(arguments_: Record<string, unknown>): string | undefined {
+  if (arguments_.event === undefined) return 'Parameter event is required for submit_pending';
+  if (arguments_.commit_id !== undefined) {
+    return 'Parameter commit_id is not accepted by submit_pending; it applies to create';
+  }
+  const body = arguments_.body;
+  if (arguments_.event !== 'APPROVE' && (typeof body !== 'string' || body.trim().length === 0)) {
+    return 'Parameter body is required for submit_pending unless event is APPROVE';
+  }
+  return undefined;
+}
+
+// GitHub answers an inconsistent position with a null thread rather than an error, so the
+// position invariants are checked before the mutation is sent.
+function validatePendingReviewCommentArguments(
+  arguments_: Record<string, unknown>,
+): string | undefined {
+  const hasRange = arguments_.start_line !== undefined || arguments_.start_side !== undefined;
+  if (arguments_.subject_type === 'FILE') {
+    return arguments_.line === undefined && arguments_.side === undefined && !hasRange
+      ? undefined
+      : 'Parameters line, side, start_line, and start_side are not accepted when subject_type is FILE';
+  }
+  if (arguments_.line === undefined || arguments_.side === undefined) {
+    return 'Parameters line and side are required for a LINE comment';
+  }
+  if ((arguments_.start_line === undefined) !== (arguments_.start_side === undefined)) {
+    return 'Parameters start_line and start_side must be provided together';
+  }
+  if (
+    typeof arguments_.start_line === 'number' &&
+    typeof arguments_.line === 'number' &&
+    arguments_.start_line >= arguments_.line
+  ) {
+    return 'Parameter start_line must be lower than line for a multi-line comment';
+  }
+  return undefined;
+}
+
+function validateRequestedReviewers(reviewers: unknown): string | undefined {
+  if (reviewers === undefined) return undefined;
+  if (!Array.isArray(reviewers) || !reviewers.every(isRequestedReviewer)) {
+    return 'Parameter reviewers must be an array of non-empty GitHub usernames or org/team-slug strings';
+  }
+  return undefined;
+}
+
+const REVIEWER_PART_UNSAFE_PATTERN = /\s/u;
+
+function isRequestedReviewer(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const parts = value.split('/');
+  return (
+    parts.length <= 2 &&
+    parts.every((part) => part.length > 0 && !REVIEWER_PART_UNSAFE_PATTERN.test(part))
+  );
 }
 
 function validateMissingGithubToolArgument(
@@ -1603,26 +1785,77 @@ function methodRequiredParameters(
 }
 
 function githubPermissionDeniedMessage(
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubAgentToolCatalogEntry,
   call: AgentToolCallInput,
 ): string {
-  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
-  const required =
-    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
-  const scope = required.map(({permission, access}) => `${permission}: ${access}`).join(', ');
-  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${scope}`;
+  const [required, ...alternatives] = acceptedScopes(tool, call);
+  const alternativeText =
+    alternatives.length === 0 ? '' : ` (or ${alternatives.map(formatGithubScope).join('; ')})`;
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${formatGithubScope(required)}${alternativeText}`;
+}
+
+function formatGithubScope(scope: GithubAgentToolRequiredScope): string {
+  return scope.map(({permission, access}) => `${permission}: ${access}`).join(', ');
+}
+
+/** The declared scope first, then every alternative GitHub documents for the same operation. */
+function acceptedScopes(
+  tool: GithubAgentToolCatalogEntry,
+  call: AgentToolCallInput,
+): readonly [GithubAgentToolRequiredScope, ...GithubAgentToolRequiredScope[]] {
+  const methodId = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
+  const method = tool.methods?.find((candidate) => candidate.id === methodId);
+  if (method === undefined) return [tool.requiredScope];
+  return [method.requiredScope, ...(method.alternativeScopes ?? [])];
+}
+
+const GITHUB_WORKFLOWS_DIRECTORY = '.github/workflows/';
+
+function githubPermissionDenial(
+  granted: Record<string, 'read' | 'write' | 'admin'>,
+  tool: GithubAgentToolCatalogEntry,
+  call: AgentToolCallInput,
+): string | undefined {
+  if (!hasGrantedPermissions(granted, tool, call)) return githubPermissionDeniedMessage(tool, call);
+  return githubWorkflowsPermissionDenial(tool, call, granted);
+}
+
+// GitHub refuses any commit that adds or changes an Actions workflow file unless the token
+// carries the workflows permission, which no catalog scope requests. Deny locally so the
+// agent gets a deterministic access-denied instead of an opaque provider rejection.
+function githubWorkflowsPermissionDenial(
+  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  call: AgentToolCallInput,
+  granted: Record<string, 'read' | 'write' | 'admin'>,
+): string | undefined {
+  if (tool.id !== 'create_commit') return undefined;
+  if (granted.workflows === 'write' || granted.workflows === 'admin') return undefined;
+  // Argument validation already rejects leading slashes and dot segments, so a plain prefix
+  // test cannot be bypassed by an alternative spelling of the workflows directory.
+  const workflowPath = [
+    ...fileChangePaths(call.arguments.additions),
+    ...fileChangePaths(call.arguments.deletions),
+  ].find((path) => path.startsWith(GITHUB_WORKFLOWS_DIRECTORY));
+  if (workflowPath === undefined) return undefined;
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires workflows: write to change ${workflowPath}`;
+}
+
+function fileChangePaths(changes: unknown): string[] {
+  if (!Array.isArray(changes)) return [];
+  return changes.flatMap((change) =>
+    isRecord(change) && typeof change.path === 'string' ? [change.path] : [],
+  );
 }
 
 function hasGrantedPermissions(
   granted: Record<string, 'read' | 'write' | 'admin'>,
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubAgentToolCatalogEntry,
   call: AgentToolCallInput,
 ): boolean {
-  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
-  const required =
-    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
-  return required.every(({permission, access}) => {
-    const actual = granted[permission];
-    return actual === 'write' || actual === 'admin' || actual === access;
-  });
+  return acceptedScopes(tool, call).some((scope) =>
+    scope.every(({permission, access}) => {
+      const actual = granted[permission];
+      return actual === 'write' || actual === 'admin' || actual === access;
+    }),
+  );
 }

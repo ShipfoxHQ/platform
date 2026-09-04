@@ -13,6 +13,7 @@ import {
   listPublicPackageEntryPoints,
   readPublicationClosureConfig,
   readWorkspacePackages,
+  renderFixtureWorkspaceConfig,
   validatePublicationState,
 } from '../../dist/package-closure.js';
 
@@ -127,9 +128,7 @@ async function writeFixtureFiles(
     ),
     writeFile(
       join(root, 'pnpm-workspace.yaml'),
-      `packages:\n  - .\noverrides:\n${Object.entries(dependencies)
-        .map(([name, tarball]) => `  ${JSON.stringify(name)}: ${JSON.stringify(tarball)}`)
-        .join('\n')}\n`,
+      renderFixtureWorkspaceConfig({repositoryRoot, overrides: dependencies}),
     ),
     writeFile(
       join(root, 'tsconfig.json'),

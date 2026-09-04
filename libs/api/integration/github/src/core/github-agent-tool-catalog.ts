@@ -14,6 +14,11 @@ interface GithubCatalogMethod<RequiredScope = unknown>
   extends AgentToolCatalogMethod<RequiredScope> {
   repositoryScope: GithubRepositoryScopeClassifier;
   indirectTargetNote?: string | undefined;
+  /**
+   * Permission sets GitHub documents as sufficient instead of `requiredScope`. Only
+   * `requiredScope` shapes the minted token profile; alternatives are honored at call time.
+   */
+  alternativeScopes?: readonly RequiredScope[] | undefined;
 }
 
 interface GithubCatalogEntry<RequiredScope = unknown> extends AgentToolCatalogEntry<RequiredScope> {
@@ -30,7 +35,8 @@ export type GithubAgentToolPermission =
   | 'checks'
   | 'contents'
   | 'issues'
-  | 'pull_requests';
+  | 'pull_requests'
+  | 'statuses';
 export type GithubAgentToolPermissionAccess = 'read' | 'write';
 export type GithubAgentToolSensitivity = 'read' | 'write';
 
@@ -71,10 +77,12 @@ const scopes = {
     {permission: 'pull_requests', access: 'write'},
   ],
   pullRequestsRead: [{permission: 'pull_requests', access: 'read'}],
+  contentsRead: [{permission: 'contents', access: 'read'}],
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
   checksRead: [{permission: 'checks', access: 'read'}],
+  statusesRead: [{permission: 'statuses', access: 'read'}],
   contentsWrite: [{permission: 'contents', access: 'write'}],
   mergePullRequest: [
     {permission: 'pull_requests', access: 'write'},
@@ -229,19 +237,21 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
+  // The diff media type reads file contents, which GitHub gates on contents read. GitHub also
+  // documents contents read as sufficient for the route on its own, so nothing else is declared.
   method(
     'get_diff',
     'Get the diff for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.contentsRead,
   ),
   method(
     'get_status',
     'Get status information for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.statusesRead,
   ),
   method(
     'get_files',
@@ -278,13 +288,19 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
-  method(
-    'get_comments',
-    'Get conversation comments for a specific pull request.',
-    'read',
-    false,
-    scopes.issuesRead,
-  ),
+  {
+    // GitHub accepts pull_requests read or issues read for timeline comments. Pull requests read
+    // drives the token profile like every sibling method; issues read is honored when a token
+    // already carries it.
+    ...method(
+      'get_comments',
+      'Get conversation comments for a specific pull request.',
+      'read',
+      false,
+      scopes.pullRequestsRead,
+    ),
+    alternativeScopes: [scopes.issuesRead],
+  },
   method(
     'get_check_runs',
     'Get check runs for the head commit of a pull request.',
@@ -413,22 +429,16 @@ export const githubAgentToolCatalog = [
     id: 'list_issue_types',
     category: 'issues',
     description:
-      'List supported issue types for a repository or its owner organization. When repo is omitted, returns org-level issue types directly.',
+      'List the issue types available to a GitHub repository. Issue types are defined by the owning organization, so the result also describes the organization.',
     sensitivity: 'read',
     sensitive: false,
+    // The repository endpoint needs only the implicit metadata grant. Issues read is the
+    // narrowest catalog permission that every installation using issue tools already holds.
     requiredScope: scopes.issuesRead,
-    inputSchema: objectSchema(
-      {
-        owner: stringSchema('The account owner of the repository or organization'),
-        repo: stringSchema('The name of the repository'),
-      },
-      ['owner'],
-    ),
+    inputSchema: repositoryInputSchema(),
     outputSchema: objectSchema({issue_types: arraySchema(openObjectSchema('Issue type'))}, [
       'issue_types',
     ]),
-    repositoryScope: (arguments_) =>
-      arguments_.repo === undefined ? {kind: 'connection'} : githubRepositoryScope(arguments_),
   }),
   tool({
     id: 'list_issues',
@@ -700,7 +710,7 @@ export const githubAgentToolCatalog = [
     id: 'create_commit',
     category: 'repository',
     description:
-      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are validated server-side and limited to a total of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head. When issuing several dependent commits, derive each expected_head_oid from the returned oid of the previous commit so the commits land in order. Branch protection rules are the only barrier to writing the default branch.',
+      'Create a commit on an existing branch in a GitHub repository. The commit is authored and signed by GitHub on behalf of the Shipfox bot (shipfox-ai[bot]) and shows the Verified badge. Renames are expressed as a deletion of the old path plus an addition of the new path. File contents are validated server-side and limited to a total of about 1 MiB per call; keep edits small and explicit. Text contents are sent as utf8 and transcoded to base64 by the server; binary contents can be provided with encoding base64. The expected_head_oid must be the current head of the branch (compare-and-swap): if the branch moved, the commit is rejected with a stale-head error and the call should be retried with the new head. When issuing several dependent commits, derive each expected_head_oid from the returned oid of the previous commit so the commits land in order. Branch protection rules are the only barrier to writing the default branch. Files under .github/workflows need the workflows permission, which the installation token may not carry; such changes are rejected with access-denied when it is missing.',
     sensitivity: 'write',
     sensitive: false,
     requiredScope: scopes.contentsWrite,
@@ -837,7 +847,8 @@ export const githubAgentToolCatalog = [
   tool({
     id: 'pull_request_review_write',
     category: 'pull_requests',
-    description: 'Create and/or submit, delete review of a pull request.',
+    description:
+      'Stage, submit, or delete a pull request review. create opens a pending review, add_comment_to_pending_review attaches inline comments to it, and submit_pending publishes it with its summary.',
     methods: pullRequestReviewWriteMethods,
     inputSchema: repositoryInputSchema(
       {
@@ -846,9 +857,14 @@ export const githubAgentToolCatalog = [
           'The write operation to perform on pull request review',
         ),
         pull_number: integerSchema('Pull request number'),
-        body: stringSchema('Review comment text'),
-        event: enumSchema(['APPROVE', 'REQUEST_CHANGES', 'COMMENT'], 'Review action to perform'),
-        commit_id: stringSchema('SHA of commit to review'),
+        body: stringSchema(
+          'Review summary text. Required by submit_pending unless event is APPROVE; not accepted by delete_pending',
+        ),
+        event: enumSchema(
+          ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'],
+          'Review action. Required by submit_pending; not accepted by create or delete_pending',
+        ),
+        commit_id: stringSchema('SHA of the commit to review. Only accepted by create'),
       },
       ['method', 'pull_number'],
     ),
@@ -888,13 +904,21 @@ export const githubAgentToolCatalog = [
         pull_number: integerSchema('Pull request number'),
         path: stringSchema('The relative path to the file that necessitates a comment'),
         body: stringSchema('The text of the review comment'),
-        subject_type: enumSchema(['LINE', 'FILE'], 'The level at which the comment is targeted'),
-        line: integerSchema('The line of the blob in the pull request diff'),
-        side: enumSchema(['LEFT', 'RIGHT'], 'The side of the diff to comment on'),
-        start_line: integerSchema('The first line of a multi-line comment range'),
+        subject_type: enumSchema(
+          ['LINE', 'FILE'],
+          'The level at which the comment is targeted. LINE (default) requires line and side; FILE accepts no position fields',
+        ),
+        line: integerSchema('The line of the blob in the pull request diff. Required for LINE'),
+        side: enumSchema(
+          ['LEFT', 'RIGHT'],
+          'The side of the diff to comment on. Required for LINE',
+        ),
+        start_line: integerSchema(
+          'The first line of a multi-line comment range. Must be lower than line and paired with start_side',
+        ),
         start_side: enumSchema(
           ['LEFT', 'RIGHT'],
-          'The starting side of a multi-line comment range',
+          'The starting side of a multi-line comment range. Paired with start_line',
         ),
       },
       ['pull_number', 'path', 'body'],

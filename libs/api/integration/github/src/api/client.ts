@@ -667,7 +667,16 @@ function mapGithubRequestError(
   } else if (error.status >= 400) {
     reason = 'provider-rejected';
   } else throw error;
-  return new GithubIntegrationProviderError(reason, error.message, retryAfter, error.status);
+  const message = reason === 'access-denied' ? withAcceptedPermissions(error) : error.message;
+  return new GithubIntegrationProviderError(reason, message, retryAfter, error.status);
+}
+
+// GitHub names the grants that would have satisfied a denied request in this header. It is
+// the only way to tell a missing permission apart from a resource the token cannot see.
+function withAcceptedPermissions(error: RequestError): string {
+  const accepted = error.response?.headers['x-accepted-github-permissions'];
+  if (typeof accepted !== 'string' || accepted.length === 0) return error.message;
+  return `${error.message} (GitHub accepts permissions: ${accepted})`;
 }
 
 function isGithubTimeoutError(error: unknown): boolean {
