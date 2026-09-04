@@ -29,18 +29,32 @@ type WorkerFailureReason =
   | 'render_error'
   | 'unsafe_svg'
   | 'protocol_failure';
-type RenderResponse =
+type WorkerStartupResponse = {type: 'ready'} | {type: 'initialization_failed'};
+type WorkerRenderResponse =
   | {type: 'rendered'; requestId: number; png: ArrayBuffer}
   | {type: 'failed'; requestId: number; reason: WorkerFailureReason};
+type WorkerResponse = WorkerStartupResponse | WorkerRenderResponse;
 
 if (parentPort === null) throw new Error('SVG render worker has no parent port');
 const port = parentPort;
 
-port.on('message', (message: unknown) => {
-  void handleMessage(message);
-});
+await startWorker();
 
-async function handleMessage(message: unknown): Promise<void> {
+async function startWorker(): Promise<void> {
+  try {
+    await initializeRenderer();
+  } catch {
+    post({type: 'initialization_failed'});
+    return;
+  }
+
+  port.on('message', (message: unknown) => {
+    handleMessage(message);
+  });
+  post({type: 'ready'});
+}
+
+function handleMessage(message: unknown): void {
   const requestId = requestIdOf(message);
   if (!isRenderRequest(message)) {
     post({type: 'failed', requestId, reason: 'protocol_failure'});
@@ -55,13 +69,6 @@ async function handleMessage(message: unknown): Promise<void> {
   }
 
   try {
-    await initializeRenderer();
-  } catch {
-    post({type: 'failed', requestId, reason: 'rasterizer_unavailable'});
-    return;
-  }
-
-  try {
     const response = renderSvg(requestId, svg);
     if (response.type === 'rendered') port.postMessage(response, [response.png]);
     else post(response);
@@ -70,7 +77,7 @@ async function handleMessage(message: unknown): Promise<void> {
   }
 }
 
-function renderSvg(requestId: number, svg: Uint8Array): RenderResponse {
+function renderSvg(requestId: number, svg: Uint8Array): WorkerRenderResponse {
   const renderer = new Resvg(svg, {
     font: fontOptions(),
   });
@@ -167,7 +174,7 @@ function fontOptions(): CustomFontsOptions {
   };
 }
 
-function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): RenderResponse {
+function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): WorkerRenderResponse {
   const rendered = renderer.render();
   try {
     const png = rendered.asPng();
@@ -201,6 +208,6 @@ function requestIdOf(value: unknown): number {
     : 0;
 }
 
-function post(response: RenderResponse): void {
+function post(response: WorkerResponse): void {
   port.postMessage(response);
 }
