@@ -78,6 +78,26 @@ describe('integrationsInterModuleContract', () => {
     expect(integrationsInterModuleContract.methods.resolveConnection.output.parse(null)).toBeNull();
   });
 
+  test('accepts a connection-by-id lookup through the producer contract', () => {
+    const input = integrationsInterModuleContract.methods.resolveConnectionById.input.parse({
+      connectionId: '00000000-0000-4000-8000-000000000002',
+    });
+    const output = integrationsInterModuleContract.methods.resolveConnectionById.output.parse({
+      id: '00000000-0000-4000-8000-000000000002',
+      workspaceId: '00000000-0000-4000-8000-000000000001',
+      provider: 'webhook',
+      slug: 'listener-source',
+      displayName: 'Listener webhook',
+      lifecycleStatus: 'active',
+    });
+
+    expect(input.connectionId).toBe('00000000-0000-4000-8000-000000000002');
+    expect(output?.lifecycleStatus).toBe('active');
+    expect(integrationsInterModuleContract.methods.resolveConnectionById.output.parse(null)).toBe(
+      null,
+    );
+  });
+
   test('accepts a resolved source ref through the producer contract', () => {
     const result = integrationsInterModuleContract.methods.resolveSourceRef.output.parse({
       ref: 'refs/heads/fix-triage-prompt',

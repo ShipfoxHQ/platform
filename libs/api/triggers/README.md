@@ -13,6 +13,7 @@ Register the module with the API module runner:
 ```ts
 import {createTriggersModule} from '@shipfox/api-triggers';
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
+import {integrationsInterModuleContract} from '@shipfox/api-integration-core-dto/inter-module';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createApp, listen} from '@shipfox/node-fastify';
@@ -25,8 +26,12 @@ import {
 const transport = createInMemoryInterModuleTransport();
 const workflows = transport.createClient(workflowsInterModuleContract);
 const definitions = transport.createClient(definitionsInterModuleContract);
+const integrations = transport.createClient(integrationsInterModuleContract);
 const projects = transport.createClient(projectsInterModuleContract);
-const modules = [createTriggersModule({workflows, definitions, projects}) /* and other modules */];
+const modules = [
+  createTriggersModule({workflows, definitions, projects, integrations}),
+  /* and other modules */
+];
 registerInterModulePresentations({transport, modules});
 transport.seal();
 const {auth, routes, workers} = await initializeModules({
@@ -41,9 +46,9 @@ await listen();
 ### Migration from `triggersModule`
 
 `triggersModule` is replaced by `createTriggersModule({workflows, definitions, projects})`. The API
-composition root creates the Workflows, Definitions, and Projects clients from their
-`@shipfox/api-*-dto/inter-module` contracts, passes them to Triggers, registers the
-presentations, and seals the transport before the server starts. Cron
+composition root creates the Workflows, Definitions, Projects, and (when E2E synthetic dispatch is
+needed) Integrations clients from their `@shipfox/api-*-dto/inter-module` contracts. It passes those
+clients to Triggers, registers the presentations, and seals the transport before the server starts. Cron
 activities, integration subscribers, and the manual and dev-run routes use those
 injected clients. Callers must keep the deterministic cron or integration key when they
 retry a trigger command. The manual route creates one new key for each request.

@@ -1498,6 +1498,34 @@ importers:
         specifier: workspace:*
         version: link:../../../tools/vitest
 
+  e2e/setup/triggers:
+    dependencies:
+      '@shipfox/api-triggers-dto':
+        specifier: workspace:*
+        version: link:../../../libs/api/triggers-dto
+      '@shipfox/e2e-core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@shipfox/biome':
+        specifier: workspace:*
+        version: link:../../../tools/biome
+      '@shipfox/depcruise':
+        specifier: workspace:*
+        version: link:../../../tools/depcruise
+      '@shipfox/swc':
+        specifier: workspace:*
+        version: link:../../../tools/swc
+      '@shipfox/ts-config':
+        specifier: workspace:*
+        version: link:../../../tools/ts-config
+      '@shipfox/typescript':
+        specifier: workspace:*
+        version: link:../../../tools/typescript
+      '@shipfox/vitest':
+        specifier: workspace:*
+        version: link:../../../tools/vitest
+
   e2e/setup/workspaces:
     dependencies:
       '@shipfox/api-workspaces-dto':
@@ -1963,6 +1991,9 @@ importers:
       '@shipfox/e2e-setup-secrets':
         specifier: workspace:*
         version: link:../../../setup/secrets
+      '@shipfox/e2e-setup-triggers':
+        specifier: workspace:*
+        version: link:../../../setup/triggers
       '@shipfox/e2e-setup-workspaces':
         specifier: workspace:*
         version: link:../../../setup/workspaces

@@ -45,6 +45,23 @@ function createClient(
 ) {
   const transport = createInMemoryInterModuleTransport();
   const client = transport.createClient(integrationsInterModuleContract);
+  const getIntegrationConnectionById = async (id: string) => {
+    await Promise.resolve();
+    return id === connectionId
+      ? {
+          id: connectionId,
+          workspaceId,
+          provider: 'gitea',
+          externalAccountId: 'gitea-owner',
+          slug: 'gitea_owner',
+          displayName: 'Gitea',
+          lifecycleStatus: 'active' as const,
+          repositoryAccessMode: 'selected' as const,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+      : undefined;
+  };
 
   const sourceControl = createSourceControlIntegrationService({
     registry: createIntegrationProviderRegistry([
@@ -67,23 +84,7 @@ function createClient(
         },
       },
     ]),
-    getIntegrationConnectionById: async (id) => {
-      await Promise.resolve();
-      return id === connectionId
-        ? {
-            id: connectionId,
-            workspaceId,
-            provider: 'gitea',
-            externalAccountId: 'gitea-owner',
-            slug: 'gitea_owner',
-            displayName: 'Gitea',
-            lifecycleStatus: 'active' as const,
-            repositoryAccessMode: 'selected' as const,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }
-        : undefined;
-    },
+    getIntegrationConnectionById,
     repositoryAuthorizer,
   });
 
@@ -91,6 +92,7 @@ function createClient(
     createIntegrationsInterModulePresentation({
       registry: createIntegrationProviderRegistry([]),
       sourceControl,
+      getIntegrationConnectionById,
     }),
   );
   transport.seal();
@@ -103,6 +105,22 @@ describe('integrations inter-module presentation', () => {
     connectionId,
     externalRepositoryId: 'gitea:gitea-owner/platform',
   };
+
+  it('exposes bounded connection details through the producer contract', async () => {
+    const client = createClient(async (ref) => ({ref: ref.ref, commit: 'a'.repeat(40)}));
+
+    await expect(client.resolveConnectionById({connectionId})).resolves.toEqual({
+      id: connectionId,
+      workspaceId,
+      provider: 'gitea',
+      slug: 'gitea_owner',
+      displayName: 'Gitea',
+      lifecycleStatus: 'active',
+    });
+    await expect(client.resolveConnectionById({connectionId: crypto.randomUUID()})).resolves.toBe(
+      null,
+    );
+  });
 
   it('round-trips credential-only checkout delivery through the transport', async () => {
     const client = createClient(

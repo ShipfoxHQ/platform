@@ -5,6 +5,7 @@ import {
   subscriptionTriggeredCount,
 } from '#metrics/instance.js';
 import {evaluateTriggerFilter, readConfigInputs} from './config.js';
+import type {TriggerEventOrigin} from './entities/received-event.js';
 import {TriggerReferenceResolutionError} from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
 import {routeEventToJobListeners} from './route-event-to-job-listeners.js';
@@ -17,6 +18,8 @@ import {
 export interface DispatchIntegrationEventParams {
   workflows: WorkflowsModuleClient;
   eventRef: string;
+  /** History origin; ordinary integration deliveries use the default. */
+  origin?: Exclude<TriggerEventOrigin, 'cron'> | undefined;
   workspaceId: string;
   provider: string;
   source: string;
@@ -45,11 +48,12 @@ export interface DispatchIntegrationEventParams {
 export async function dispatchIntegrationEvent(
   params: DispatchIntegrationEventParams,
 ): Promise<void> {
-  eventReceivedCount.add(1, {provider: params.provider});
+  const origin = params.origin ?? 'integration';
+  eventReceivedCount.add(1, {origin, provider: params.provider});
 
   const history = await beginTriggerHistory({
     eventRef: params.eventRef,
-    origin: 'integration',
+    origin,
     workspaceId: params.workspaceId,
     provider: params.provider,
     source: params.source,
@@ -112,24 +116,24 @@ export async function dispatchIntegrationEvent(
   const totalMatchedCount = dispatch.triggerEngagedCount + listenerResult.engagedCount;
 
   if (dispatch.sawTransientError) {
-    eventOutcomeCount.add(1, {provider: params.provider, outcome: 'failed'});
+    eventOutcomeCount.add(1, {origin, provider: params.provider, outcome: 'failed'});
     await history.failed(totalMatchedCount);
     throw dispatch.firstTransientError;
   }
 
   if (dispatch.triggeredCount > 0 || listenerResult.acceptedJobCount > 0) {
-    eventOutcomeCount.add(1, {provider: params.provider, outcome: 'routed'});
+    eventOutcomeCount.add(1, {origin, provider: params.provider, outcome: 'routed'});
     await history.routed(totalMatchedCount);
     return;
   }
 
   if (totalMatchedCount === 0) {
-    eventOutcomeCount.add(1, {provider: params.provider, outcome: 'discarded'});
+    eventOutcomeCount.add(1, {origin, provider: params.provider, outcome: 'discarded'});
     await history.discarded();
     return;
   }
 
-  eventOutcomeCount.add(1, {provider: params.provider, outcome: 'errored'});
+  eventOutcomeCount.add(1, {origin, provider: params.provider, outcome: 'errored'});
   await history.allErrored(totalMatchedCount);
 }
 
@@ -194,7 +198,10 @@ async function dispatchMatchingSubscription(
     });
     await history.triggered(subscription, run);
     state.triggeredCount += 1;
-    subscriptionTriggeredCount.add(1, {provider: params.provider});
+    subscriptionTriggeredCount.add(1, {
+      origin: params.origin ?? 'integration',
+      provider: params.provider,
+    });
   } catch (error) {
     await history.dispatchErrored(subscription, toReason(error), startRunDiagnostic(error));
     // A thrown undefined value is still a transient failure and must drive the replay.

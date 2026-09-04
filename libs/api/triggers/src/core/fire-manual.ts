@@ -61,7 +61,7 @@ export async function fireManualSubscription(
     receivedAt: new Date(),
   };
 
-  eventReceivedCount.add(1, {provider: 'manual'});
+  eventReceivedCount.add(1, {origin: 'manual', provider: 'manual'});
 
   const inputs = params.inputs ?? readConfigInputs(subscription);
   let run: {id: string; name: string};
@@ -84,10 +84,10 @@ export async function fireManualSubscription(
     const failure = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
     await failure.dispatchErrored(subscription, toReason(error), startRunDiagnostic(error));
     if (isPermanentStartRunError(error)) {
-      eventOutcomeCount.add(1, {provider: 'manual', outcome: 'errored'});
+      eventOutcomeCount.add(1, {origin: 'manual', provider: 'manual', outcome: 'errored'});
       await failure.allErrored(1);
     } else {
-      eventOutcomeCount.add(1, {provider: 'manual', outcome: 'failed'});
+      eventOutcomeCount.add(1, {origin: 'manual', provider: 'manual', outcome: 'failed'});
       await failure.failed(1);
     }
     throw error;
@@ -95,8 +95,8 @@ export async function fireManualSubscription(
 
   const history = await beginTriggerHistory({...historyBase, eventRef: run.id});
   await history.triggered(subscription, run);
-  subscriptionTriggeredCount.add(1, {provider: 'manual'});
-  eventOutcomeCount.add(1, {provider: 'manual', outcome: 'routed'});
+  subscriptionTriggeredCount.add(1, {origin: 'manual', provider: 'manual'});
+  eventOutcomeCount.add(1, {origin: 'manual', provider: 'manual', outcome: 'routed'});
   await history.routed(1);
   return run;
 }

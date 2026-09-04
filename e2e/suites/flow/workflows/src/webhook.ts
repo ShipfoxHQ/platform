@@ -2,13 +2,14 @@ import type {WebhookConnectionDto} from '@shipfox/api-integration-webhook-dto';
 import type {
   TriggerEventDetailResponseDto,
   TriggerEventListResponseDto,
+  TriggerEventOutcomeDto,
 } from '@shipfox/api-triggers-dto';
-import type {createApiClient} from '@shipfox/e2e-core';
+import {createApiClient, pollUntil} from '@shipfox/e2e-core';
 import {waitForRunByDeliveryId} from '@shipfox/e2e-observe-workflows';
-import type {AttachFn} from './attachments.js';
-import {logAttachmentName} from './attachments.js';
+import {type AttachFn, boundedDiagnosticValue, logAttachmentName} from './attachments.js';
 
 const WEBHOOK_RECEIVED_EVENT = 'received';
+const MAX_TRIGGER_EVENT_PAGES = 100;
 
 export interface WebhookDiagnosticsRequest {
   deliveryIds: string[];
@@ -77,6 +78,63 @@ export async function postWebhookDelivery(params: {
   );
 }
 
+export async function waitForTriggerEvent(params: {
+  token: string;
+  workspaceId: string;
+  source: string;
+  event: string;
+  outcome: TriggerEventOutcomeDto;
+  deliveryId: string;
+  timeoutMs: number;
+}): Promise<TriggerEventDetailResponseDto> {
+  const client = createApiClient({token: params.token});
+  const requestSignal = AbortSignal.timeout(params.timeoutMs);
+  let lastObserved = 'no matching trigger event observed';
+
+  return await pollUntil<TriggerEventDetailResponseDto>(
+    {
+      timeoutMs: params.timeoutMs,
+      intervalMs: 250,
+      maxIntervalMs: 1_000,
+      describe: () => `Timed out waiting for trigger event: ${lastObserved}`,
+    },
+    async () => {
+      let cursor: string | null = null;
+      let page = 0;
+      while (page < MAX_TRIGGER_EVENT_PAGES) {
+        const search = new URLSearchParams({
+          workspace_id: params.workspaceId,
+          source: params.source,
+          event: params.event,
+          outcome: params.outcome,
+          limit: '100',
+        });
+        if (cursor !== null) search.set('cursor', cursor);
+        const events = await client.requestJson<TriggerEventListResponseDto>(
+          'get',
+          `/trigger-events?${search}`,
+          {signal: requestSignal},
+        );
+        page += 1;
+        lastObserved = `page=${page}, count=${events.trigger_events.length}, deliveryId=${params.deliveryId}`;
+        const event = events.trigger_events.find(
+          (candidate) => candidate.delivery_id === params.deliveryId,
+        );
+        if (event) {
+          return await client.requestJson<TriggerEventDetailResponseDto>(
+            'get',
+            `/trigger-events/${event.id}`,
+            {signal: requestSignal},
+          );
+        }
+        if (events.next_cursor === null) return null;
+        cursor = events.next_cursor;
+      }
+      return null;
+    },
+  );
+}
+
 export async function attachWebhookTriggerDiagnostics(params: {
   attach: AttachFn;
   client: ReturnType<typeof createApiClient>;
@@ -98,7 +156,7 @@ export async function attachWebhookTriggerDiagnostics(params: {
     await params.attach({
       name: `webhook-trigger-events-${logAttachmentName(params.source)}.json`,
       contentType: 'application/json',
-      body: JSON.stringify(events, null, 2),
+      body: JSON.stringify(boundedDiagnosticValue(events), null, 2),
     });
 
     const deliveryIds = new Set(params.deliveryIds);
@@ -111,7 +169,7 @@ export async function attachWebhookTriggerDiagnostics(params: {
       await params.attach({
         name: `webhook-trigger-event-${logAttachmentName(event.delivery_id)}.json`,
         contentType: 'application/json',
-        body: JSON.stringify(detail, null, 2),
+        body: JSON.stringify(boundedDiagnosticValue(detail), null, 2),
       });
     }
   } catch (error) {

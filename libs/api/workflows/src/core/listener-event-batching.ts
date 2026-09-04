@@ -1,11 +1,11 @@
-import {MAX_JSON_OUTPUT_BYTES} from '@shipfox/expression';
+import {
+  MAX_LISTENER_FIRE_EVENT_BYTES,
+  MAX_LISTENER_TRIGGER_EVENTS_BYTES,
+} from '@shipfox/api-workflows-dto';
 import type {WorkflowExecutionEvent} from './entities/job-execution.js';
 
-/** Maximum UTF-8 bytes in the normalized trigger-event array sent to execution. */
-export const MAX_LISTENER_TRIGGER_EVENTS_BYTES = MAX_JSON_OUTPUT_BYTES;
-
-/** Maximum normalized bytes in one fire event accepted into a listener buffer. */
-export const MAX_LISTENER_FIRE_EVENT_BYTES = 768 * 1024;
+/** Listener payload limits are owned by the public Workflows DTO contract. */
+export {MAX_LISTENER_FIRE_EVENT_BYTES, MAX_LISTENER_TRIGGER_EVENTS_BYTES};
 
 export type ListenerBatchPartitionReason = 'byte_limit' | 'count_limit';
 

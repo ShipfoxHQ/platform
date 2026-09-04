@@ -3,6 +3,7 @@ import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runne
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
 import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 import {observeRun} from '@shipfox/e2e-observe-workflows';
+import {dispatchListenerEvent as dispatchListenerEventThroughE2e} from '@shipfox/e2e-setup-triggers';
 import {
   type AttachFn,
   attachLocalRunnerLog,
@@ -223,6 +224,32 @@ export async function sendResolve(testCase: ListenerCase, label: string): Promis
     webhook: {body: {message: 'resolve', delivery_id: deliveryId}},
   });
   return deliveryId;
+}
+
+export async function sendProductionListenerEvent(params: {
+  testCase: ListenerCase;
+  disposition: 'fire' | 'resolve';
+  deliveryId: string;
+  payload: Record<string, unknown>;
+}): Promise<string> {
+  const connection =
+    params.disposition === 'fire'
+      ? params.testCase.fireConnection
+      : params.testCase.resolveConnection;
+  const diagnostics =
+    params.disposition === 'fire'
+      ? params.testCase.fireDiagnostics
+      : params.testCase.resolveDiagnostics;
+  diagnostics.deliveryIds.push(params.deliveryId);
+  const result = await dispatchListenerEventThroughE2e({
+    workspaceId: params.testCase.workspaceId,
+    connectionId: connection.id,
+    source: connection.slug,
+    event: 'received',
+    deliveryId: params.deliveryId,
+    payload: params.payload,
+  });
+  return result.event_ref;
 }
 
 export async function stepLogText(params: {

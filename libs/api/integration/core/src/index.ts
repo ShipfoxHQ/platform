@@ -354,7 +354,12 @@ export async function createIntegrationsContext(
   const module: ShipfoxModule = {
     name: 'integrations',
     interModulePresentations: [
-      createIntegrationsInterModulePresentation({registry, sourceControl, repositoryAuthorizer}),
+      createIntegrationsInterModulePresentation({
+        registry,
+        sourceControl,
+        getIntegrationConnectionById: resolveIntegrationConnectionById,
+        repositoryAuthorizer,
+      }),
     ],
     startupTasks: runStartupTasks,
     database: [

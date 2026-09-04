@@ -1,4 +1,4 @@
-import {pollUntil} from './poll.js';
+import {PollTimeoutError, pollUntil} from './poll.js';
 
 describe('pollUntil', () => {
   afterEach(() => {
@@ -87,9 +87,24 @@ describe('pollUntil', () => {
       () => Promise.reject(new Error('not yet')),
     );
 
-    await expect(result).rejects.toThrow(
-      'Timed out after 0ms waiting for resource to appear; last error: not yet',
+    await expect(result).rejects.toBeInstanceOf(PollTimeoutError);
+    await expect(result).rejects.toMatchObject({
+      timeoutMs: 0,
+      description: 'resource to appear',
+      lastError: new Error('not yet'),
+    });
+  });
+
+  test('times out with the description when no probe error was observed', async () => {
+    const result = pollUntil(
+      {
+        describe: () => 'resource to appear',
+        timeoutMs: 0,
+      },
+      () => Promise.resolve(null),
     );
+
+    await expect(result).rejects.toThrow('Timed out after 0ms waiting for resource to appear');
   });
 
   test('stops when the abort signal is already aborted', async () => {

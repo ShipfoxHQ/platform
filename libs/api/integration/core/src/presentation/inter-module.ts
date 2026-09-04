@@ -147,6 +147,19 @@ export function createIntegrationsInterModulePresentation(params: {
       const resolved = await getIntegrationConnectionBySlug(input);
       return resolved ? {id: resolved.id, provider: resolved.provider, slug: resolved.slug} : null;
     },
+    resolveConnectionById: async ({connectionId}) => {
+      const resolved = await getConnectionById(connectionId);
+      return resolved
+        ? {
+            id: resolved.id,
+            workspaceId: resolved.workspaceId,
+            provider: resolved.provider,
+            slug: resolved.slug,
+            displayName: resolved.displayName,
+            lifecycleStatus: resolved.lifecycleStatus,
+          }
+        : null;
+    },
     resolveTriggerReference: async (input) =>
       await known(
         contract.methods.resolveTriggerReference,
