@@ -48,6 +48,30 @@ describe('repository access mutation routes', () => {
     });
   });
 
+  it('restores selected repository access after granting all access', async () => {
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})]);
+    const connection = await createConnection();
+
+    const allResponse = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'all'},
+    });
+    const selectedResponse = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'selected'},
+    });
+    const reloaded = await getIntegrationConnectionById(connection.id);
+
+    expect(allResponse.statusCode).toBe(200);
+    expect(selectedResponse.statusCode).toBe(200);
+    expect(selectedResponse.json()).toEqual({mode: 'selected'});
+    expect(reloaded?.repositoryAccessMode).toBe('selected');
+  });
+
   it('requires a workspace admin', async () => {
     const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
       memberships: [
