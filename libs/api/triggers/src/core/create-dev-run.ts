@@ -15,7 +15,11 @@ import {
   DevRunTriggerNotFoundError,
 } from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
-import {isPermanentStartDevRunError, type WorkflowsModuleClient} from './workflows-client.js';
+import {
+  isPermanentStartDevRunError,
+  startDevRunDiagnostic,
+  type WorkflowsModuleClient,
+} from './workflows-client.js';
 
 export interface CreateDevRunParams {
   definitions: DefinitionsInterModuleClient;
@@ -86,11 +90,24 @@ export async function createDevRun(params: CreateDevRunParams): Promise<DevRunRe
     receivedAt: new Date(),
   };
 
-  if (built.kind === 'refused') {
+  if (built.kind === 'filtered') {
     const refusal = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
-    await refusal.devFilterErrored(params.triggerKey, resolved.workflow.id, built.reason);
+    await refusal.devFiltered(params.triggerKey, resolved.workflow.id);
     await refusal.discarded();
     devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'filtered'});
+    throw new DevRunTriggerFilteredError(built.reason);
+  }
+
+  if (built.kind === 'filter-error') {
+    const refusal = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
+    await refusal.devFilterErrored(
+      params.triggerKey,
+      resolved.workflow.id,
+      built.reason,
+      built.diagnostic,
+    );
+    await refusal.allErrored(1);
+    devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'errored'});
     throw new DevRunTriggerFilteredError(built.reason);
   }
 
@@ -133,7 +150,12 @@ async function startDevRunAndRecordFailure(
     });
   } catch (error) {
     const failure = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
-    await failure.devDispatchErrored(params.triggerKey, resolved.workflow.id, toReason(error));
+    await failure.devDispatchErrored(
+      params.triggerKey,
+      resolved.workflow.id,
+      toReason(error),
+      startDevRunDiagnostic(error),
+    );
     if (isPermanentStartDevRunError(error)) {
       devRunsCount.add(1, {trigger_kind: built.triggerKind, outcome: 'errored'});
       await failure.allErrored(1);
@@ -169,12 +191,21 @@ interface BuiltDevRunTrigger extends DevRunTriggerBase {
   triggerConnectionId?: string | undefined;
 }
 
-interface RefusedDevRunTrigger extends DevRunTriggerBase {
-  kind: 'refused';
+interface FilteredDevRunTrigger extends DevRunTriggerBase {
+  kind: 'filtered';
   reason: string;
 }
 
-type DevRunTriggerBuild = BuiltDevRunTrigger | RefusedDevRunTrigger;
+interface FilterErrorDevRunTrigger extends DevRunTriggerBase {
+  kind: 'filter-error';
+  reason: string;
+  diagnostic: Extract<
+    ReturnType<typeof evaluateTriggerFilter>,
+    {kind: 'filter-error'}
+  >['diagnostic'];
+}
+
+type DevRunTriggerBuild = BuiltDevRunTrigger | FilteredDevRunTrigger | FilterErrorDevRunTrigger;
 
 function buildDevRunTrigger(
   trigger: TriggerDto,
@@ -270,15 +301,23 @@ async function buildReplayTrigger(
     event: sourceEvent.event,
     payload: sourceEvent.payload,
   });
-  if (filterResult.kind !== 'matched') {
-    const reason =
-      filterResult.kind === 'filtered' ? 'Trigger filter evaluated to false' : filterResult.reason;
+  if (filterResult.kind === 'filtered') {
     return {
-      kind: 'refused',
+      kind: 'filtered',
       triggerKind: 'replay',
       event: sourceEvent.event,
       replaySource,
-      reason,
+      reason: 'Trigger filter evaluated to false',
+    };
+  }
+  if (filterResult.kind === 'filter-error') {
+    return {
+      kind: 'filter-error',
+      triggerKind: 'replay',
+      event: sourceEvent.event,
+      replaySource,
+      reason: filterResult.reason,
+      diagnostic: filterResult.diagnostic,
     };
   }
 

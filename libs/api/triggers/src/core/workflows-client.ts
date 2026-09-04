@@ -3,6 +3,7 @@ import {
   workflowsInterModuleContract,
 } from '@shipfox/api-workflows-dto/inter-module';
 import {type InterModuleKnownErrorFor, isInterModuleKnownError} from '@shipfox/inter-module';
+import type {TriggerDecisionDiagnostic} from './entities/diagnostic.js';
 
 export type {WorkflowsModuleClient};
 
@@ -34,4 +35,83 @@ export function isPermanentDeliverEventToJobListenerError(error: unknown): boole
     workflowsInterModuleContract.methods.deliverEventToJobListener,
     error,
   );
+}
+
+export function startRunDiagnostic(error: unknown): TriggerDecisionDiagnostic {
+  return isPermanentStartRunError(error)
+    ? knownStartDiagnostic(error)
+    : {version: 1, code: 'unexpected-workflow-start-failure'};
+}
+
+export function startDevRunDiagnostic(error: unknown): TriggerDecisionDiagnostic {
+  return isPermanentStartDevRunError(error)
+    ? knownStartDiagnostic(error)
+    : {version: 1, code: 'unexpected-workflow-start-failure'};
+}
+
+export function listenerDeliveryDiagnostic(error: unknown): TriggerDecisionDiagnostic {
+  if (
+    !isInterModuleKnownError(workflowsInterModuleContract.methods.deliverEventToJobListener, error)
+  ) {
+    return {version: 1, code: 'unexpected-listener-delivery-failure'};
+  }
+  return {version: 1, code: error.code};
+}
+
+function knownStartDiagnostic(
+  error: StartRunKnownError | StartDevRunKnownError,
+): TriggerDecisionDiagnostic {
+  switch (error.code) {
+    case 'admission-denied':
+    case 'workspace-not-found':
+    case 'workspace-suspended':
+    case 'workspace-deleted':
+    case 'definition-not-found':
+    case 'project-mismatch':
+    case 'agent-config-unresolvable':
+    case 'agent-integration-materialization-failed':
+      return {version: 1, code: error.code};
+    case 'interpolation-unresolvable': {
+      const envKey = error.details.envKey?.slice(0, 200);
+      return {
+        version: 1,
+        code: error.code,
+        field: error.details.field.slice(0, 200),
+        ...(envKey ? {envKey} : {}),
+      };
+    }
+    case 'invalid-job-runner-labels':
+      return {
+        version: 1,
+        code: error.code,
+        labels: error.details.labels
+          .map((label) => label.slice(0, 64))
+          .filter((label) => label.length > 0)
+          .slice(0, 10),
+      };
+    case 'source-snapshot-too-large':
+      return {
+        version: 1,
+        code: error.code,
+        limitBytes: error.details.limitBytes,
+        measuredBytes: error.details.measuredBytes,
+      };
+    case 'diagnostic-too-large':
+      return {
+        version: 1,
+        code: error.code,
+        field: error.details.field,
+        limitBytes: error.details.limitBytes,
+        measuredBytes: error.details.measuredBytes,
+      };
+    case 'workflow-execution-payload-too-large':
+      return {
+        version: 1,
+        code: error.code,
+        field: error.details.field,
+        limitBytes: error.details.limitBytes,
+        measuredBytes: error.details.measuredBytes,
+        overshootBytes: error.details.overshootBytes,
+      };
+  }
 }

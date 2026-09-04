@@ -12,9 +12,93 @@ export const triggerEventOutcomes = [
 
 export type TriggerEventDecisionOutcome =
   | 'triggered'
+  | 'filtered'
   | 'filter-error'
   | 'dispatch-error'
   | 'rejected';
+
+export type TriggerEventDecisionDiagnostic =
+  | {version: 1; code: 'expression-missing-path'; path: string}
+  | {
+      version: 1;
+      code: 'expression-index-out-of-bounds';
+      index: number;
+      size?: number | undefined;
+    }
+  | {
+      version: 1;
+      code: 'expression-syntax-invalid';
+      summary: string;
+      offset?: number | undefined;
+    }
+  | {
+      version: 1;
+      code: 'expression-evaluation-failed';
+      classification?: string | undefined;
+    }
+  | {
+      version: 1;
+      code: 'expression-result-not-boolean';
+      actualType: 'string' | 'int' | 'double' | 'null' | 'list' | 'map' | 'unknown';
+    }
+  | {
+      version: 1;
+      code: 'filter-config-invalid' | 'listener-snapshot-invalid' | 'listener-output-types-invalid';
+    }
+  | {
+      version: 1;
+      code:
+        | 'admission-denied'
+        | 'workspace-not-found'
+        | 'workspace-suspended'
+        | 'workspace-deleted'
+        | 'definition-not-found'
+        | 'project-mismatch'
+        | 'agent-config-unresolvable'
+        | 'agent-integration-materialization-failed';
+    }
+  | {
+      version: 1;
+      code: 'interpolation-unresolvable';
+      field: string;
+      envKey?: string | undefined;
+    }
+  | {version: 1; code: 'invalid-job-runner-labels'; labels: string[]}
+  | {
+      version: 1;
+      code: 'source-snapshot-too-large' | 'diagnostic-too-large';
+      field?: string | undefined;
+      limitBytes: number;
+      measuredBytes: number;
+    }
+  | {
+      version: 1;
+      code: 'workflow-execution-payload-too-large';
+      field: string;
+      limitBytes: number;
+      measuredBytes: number;
+      overshootBytes: number;
+    }
+  | {
+      version: 1;
+      code: 'listener-event-payload-too-large';
+      limitBytes: number;
+      measuredBytes: number;
+      overshootBytes: number;
+    }
+  | {
+      version: 1;
+      code: 'unexpected-workflow-start-failure' | 'unexpected-listener-delivery-failure';
+    };
+
+export interface TriggerEventProcessingDiagnostic {
+  version: 1;
+  code:
+    | 'subscription-load-failed'
+    | 'trigger-reference-resolution-failed'
+    | 'listener-routing-failed'
+    | 'event-processing-failed';
+}
 
 export interface TriggerEventSource {
   provider: string | null;
@@ -38,17 +122,25 @@ export interface TriggerEventSummary extends TriggerEventSource {
 
 export interface TriggerEventMatchedWorkflowResult {
   id: string;
+  subscriptionKind: 'trigger' | 'listener' | 'dev';
   subscriptionName: string;
+  workflowDefinitionId: string | null;
   decision: TriggerEventDecisionOutcome;
   projectId: string | null;
+  workflowRunId: string | null;
+  jobId: string | null;
+  matcherKind: 'on' | 'until' | null;
+  matcherOrdinal: number | null;
   runId: string | null;
   runName: string | null;
   reason: string | null;
+  diagnostic: TriggerEventDecisionDiagnostic | null;
 }
 
 export interface TriggerEventDetail extends TriggerEventSummary {
   connectionName: string | null;
   payload: Record<string, unknown> | null;
+  processingDiagnostic: TriggerEventProcessingDiagnostic | null;
   decisions: TriggerEventMatchedWorkflowResult[];
 }
 

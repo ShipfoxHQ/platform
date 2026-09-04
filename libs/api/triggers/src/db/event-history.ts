@@ -1,4 +1,8 @@
 import {and, eq, ne, notInArray, sql} from 'drizzle-orm';
+import type {
+  TriggerDecisionDiagnostic,
+  TriggerEventProcessingDiagnostic,
+} from '#core/entities/diagnostic.js';
 import type {JobListenerSubscription} from '#core/entities/job-listener-subscription.js';
 import type {TriggerEventOrigin} from '#core/entities/received-event.js';
 import type {TriggerSubscription} from '#core/entities/subscription.js';
@@ -58,7 +62,12 @@ export async function insertReceivedEvent(params: InsertReceivedEventParams): Pr
 export async function markReceivedEventDiscarded(id: string): Promise<void> {
   await db()
     .update(triggersReceivedEvents)
-    .set({outcome: 'discarded', matchedCount: 0, processedAt: new Date()})
+    .set({
+      outcome: 'discarded',
+      matchedCount: 0,
+      processedAt: new Date(),
+      processingDiagnostic: null,
+    })
     .where(
       and(
         eq(triggersReceivedEvents.id, id),
@@ -70,16 +79,20 @@ export async function markReceivedEventDiscarded(id: string): Promise<void> {
 export async function markReceivedEventRouted(id: string, matchedCount: number): Promise<void> {
   await db()
     .update(triggersReceivedEvents)
-    .set({outcome: 'routed', matchedCount, processedAt: new Date()})
+    .set({outcome: 'routed', matchedCount, processedAt: new Date(), processingDiagnostic: null})
     .where(eq(triggersReceivedEvents.id, id));
 }
 
 // No processedAt: `failed` is transient. Under at-least-once dispatch, a late
 // failure must not clobber a sibling invocation's terminal outcome.
-export async function markReceivedEventFailed(id: string, matchedCount: number): Promise<void> {
+export async function markReceivedEventFailed(
+  id: string,
+  matchedCount: number,
+  processingDiagnostic: TriggerEventProcessingDiagnostic | null = null,
+): Promise<void> {
   await db()
     .update(triggersReceivedEvents)
-    .set({outcome: 'failed', matchedCount})
+    .set({outcome: 'failed', matchedCount, processingDiagnostic})
     .where(
       and(
         eq(triggersReceivedEvents.id, id),
@@ -105,6 +118,7 @@ export async function markReceivedEventErrored(id: string, matchedCount: number)
       ) THEN 'routed' ELSE 'errored' END`,
       matchedCount,
       processedAt: new Date(),
+      processingDiagnostic: null,
     })
     .where(
       and(
@@ -136,6 +150,7 @@ export async function upsertTriggeredDecision(
       runId: params.run.id,
       runName: params.run.name,
       reason: null,
+      diagnostic: null,
     })
     .onConflictDoUpdate({
       target: [
@@ -143,7 +158,13 @@ export async function upsertTriggeredDecision(
         triggersDecisions.subscriptionKind,
         triggersDecisions.subscriptionId,
       ],
-      set: {decision: 'triggered', runId: params.run.id, runName: params.run.name, reason: null},
+      set: {
+        decision: 'triggered',
+        runId: params.run.id,
+        runName: params.run.name,
+        reason: null,
+        diagnostic: null,
+      },
     });
 }
 
@@ -151,6 +172,7 @@ export interface UpsertFailedDecisionParams {
   receivedEventId: string;
   subscription: TriggerSubscription;
   reason: string;
+  diagnostic: TriggerDecisionDiagnostic;
 }
 
 export async function upsertFilterErrorDecision(params: UpsertFailedDecisionParams): Promise<void> {
@@ -179,6 +201,7 @@ async function upsertFailedDecision(
       projectId: params.subscription.projectId,
       decision,
       reason: params.reason,
+      diagnostic: params.diagnostic,
     })
     .onConflictDoUpdate({
       target: [
@@ -186,7 +209,13 @@ async function upsertFailedDecision(
         triggersDecisions.subscriptionKind,
         triggersDecisions.subscriptionId,
       ],
-      set: {decision, reason: params.reason, runId: null, runName: null},
+      set: {
+        decision,
+        reason: params.reason,
+        diagnostic: params.diagnostic,
+        runId: null,
+        runName: null,
+      },
       setWhere: ne(triggersDecisions.decision, 'triggered'),
     });
 }
@@ -207,6 +236,7 @@ export async function upsertListenerTriggeredDecision(
       runId: null,
       runName: null,
       reason: null,
+      diagnostic: null,
     })
     .onConflictDoUpdate({
       target: [
@@ -214,7 +244,7 @@ export async function upsertListenerTriggeredDecision(
         triggersDecisions.subscriptionKind,
         triggersDecisions.subscriptionId,
       ],
-      set: {decision: 'triggered', runId: null, runName: null, reason: null},
+      set: {decision: 'triggered', runId: null, runName: null, reason: null, diagnostic: null},
     });
 }
 
@@ -222,12 +252,14 @@ export interface UpsertListenerFailedDecisionParams {
   receivedEventId: string;
   subscription: JobListenerSubscription;
   reason: string;
+  diagnostic: TriggerDecisionDiagnostic;
 }
 
 export interface UpsertListenerDeliveryRejectedDecisionParams {
   receivedEventId: string;
   subscription: JobListenerSubscription;
   reason: 'payload-too-large';
+  diagnostic: TriggerDecisionDiagnostic;
 }
 
 export async function upsertListenerDeliveryRejectedDecision(
@@ -241,6 +273,7 @@ export async function upsertListenerDeliveryRejectedDecision(
       runId: null,
       runName: null,
       reason: params.reason,
+      diagnostic: params.diagnostic,
     })
     .onConflictDoUpdate({
       target: [
@@ -248,7 +281,13 @@ export async function upsertListenerDeliveryRejectedDecision(
         triggersDecisions.subscriptionKind,
         triggersDecisions.subscriptionId,
       ],
-      set: {decision: 'rejected', runId: null, runName: null, reason: params.reason},
+      set: {
+        decision: 'rejected',
+        runId: null,
+        runName: null,
+        reason: params.reason,
+        diagnostic: params.diagnostic,
+      },
       setWhere: ne(triggersDecisions.decision, 'triggered'),
     });
 }
@@ -275,6 +314,7 @@ async function upsertListenerFailedDecision(
       ...listenerDecisionIdentity(params),
       decision,
       reason: params.reason,
+      diagnostic: params.diagnostic,
     })
     .onConflictDoUpdate({
       target: [
@@ -282,7 +322,13 @@ async function upsertListenerFailedDecision(
         triggersDecisions.subscriptionKind,
         triggersDecisions.subscriptionId,
       ],
-      set: {decision, reason: params.reason, runId: null, runName: null},
+      set: {
+        decision,
+        reason: params.reason,
+        diagnostic: params.diagnostic,
+        runId: null,
+        runName: null,
+      },
       setWhere: ne(triggersDecisions.decision, 'triggered'),
     });
 }
@@ -329,6 +375,7 @@ export async function upsertDevTriggeredDecision(
     runId: params.run.id,
     runName: params.run.name,
     reason: null,
+    diagnostic: null,
   });
 }
 
@@ -337,6 +384,7 @@ export interface UpsertDevFilterErrorDecisionParams {
   triggerKey: string;
   workflowDefinitionId: string;
   reason: string;
+  diagnostic: TriggerDecisionDiagnostic;
 }
 
 // Refusals before run creation (filter false or evaluation error on replay).
@@ -350,6 +398,7 @@ export async function upsertDevFilterErrorDecision(
       runId: null,
       runName: null,
       reason: params.reason,
+      diagnostic: params.diagnostic,
     },
     {preserveTriggered: true},
   );
@@ -360,6 +409,7 @@ export interface UpsertDevDispatchErrorDecisionParams {
   triggerKey: string;
   workflowDefinitionId: string;
   reason: string;
+  diagnostic: TriggerDecisionDiagnostic;
 }
 
 // A failed startDevRun leaves the dev journal entry with the failure reason.
@@ -373,17 +423,37 @@ export async function upsertDevDispatchErrorDecision(
       runId: null,
       runName: null,
       reason: params.reason,
+      diagnostic: params.diagnostic,
     },
     {preserveTriggered: true},
   );
 }
 
 type DevDecisionValues = {
-  decision: 'triggered' | 'filter-error' | 'dispatch-error';
+  decision: 'triggered' | 'filtered' | 'filter-error' | 'dispatch-error';
   runId: string | null;
   runName: string | null;
   reason: string | null;
+  diagnostic: TriggerDecisionDiagnostic | null;
 };
+
+export interface UpsertDevFilteredDecisionParams {
+  receivedEventId: string;
+  triggerKey: string;
+  workflowDefinitionId: string;
+}
+
+export async function upsertDevFilteredDecision(
+  params: UpsertDevFilteredDecisionParams,
+): Promise<void> {
+  await upsertDevDecision(params, {
+    decision: 'filtered',
+    runId: null,
+    runName: null,
+    reason: null,
+    diagnostic: null,
+  });
+}
 
 async function upsertDevDecision(
   params: {
@@ -407,6 +477,7 @@ async function upsertDevDecision(
       runId: values.runId,
       runName: values.runName,
       reason: values.reason,
+      diagnostic: values.diagnostic,
     })
     .onConflictDoUpdate({
       target: triggersDecisions.receivedEventId,

@@ -85,10 +85,11 @@ becomes a source subscription that matches any event from that integration conne
 Integration triggers may include a CEL `filter` predicate. Dispatch evaluates
 the predicate for every subscription that matches `(workspace_id, source,
 event)` with the context `{event: payload, trigger: {source, event}}`. A
-missing filter matches; `true` creates a run; `false` or a non-boolean result
-skips the subscription and can leave the event `discarded`; an evaluation
-failure records a `filter-error` decision and fails closed without creating a
-run.
+missing filter matches; `true` creates a run; and `false` skips the subscription
+and can leave the event `discarded`. A non-boolean result or evaluation failure
+records a structured `filter-error` decision and fails closed without creating
+a run. The `trigger` object contains only `source` and `event` while this filter
+runs; definition validation rejects other trigger fields.
 
 Webhook triggers use the webhook connection slug as `source` and the fixed
 event name `received`. A delivery to `POST /webhook/:connectionId` publishes

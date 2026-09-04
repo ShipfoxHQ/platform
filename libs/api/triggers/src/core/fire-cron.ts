@@ -3,7 +3,11 @@ import {cronFiredCount, cronFireLag} from '#metrics/instance.js';
 import {readConfigInputs} from './config.js';
 import {TriggerSubscriptionNotCronError, TriggerSubscriptionNotFoundError} from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
-import {isPermanentStartRunError, type WorkflowsModuleClient} from './workflows-client.js';
+import {
+  isPermanentStartRunError,
+  startRunDiagnostic,
+  type WorkflowsModuleClient,
+} from './workflows-client.js';
 
 export interface FireCronSubscriptionParams {
   workflows: WorkflowsModuleClient;
@@ -78,7 +82,7 @@ export async function fireCronSubscription(
     });
   } catch (error) {
     const failure = await beginTriggerHistory(historyBase);
-    await failure.dispatchErrored(subscription, toReason(error));
+    await failure.dispatchErrored(subscription, toReason(error), startRunDiagnostic(error));
     if (isPermanentStartRunError(error)) {
       recordFire('errored', params.scheduledSlot);
       await failure.allErrored(1);

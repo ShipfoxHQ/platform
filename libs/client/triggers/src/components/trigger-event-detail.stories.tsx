@@ -147,8 +147,88 @@ const discardedEventDto: TriggerEventDetailResponseDto = {
   decisions: [],
 };
 
+const routedDecision = routedEventDto.decisions[0];
+if (routedDecision === undefined) throw new Error('Routed story decision is missing');
+
+const failedFilterEventDto: TriggerEventDetailResponseDto = {
+  ...routedEventDto,
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  event_ref: 'github:delivery-181:on_pr_opened',
+  event: 'on_pr_opened',
+  delivery_id: 'delivery-181',
+  outcome: 'errored',
+  matched_count: 1,
+  payload: {pull_request: {draft: false}},
+  decisions: [
+    {
+      ...routedDecision,
+      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      subscription_name: 'on_pr_opened',
+      decision: 'filter-error',
+      run_id: null,
+      run_name: null,
+      reason: 'Trigger filter evaluation failed',
+      diagnostic: {
+        version: 1,
+        code: 'expression-missing-path',
+        path: 'trigger.repository',
+      },
+    },
+  ],
+};
+
+const failedFilterDecision = failedFilterEventDto.decisions[0];
+if (failedFilterDecision === undefined) throw new Error('Failed filter story decision is missing');
+
+const groupedErrorsEventDto: TriggerEventDetailResponseDto = {
+  ...failedFilterEventDto,
+  id: '12121212-1212-4212-8212-121212121212',
+  event_ref: 'github:delivery-182:on_pr_opened',
+  delivery_id: 'delivery-182',
+  matched_count: 2,
+  decisions: [
+    failedFilterDecision,
+    {
+      ...failedFilterDecision,
+      id: '13131313-1313-4313-8313-131313131313',
+      subscription_id: '14141414-1414-4414-8414-141414141414',
+      subscription_name: 'deploy_preview',
+    },
+  ],
+};
+
+const partialFailureEventDto: TriggerEventDetailResponseDto = {
+  ...failedFilterEventDto,
+  id: '15151515-1515-4515-8515-151515151515',
+  event_ref: 'github:delivery-183:on_pr_opened',
+  delivery_id: 'delivery-183',
+  outcome: 'routed',
+  matched_count: 2,
+  decisions: [routedDecision, failedFilterDecision],
+};
+
+const unavailableDetailsEventDto: TriggerEventDetailResponseDto = {
+  ...failedFilterEventDto,
+  id: '16161616-1616-4616-8616-161616161616',
+  event_ref: 'github:delivery-184:on_pr_opened',
+  delivery_id: 'delivery-184',
+  decisions: [
+    {
+      ...failedFilterDecision,
+      id: '17171717-1717-4717-8717-171717171717',
+      decision: 'dispatch-error',
+      reason: 'internal host db.private.example failed',
+      diagnostic: undefined,
+    },
+  ],
+};
+
 const routedEvent = toTriggerEventDetail(routedEventDto);
 const discardedEvent = toTriggerEventDetail(discardedEventDto);
+const failedFilterEvent = toTriggerEventDetail(failedFilterEventDto);
+const groupedErrorsEvent = toTriggerEventDetail(groupedErrorsEventDto);
+const partialFailureEvent = toTriggerEventDetail(partialFailureEventDto);
+const unavailableDetailsEvent = toTriggerEventDetail(unavailableDetailsEventDto);
 
 const meta = {
   title: 'Triggers/EventDetail',
@@ -189,5 +269,33 @@ export const Discarded: Story = {
   args: {event: discardedEvent},
   play: async (ctx) => {
     await captureDetail(ctx, 'Trigger Event Detail Discarded');
+  },
+};
+
+export const FailedFilter: Story = {
+  args: {event: failedFilterEvent},
+  play: async (ctx) => {
+    await captureDetail(ctx, 'Trigger Event Detail Failed Filter');
+  },
+};
+
+export const GroupedErrors: Story = {
+  args: {event: groupedErrorsEvent},
+  play: async (ctx) => {
+    await captureDetail(ctx, 'Trigger Event Detail Grouped Errors');
+  },
+};
+
+export const PartialFailure: Story = {
+  args: {event: partialFailureEvent},
+  play: async (ctx) => {
+    await captureDetail(ctx, 'Trigger Event Detail Partial Failure');
+  },
+};
+
+export const UnavailableDetails: Story = {
+  args: {event: unavailableDetailsEvent},
+  play: async (ctx) => {
+    await captureDetail(ctx, 'Trigger Event Detail Unavailable Details');
   },
 };

@@ -1,6 +1,7 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
 import {index, integer, jsonb, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
+import type {TriggerEventProcessingDiagnostic} from '#core/entities/diagnostic.js';
 import {
   type TriggerReceivedEvent,
   type TriggerReceivedEventSummary,
@@ -31,6 +32,7 @@ export const triggersReceivedEvents = pgTable(
     outcome: text('outcome', {enum: triggerEventOutcomes}).notNull().default('received'),
     matchedCount: integer('matched_count').notNull().default(0),
     payload: jsonb('payload').$type<Record<string, unknown>>(),
+    processingDiagnostic: jsonb('processing_diagnostic').$type<TriggerEventProcessingDiagnostic>(),
     receivedAt: timestamp('received_at', {withTimezone: true}).notNull(),
     processedAt: timestamp('processed_at', {withTimezone: true}),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
@@ -72,6 +74,7 @@ export function toTriggerReceivedEvent(row: TriggerReceivedEventDb): TriggerRece
     outcome: row.outcome,
     matchedCount: row.matchedCount,
     payload: row.payload,
+    processingDiagnostic: row.processingDiagnostic,
     receivedAt: row.receivedAt,
     processedAt: row.processedAt,
     createdAt: row.createdAt,
@@ -98,7 +101,7 @@ export const triggerReceivedEventSummaryColumns = {
 } as const satisfies Record<keyof TriggerReceivedEventSummary, unknown>;
 
 export function toTriggerReceivedEventSummary(
-  row: Omit<TriggerReceivedEventDb, 'payload'>,
+  row: TriggerReceivedEventSummary,
 ): TriggerReceivedEventSummary {
   return {...row};
 }

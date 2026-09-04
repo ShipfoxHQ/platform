@@ -21,6 +21,7 @@ export const receivedEventFactory = Factory.define<TriggerReceivedEvent>(({seque
         outcome: event.outcome,
         matchedCount: event.matchedCount,
         payload: event.payload,
+        processingDiagnostic: event.processingDiagnostic ?? null,
         receivedAt: event.receivedAt,
         processedAt: event.processedAt,
       })
@@ -44,6 +45,7 @@ export const receivedEventFactory = Factory.define<TriggerReceivedEvent>(({seque
     outcome: 'routed',
     matchedCount: 1,
     payload: {ref: `refs/heads/main-${sequence}`},
+    processingDiagnostic: null,
     receivedAt: new Date(),
     processedAt: new Date(),
     createdAt: new Date(),

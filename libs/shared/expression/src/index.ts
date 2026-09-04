@@ -1,4 +1,5 @@
 export {
+  type WorkflowExpressionEvaluationDetail,
   WorkflowExpressionEvaluationError,
   type WorkflowExpressionEvaluationFailureReason,
   workflowExpressionEvaluationErrorCode,

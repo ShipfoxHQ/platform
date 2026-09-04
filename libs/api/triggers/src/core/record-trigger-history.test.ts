@@ -7,6 +7,7 @@ const insertReceivedEvent = vi.fn();
 const markReceivedEventRouted = vi.fn();
 const upsertTriggeredDecision = vi.fn();
 const upsertDevTriggeredDecision = vi.fn();
+const upsertDevFilteredDecision = vi.fn();
 const upsertDevFilterErrorDecision = vi.fn();
 const upsertDevDispatchErrorDecision = vi.fn();
 
@@ -18,6 +19,7 @@ vi.mock('#db/event-history.js', () => ({
   markReceivedEventErrored: vi.fn(),
   upsertTriggeredDecision: (...args: unknown[]) => upsertTriggeredDecision(...args),
   upsertDevTriggeredDecision: (...args: unknown[]) => upsertDevTriggeredDecision(...args),
+  upsertDevFilteredDecision: (...args: unknown[]) => upsertDevFilteredDecision(...args),
   upsertDevFilterErrorDecision: (...args: unknown[]) => upsertDevFilterErrorDecision(...args),
   upsertDevDispatchErrorDecision: (...args: unknown[]) => upsertDevDispatchErrorDecision(...args),
   upsertDispatchErrorDecision: vi.fn(),
@@ -33,6 +35,19 @@ const {beginTriggerHistory, toReason} = await import('./record-trigger-history.j
 const {fireManualSubscription} = await import('./fire-manual.js');
 
 const workflows = {startRunFromTrigger: (...args: unknown[]) => runWorkflow(...args)} as never;
+const filterDiagnostic = {version: 1, code: 'expression-evaluation-failed'} as const;
+const dispatchDiagnostic = {version: 1, code: 'unexpected-workflow-start-failure'} as const;
+const listenerDispatchDiagnostic = {
+  version: 1,
+  code: 'unexpected-listener-delivery-failure',
+} as const;
+const listenerRejectionDiagnostic = {
+  version: 1,
+  code: 'listener-event-payload-too-large',
+  limitBytes: 786_432,
+  measuredBytes: 786_433,
+  overshootBytes: 1,
+} as const;
 
 describe('trigger history is best-effort and never blocks triggering', () => {
   beforeEach(() => {
@@ -66,22 +81,40 @@ describe('trigger history is best-effort and never blocks triggering', () => {
       recorder.devTriggered('on_issue', crypto.randomUUID(), {id: crypto.randomUUID(), name: 'r'}),
     ).resolves.toBeUndefined();
     await expect(
-      recorder.devFilterErrored('on_issue', crypto.randomUUID(), 'filter is false'),
+      recorder.devFilterErrored(
+        'on_issue',
+        crypto.randomUUID(),
+        'filter is false',
+        filterDiagnostic,
+      ),
     ).resolves.toBeUndefined();
     await expect(
-      recorder.devDispatchErrored('on_issue', crypto.randomUUID(), 'dispatch boom'),
+      recorder.devDispatchErrored(
+        'on_issue',
+        crypto.randomUUID(),
+        'dispatch boom',
+        dispatchDiagnostic,
+      ),
     ).resolves.toBeUndefined();
-    await expect(recorder.dispatchErrored(subscription, 'boom')).resolves.toBeUndefined();
-    await expect(recorder.filterErrored(subscription, 'bad filter')).resolves.toBeUndefined();
+    await expect(
+      recorder.dispatchErrored(subscription, 'boom', dispatchDiagnostic),
+    ).resolves.toBeUndefined();
+    await expect(
+      recorder.filterErrored(subscription, 'bad filter', filterDiagnostic),
+    ).resolves.toBeUndefined();
     await expect(recorder.listenerTriggered(listenerSubscription)).resolves.toBeUndefined();
     await expect(
-      recorder.listenerDispatchErrored(listenerSubscription, 'boom'),
+      recorder.listenerDispatchErrored(listenerSubscription, 'boom', listenerDispatchDiagnostic),
     ).resolves.toBeUndefined();
     await expect(
-      recorder.listenerFilterErrored(listenerSubscription, 'bad filter'),
+      recorder.listenerFilterErrored(listenerSubscription, 'bad filter', filterDiagnostic),
     ).resolves.toBeUndefined();
     await expect(
-      recorder.listenerDeliveryRejected(listenerSubscription, 'payload-too-large'),
+      recorder.listenerDeliveryRejected(
+        listenerSubscription,
+        'payload-too-large',
+        listenerRejectionDiagnostic,
+      ),
     ).resolves.toBeUndefined();
     await expect(recorder.discarded()).resolves.toBeUndefined();
     await expect(recorder.routed(1)).resolves.toBeUndefined();
@@ -208,6 +241,7 @@ describe('dev recorder variants', () => {
       'on_demand',
       '019e98ab-0000-0000-0000-000000000003',
       'workspace suspended',
+      dispatchDiagnostic,
     );
 
     expect(upsertDevDispatchErrorDecision).toHaveBeenCalledTimes(1);
@@ -216,6 +250,7 @@ describe('dev recorder variants', () => {
       triggerKey: 'on_demand',
       workflowDefinitionId: '019e98ab-0000-0000-0000-000000000003',
       reason: 'workspace suspended',
+      diagnostic: dispatchDiagnostic,
     });
   });
 
@@ -239,6 +274,7 @@ describe('dev recorder variants', () => {
       'on_push',
       '019e98ab-0000-0000-0000-000000000002',
       'filter is false',
+      filterDiagnostic,
     );
 
     expect(upsertDevFilterErrorDecision).toHaveBeenCalledTimes(1);
@@ -247,6 +283,7 @@ describe('dev recorder variants', () => {
       triggerKey: 'on_push',
       workflowDefinitionId: '019e98ab-0000-0000-0000-000000000002',
       reason: 'filter is false',
+      diagnostic: filterDiagnostic,
     });
   });
 });

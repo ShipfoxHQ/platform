@@ -10,6 +10,107 @@ import {
 
 const idSchema = z.string().uuid();
 const isoDateTimeSchema = z.string().datetime();
+const diagnosticVersionSchema = z.literal(1);
+const diagnosticByteCountSchema = z.number().int().nonnegative();
+const diagnosticFieldSchema = z.string().min(1).max(200);
+const diagnosticIndexSchema = z.number().int().min(-999_999_999).max(999_999_999);
+
+export const triggerDecisionDiagnosticSchema = z.discriminatedUnion('code', [
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-missing-path'),
+    path: z.string().min(1).max(200),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-index-out-of-bounds'),
+    index: diagnosticIndexSchema,
+    size: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-syntax-invalid'),
+    summary: z.string().min(1).max(200),
+    offset: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-evaluation-failed'),
+    classification: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{0,63}$/)
+      .optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-result-not-boolean'),
+    actualType: z.enum(['string', 'int', 'double', 'null', 'list', 'map', 'unknown']),
+  }),
+  ...[
+    'filter-config-invalid',
+    'listener-snapshot-invalid',
+    'listener-output-types-invalid',
+    'admission-denied',
+    'workspace-not-found',
+    'workspace-suspended',
+    'workspace-deleted',
+    'definition-not-found',
+    'project-mismatch',
+    'agent-config-unresolvable',
+    'agent-integration-materialization-failed',
+    'unexpected-workflow-start-failure',
+    'unexpected-listener-delivery-failure',
+  ].map((code) => z.strictObject({version: diagnosticVersionSchema, code: z.literal(code)})),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('interpolation-unresolvable'),
+    field: diagnosticFieldSchema,
+    envKey: diagnosticFieldSchema.optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('invalid-job-runner-labels'),
+    labels: z.array(z.string().min(1).max(64)).max(10),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('source-snapshot-too-large'),
+    limitBytes: diagnosticByteCountSchema,
+    measuredBytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('diagnostic-too-large'),
+    field: diagnosticFieldSchema.optional(),
+    limitBytes: diagnosticByteCountSchema,
+    measuredBytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('workflow-execution-payload-too-large'),
+    field: diagnosticFieldSchema,
+    limitBytes: diagnosticByteCountSchema,
+    measuredBytes: diagnosticByteCountSchema,
+    overshootBytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('listener-event-payload-too-large'),
+    limitBytes: diagnosticByteCountSchema,
+    measuredBytes: diagnosticByteCountSchema,
+    overshootBytes: diagnosticByteCountSchema,
+  }),
+]);
+
+export const triggerEventProcessingDiagnosticSchema = z.strictObject({
+  version: diagnosticVersionSchema,
+  code: z.enum([
+    'subscription-load-failed',
+    'trigger-reference-resolution-failed',
+    'listener-routing-failed',
+    'event-processing-failed',
+  ]),
+});
 
 const triggerEventCursorSchema = z.object({
   receivedAt: isoDateTimeSchema,
@@ -57,6 +158,7 @@ const triggerEventListItemSchema = z.object({
 
 const triggerEventSchema = triggerEventListItemSchema.extend({
   payload: z.record(z.string(), z.unknown()).nullable(),
+  processingDiagnostic: triggerEventProcessingDiagnosticSchema.nullable().optional(),
 });
 
 const triggerEventReplaySchema = z.object({
@@ -83,6 +185,7 @@ const triggerDecisionSchema = z
     runId: idSchema.nullable(),
     runName: z.string().nullable(),
     reason: z.string().nullable(),
+    diagnostic: triggerDecisionDiagnosticSchema.nullable().optional(),
     createdAt: isoDateTimeSchema,
   })
   .superRefine((value, ctx) => {

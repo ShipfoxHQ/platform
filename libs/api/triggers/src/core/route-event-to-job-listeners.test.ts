@@ -15,6 +15,12 @@ const listenerDeliveryRejectionsCount = vi.hoisted(() => ({add: vi.fn()}));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({
   logger: () => ({warn: loggerWarn}),
+  instanceMetrics: {
+    getMeter: () => ({
+      createCounter: () => ({add: vi.fn()}),
+      createHistogram: () => ({record: vi.fn()}),
+    }),
+  },
 }));
 
 vi.mock('#metrics/instance.js', () => ({listenerDeliveryRejectionsCount}));
@@ -71,6 +77,7 @@ function buildHistory(): TriggerHistoryRecorder {
   return {
     triggered: vi.fn(),
     devTriggered: vi.fn(),
+    devFiltered: vi.fn(),
     devFilterErrored: vi.fn(),
     devDispatchErrored: vi.fn(),
     filterErrored: vi.fn(),
@@ -82,6 +89,7 @@ function buildHistory(): TriggerHistoryRecorder {
     discarded: vi.fn(),
     routed: vi.fn(),
     failed: vi.fn(),
+    processingFailed: vi.fn(),
     allErrored: vi.fn(),
   };
 }
@@ -313,6 +321,13 @@ describe('routeEventToJobListeners', () => {
     expect(listenerDeliveryRejected).toHaveBeenCalledWith(
       expect.objectContaining({id: subscription.id}),
       'payload-too-large',
+      {
+        version: 1,
+        code: 'listener-event-payload-too-large',
+        limitBytes: 786_432,
+        measuredBytes: 786_433,
+        overshootBytes: 1,
+      },
     );
     expect(listenerTriggered).not.toHaveBeenCalled();
     expect(listenerDeliveryRejectionsCount.add).toHaveBeenCalledWith(1, {
@@ -351,6 +366,7 @@ describe('routeEventToJobListeners', () => {
     expect(listenerDispatchErrored).toHaveBeenCalledWith(
       expect.objectContaining({source: 'github', event: 'pull_request_review'}),
       'workflow db down',
+      {version: 1, code: 'unexpected-listener-delivery-failure'},
     );
     expect(listenerTriggered).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
@@ -408,7 +424,10 @@ describe('routeEventToJobListeners', () => {
 
     const result = await route({workspaceId});
 
-    expect(listenerDispatchErrored).toHaveBeenCalledWith(expect.anything(), reason);
+    expect(listenerDispatchErrored).toHaveBeenCalledWith(expect.anything(), reason, {
+      version: 1,
+      code: 'admission-denied',
+    });
     expect(result).toMatchObject({
       engagedCount: 1,
       acceptedJobCount: 0,
@@ -577,6 +596,7 @@ describe('routeEventToJobListeners', () => {
     expect(listenerFilterErrored).toHaveBeenCalledWith(
       expect.objectContaining({kind}),
       'Listener filter evaluation failed',
+      {version: 1, code: 'expression-missing-path', path: 'executions'},
     );
     expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 0, acceptedJobCount: 0});
   });
@@ -605,6 +625,7 @@ describe('routeEventToJobListeners', () => {
     expect(listenerFilterErrored).toHaveBeenCalledWith(
       expect.objectContaining({source: 'github', event: 'pull_request_review'}),
       'Listener filter evaluation failed',
+      expect.objectContaining({version: 1, code: 'expression-missing-path'}),
     );
     expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 0, acceptedJobCount: 0});
   });
@@ -627,6 +648,7 @@ describe('routeEventToJobListeners', () => {
     expect(listenerFilterErrored).toHaveBeenCalledWith(
       expect.anything(),
       'Listener filter snapshot must be an object when set',
+      {version: 1, code: 'listener-snapshot-invalid'},
     );
     expect(result).toMatchObject({engagedCount: 1, matchedJobCount: 0});
   });

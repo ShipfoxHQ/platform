@@ -105,7 +105,7 @@ describe('TriggerEventDetailView', () => {
     renderDetailView(makeEvent());
 
     expect(await screen.findByText('Triggered 1 workflow')).toBeInTheDocument();
-    expect(screen.getByRole('heading', {name: 'Matched workflows'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Workflow decisions'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Payload'})).toBeInTheDocument();
     expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(2);
     expect(screen.getByText('Deploy production')).toBeInTheDocument();
@@ -116,15 +116,15 @@ describe('TriggerEventDetailView', () => {
     expect(screen.getByText(PAYLOAD_REF_LINE)).toBeInTheDocument();
   });
 
-  test('renders a no-subscriptions note for a discarded event', async () => {
+  test('renders a no-match note for a discarded event', async () => {
     renderDetailView(makeEvent({outcome: 'discarded', matched_count: 0, decisions: []}));
 
     expect(await screen.findByText('No workflows triggered')).toBeInTheDocument();
-    expect(screen.getByText('No workflows are subscribed to this event.')).toBeInTheDocument();
-    expect(screen.queryByText('Matched workflows')).not.toBeInTheDocument();
+    expect(screen.getByText('No workflow matched this event.')).toBeInTheDocument();
+    expect(screen.queryByText('Workflow decisions')).not.toBeInTheDocument();
   });
 
-  test('renders failed decisions inline with their reason', async () => {
+  test('does not expose an unclassified legacy reason', async () => {
     renderDetailView(
       makeEvent({
         outcome: 'errored',
@@ -153,10 +153,11 @@ describe('TriggerEventDetailView', () => {
 
     expect(await screen.findByText('Failed')).toBeInTheDocument();
     expect(screen.getByText('Deploy production')).toBeInTheDocument();
-    expect(screen.getByText('workflow definition deleted')).toBeInTheDocument();
+    expect(screen.getByText('Workflow processing failed')).toBeInTheDocument();
+    expect(screen.queryByText('workflow definition deleted')).not.toBeInTheDocument();
   });
 
-  test('renders null run fields without a run link', async () => {
+  test('renders the exact unavailable expression path in the failure callout', async () => {
     renderDetailView(
       makeEvent({
         decisions: [
@@ -176,13 +177,23 @@ describe('TriggerEventDetailView', () => {
             run_id: null,
             run_name: null,
             reason: null,
+            diagnostic: {
+              version: 1,
+              code: 'expression-missing-path',
+              path: 'trigger.repository',
+            },
             created_at: '2026-06-25T19:30:02.000Z',
           },
         ],
       }),
     );
 
-    expect(await screen.findByText('No run created')).toBeInTheDocument();
+    expect(await screen.findByText('Trigger filter could not be evaluated')).toBeInTheDocument();
+    expect(screen.getByText('trigger.repository')).toBeInTheDocument();
+    expect(screen.getByText('Filter could not be evaluated')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="callout"]')).toHaveTextContent(
+      'trigger.repository is not available in the Deploy production filter. No workflow run was created.',
+    );
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 

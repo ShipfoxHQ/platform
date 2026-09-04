@@ -39,6 +39,13 @@ export const devRunsCount = meter.createCounter<{
   description: 'Dev runs started from POST /dev-runs by trigger kind and outcome',
 });
 
+export const diagnosticCount = meter.createCounter<{
+  scope: 'decision' | 'event';
+  code: string;
+}>('triggers_diagnostic', {
+  description: 'Classified trigger processing diagnostics by bounded code and ownership scope',
+});
+
 export const cronFireLag = meter.createHistogram<Record<string, never>>('triggers_cron_fire_lag', {
   description: 'Delay between a cron scheduled slot and when the tick actually fired it',
   unit: 'ms',

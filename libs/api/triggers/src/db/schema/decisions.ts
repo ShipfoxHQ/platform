@@ -1,7 +1,17 @@
 import {uuidv7PrimaryKey} from '@shipfox/node-drizzle';
 import {sql} from 'drizzle-orm';
-import {check, index, integer, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import {type TriggerDecision, triggerDecisionOutcomes} from '#core/entities/decision.js';
+import type {TriggerDecisionDiagnostic} from '#core/entities/diagnostic.js';
 import {pgTable} from './common.js';
 import {jobListenerMatcherKindEnum} from './job-listener-subscriptions.js';
 import {triggersReceivedEvents} from './received-events.js';
@@ -30,6 +40,7 @@ export const triggersDecisions = pgTable(
     runId: uuid('run_id'),
     runName: text('run_name'),
     reason: text('reason'),
+    diagnostic: jsonb('diagnostic').$type<TriggerDecisionDiagnostic>(),
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
   },
   (table) => [
@@ -73,6 +84,7 @@ export function toTriggerDecision(row: TriggerDecisionDb): TriggerDecision {
     runId: row.runId,
     runName: row.runName,
     reason: row.reason,
+    diagnostic: row.diagnostic,
     createdAt: row.createdAt,
   };
 }
@@ -81,6 +93,7 @@ function toTriggerDecisionOutcome(decision: string): TriggerDecision['decision']
   if (decision === 'errored') return 'dispatch-error';
   if (
     decision === 'triggered' ||
+    decision === 'filtered' ||
     decision === 'filter-error' ||
     decision === 'dispatch-error' ||
     decision === 'rejected'

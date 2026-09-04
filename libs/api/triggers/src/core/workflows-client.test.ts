@@ -11,6 +11,8 @@ import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/te
 import {
   isPermanentDeliverEventToJobListenerError,
   isPermanentStartRunError,
+  listenerDeliveryDiagnostic,
+  startRunDiagnostic,
 } from './workflows-client.js';
 
 const input = {
@@ -192,5 +194,34 @@ describe('WorkflowsModuleClient consumer parity', () => {
     );
 
     expect(isPermanentDeliverEventToJobListenerError(error)).toBe(true);
+    expect(listenerDeliveryDiagnostic(error)).toEqual({version: 1, code});
+  });
+
+  test('preserves checked workflow start details and classifies unknown failures', () => {
+    const labelsError = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.startRunFromTrigger,
+      'invalid-job-runner-labels',
+      {labels: ['linux', 'gpu']},
+    );
+
+    expect(startRunDiagnostic(labelsError)).toEqual({
+      version: 1,
+      code: 'invalid-job-runner-labels',
+      labels: ['linux', 'gpu'],
+    });
+    const admissionError = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.startRunFromTrigger,
+      'admission-denied',
+      {workspaceId: input.workspaceId, reason: 'billing-payment-method-required'},
+    );
+    expect(startRunDiagnostic(admissionError)).toEqual({version: 1, code: 'admission-denied'});
+    expect(startRunDiagnostic(new Error('database host unavailable'))).toEqual({
+      version: 1,
+      code: 'unexpected-workflow-start-failure',
+    });
+    expect(listenerDeliveryDiagnostic(new Error('socket closed'))).toEqual({
+      version: 1,
+      code: 'unexpected-listener-delivery-failure',
+    });
   });
 });

@@ -5,9 +5,14 @@ import {
   subscriptionTriggeredCount,
 } from '#metrics/instance.js';
 import {evaluateTriggerFilter, readConfigInputs} from './config.js';
+import {TriggerReferenceResolutionError} from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
 import {routeEventToJobListeners} from './route-event-to-job-listeners.js';
-import {isPermanentStartRunError, type WorkflowsModuleClient} from './workflows-client.js';
+import {
+  isPermanentStartRunError,
+  startRunDiagnostic,
+  type WorkflowsModuleClient,
+} from './workflows-client.js';
 
 export interface DispatchIntegrationEventParams {
   workflows: WorkflowsModuleClient;
@@ -57,27 +62,45 @@ export async function dispatchIntegrationEvent(
     receivedAt: params.receivedAt,
   });
 
-  const subscriptions = await findMatchingSubscriptions({
-    workspaceId: params.workspaceId,
-    source: params.source,
-    event: params.event,
-  });
+  let subscriptions: Awaited<ReturnType<typeof findMatchingSubscriptions>>;
+  try {
+    subscriptions = await findMatchingSubscriptions({
+      workspaceId: params.workspaceId,
+      source: params.source,
+      event: params.event,
+    });
+  } catch (error) {
+    await history.processingFailed(0, {version: 1, code: 'subscription-load-failed'});
+    throw error;
+  }
 
   const dispatch = await dispatchMatchingSubscriptions(params, subscriptions, history);
 
-  const listenerResult = await routeEventToJobListeners({
-    workflows: params.workflows,
-    history,
-    eventRef: params.eventRef,
-    workspaceId: params.workspaceId,
-    connectionId: params.connectionId,
-    provider: params.provider,
-    source: params.source,
-    event: params.event,
-    deliveryId: params.deliveryId,
-    payload: params.payload,
-    receivedAt: params.receivedAt,
-  });
+  let listenerResult: Awaited<ReturnType<typeof routeEventToJobListeners>>;
+  try {
+    listenerResult = await routeEventToJobListeners({
+      workflows: params.workflows,
+      history,
+      eventRef: params.eventRef,
+      workspaceId: params.workspaceId,
+      connectionId: params.connectionId,
+      provider: params.provider,
+      source: params.source,
+      event: params.event,
+      deliveryId: params.deliveryId,
+      payload: params.payload,
+      receivedAt: params.receivedAt,
+    });
+  } catch (error) {
+    await history.processingFailed(dispatch.triggerEngagedCount, {
+      version: 1,
+      code:
+        error instanceof TriggerReferenceResolutionError
+          ? 'trigger-reference-resolution-failed'
+          : 'listener-routing-failed',
+    });
+    throw error;
+  }
 
   if (listenerResult.transientErrored && !dispatch.sawTransientError) {
     dispatch.sawTransientError = true;
@@ -136,7 +159,7 @@ async function dispatchMatchingSubscriptions(
     if (filterResult.kind === 'filtered') continue;
     state.triggerEngagedCount += 1;
     if (filterResult.kind === 'filter-error') {
-      await history.filterErrored(subscription, filterResult.reason);
+      await history.filterErrored(subscription, filterResult.reason, filterResult.diagnostic);
       continue;
     }
     await dispatchMatchingSubscription(params, subscription, history, state);
@@ -171,7 +194,7 @@ async function dispatchMatchingSubscription(
     state.triggeredCount += 1;
     subscriptionTriggeredCount.add(1, {provider: params.provider});
   } catch (error) {
-    await history.dispatchErrored(subscription, toReason(error));
+    await history.dispatchErrored(subscription, toReason(error), startRunDiagnostic(error));
     // A thrown undefined value is still a transient failure and must drive the replay.
     if (!isPermanentStartRunError(error) && !state.sawTransientError) {
       state.sawTransientError = true;
