@@ -49,7 +49,14 @@ describe('repository access mutation routes', () => {
   });
 
   it('restores selected repository access after granting all access', async () => {
-    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})]);
+    const invalidateRepositoryAuthorizationCache = vi.fn();
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
+      repositoryAuthorizer: {
+        enabled: false,
+        resolveRepositoryAuthorization: () => Promise.resolve(undefined),
+        invalidateRepositoryAuthorizationCache,
+      },
+    });
     const connection = await createConnection();
 
     const allResponse = await app.inject({
@@ -65,11 +72,38 @@ describe('repository access mutation routes', () => {
       payload: {mode: 'selected'},
     });
     const reloaded = await getIntegrationConnectionById(connection.id);
+    const events = await auditEvents(connection.id);
 
     expect(allResponse.statusCode).toBe(200);
     expect(selectedResponse.statusCode).toBe(200);
     expect(selectedResponse.json()).toEqual({mode: 'selected'});
     expect(reloaded?.repositoryAccessMode).toBe('selected');
+    expect(events).toHaveLength(2);
+    expect(events).toMatchObject([
+      {
+        orderingKey: connection.id,
+        payload: {
+          actorId: 'user-1',
+          workspaceId: context.workspaceId,
+          connectionId: connection.id,
+          provider: 'gitea',
+          mode: 'all',
+        },
+      },
+      {
+        orderingKey: connection.id,
+        payload: {
+          actorId: 'user-1',
+          workspaceId: context.workspaceId,
+          connectionId: connection.id,
+          provider: 'gitea',
+          mode: 'selected',
+        },
+      },
+    ]);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenCalledTimes(2);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenNthCalledWith(1, connection.id);
+    expect(invalidateRepositoryAuthorizationCache).toHaveBeenNthCalledWith(2, connection.id);
   });
 
   it('requires a workspace admin', async () => {
@@ -179,6 +213,7 @@ describe('repository access mutation routes', () => {
       .from(integrationsOutbox)
       .where(
         sql`${integrationsOutbox.eventType} = ${CONNECTION_REPOSITORY_ACCESS_CHANGED} AND ${integrationsOutbox.payload}->>'connectionId' = ${connectionId}`,
-      );
+      )
+      .orderBy(integrationsOutbox.createdAt, integrationsOutbox.id);
   }
 });
