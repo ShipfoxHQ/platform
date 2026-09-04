@@ -87,7 +87,47 @@ describe('run annotation resource hooks', () => {
       WORKFLOW_RESOURCE_ERROR_POLL_MS,
     );
     expect(refetchInterval(options, 2, null)).toBe(false);
+    expect(refetchOnWindowFocus(options, 1)).toBe(true);
     expect(refetchOnWindowFocus(options, 2)).toBe(false);
+  });
+
+  test.each([
+    ['annotations', runAnnotationsQueryOptions],
+    ['job explanations', runJobExplanationsQueryOptions],
+  ] as const)('settles terminal %s resources', (_name, optionsFor) => {
+    const options = optionsFor({workflowRunId: RUN_ID, runAttempt: 2, live: false});
+
+    expect(options.staleTime).toBe(Infinity);
+    expect(refetchInterval(options, 1, null)).toBe(false);
+    expect(refetchOnWindowFocus(options, 1)).toBe(false);
+  });
+
+  test('stops automatic aggregation when the API repeats a cursor', async () => {
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      const repeatedPage = url.searchParams.get('cursor') === 'repeat-cursor';
+      return Promise.resolve(
+        jsonResponse({
+          items: [annotationItem(repeatedPage ? 'second' : 'first')],
+          next_cursor: 'repeat-cursor',
+        }),
+      );
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const {result} = renderWithQueryClient(() =>
+      useRunAnnotationsQuery({
+        workflowRunId: RUN_ID,
+        runAttempt: 2,
+        loadAllPages: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    expect(result.current.query.hasNextPage).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.current.entries).toHaveLength(2);
+    expect(result.current.summary).toMatchObject({total: 2, truncated: true});
   });
 });
 

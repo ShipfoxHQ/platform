@@ -85,9 +85,12 @@ export function paginatedWorkflowResourceQueryOptions<
     queryFn,
     enabled,
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: WORKFLOW_RESOURCE_STALE_TIME_MS,
-    refetchOnWindowFocus: (query) => (query.state.data?.pages.length ?? 0) <= 1,
+    getNextPageParam: (lastPage, _pages, _lastPageParam, pageParams) => {
+      const nextCursor = lastPage.nextCursor ?? undefined;
+      return nextCursor && !pageParams.includes(nextCursor) ? nextCursor : undefined;
+    },
+    staleTime: live ? WORKFLOW_RESOURCE_STALE_TIME_MS : Infinity,
+    refetchOnWindowFocus: (query) => live && (query.state.data?.pages.length ?? 0) <= 1,
     refetchInterval: (query) => {
       if (!enabled || !live) return false;
       const pages = query.state.data?.pages;
