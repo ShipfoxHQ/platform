@@ -12,7 +12,11 @@ import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {agentThinkingSchema} from '@shipfox/workflow-document';
 import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {Step} from '#core/entities/step.js';
-import {AgentConfigUnresolvableError, InterpolationUnresolvableError} from '#core/errors.js';
+import {
+  AgentConfigUnresolvableError,
+  InterpolationUnresolvableError,
+  ToolConfigInvalidError,
+} from '#core/errors.js';
 import {completeStepDispatchConfig} from './complete-step-dispatch-config.js';
 import type {WorkflowEvaluationContext} from './workflow-evaluation-context.js';
 
@@ -73,6 +77,26 @@ const context: WorkflowEvaluationContext = {
     },
   },
 };
+
+function methodConditionedToolInputSchema() {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      method: {type: 'string', enum: ['get', 'get_status', 'get_check_runs']},
+      owner: {type: 'string'},
+      repo: {type: 'string'},
+      pull_number: {type: 'integer'},
+      ref: {type: 'string'},
+    },
+    required: ['method', 'owner', 'repo', 'pull_number'],
+    oneOf: [
+      {properties: {method: {const: 'get'}}, required: []},
+      {properties: {method: {const: 'get_status'}}, required: ['ref']},
+      {properties: {method: {const: 'get_check_runs'}}, required: ['ref']},
+    ],
+  };
+}
 
 const resolveAgentDefaults: AgentDefaultsResolver = (params) => ({
   harness: params.harness ?? 'pi',
@@ -488,7 +512,7 @@ describe('completeStepDispatchConfig', () => {
             required: ['owner', 'count', 'enabled', 'options', 'method'],
             additionalProperties: false,
           },
-          with: {owner: 'acme'},
+          with: {owner: 'acme', method: 'create'},
           output_mappings: {identifier: {source: 'result.identifier'}},
         },
       },
@@ -529,6 +553,255 @@ describe('completeStepDispatchConfig', () => {
         method: 'update',
       },
       output_mappings: {identifier: {source: 'result.identifier'}},
+    });
+  });
+
+  it.each([
+    {kind: 'scalar', value: 42},
+    {kind: 'array', value: ['a', 'b']},
+  ])('rejects a deferred $kind input before injecting the selected method', async ({value}) => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'get',
+          input_schema: {type: 'object'},
+        },
+      },
+      configPlan: {
+        tool: {
+          with: plannedField(template('steps.build.outputs.input')).segments,
+        },
+      },
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context: {
+          ...context,
+          values: {steps: {build: {outputs: {input: value}}}},
+        },
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+    });
+  });
+
+  it('forwards the server-owned method for fully resolved inputs', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'get',
+          input_schema: methodConditionedToolInputSchema(),
+          with: {
+            owner: 'ShipfoxHQ',
+            repo: 'shipfox',
+            pull_number: 1,
+          },
+        },
+      },
+      configPlan: null,
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context,
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.config.tool).toMatchObject({
+      with: {
+        method: 'get',
+        owner: 'ShipfoxHQ',
+        repo: 'shipfox',
+        pull_number: 1,
+      },
+    });
+  });
+
+  it('rejects a method-conditioned input without its required parent property', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'get_status',
+          input_schema: methodConditionedToolInputSchema(),
+          with: {owner: 'ShipfoxHQ', repo: 'shipfox', pull_number: 1},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+    });
+  });
+
+  it('rejects selected methods that are absent from the provider input schema', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'search',
+          input_schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {query: {type: 'string'}},
+            required: ['query'],
+          },
+          with: {query: 'open issues'},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+    });
+  });
+
+  it('validates deferred inputs against the selected method branch', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'get_status',
+          input_schema: methodConditionedToolInputSchema(),
+          with: {owner: 'ShipfoxHQ', repo: 'shipfox', pull_number: 1},
+        },
+      },
+      configPlan: {
+        tool: {
+          with: {
+            ref: plannedField(template('steps.build.outputs.sha')).segments,
+          },
+        },
+      },
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context,
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.config.tool).toMatchObject({
+      with: {
+        method: 'get_status',
+        owner: 'ShipfoxHQ',
+        repo: 'shipfox',
+        pull_number: 1,
+        ref: 'abc123',
+      },
+    });
+  });
+
+  it('keeps valid standalone tool inputs unchanged', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          input_schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {query: {type: 'string'}},
+            required: ['query'],
+          },
+          with: {query: 'open issues'},
+        },
+      },
+      configPlan: null,
+    });
+
+    const result = await completeStepDispatchConfig({
+      step: pending,
+      context,
+      resolveAgentDefaults,
+      definitionId: 'def-1',
+    });
+
+    expect(result.config.tool).toMatchObject({with: {query: 'open issues'}});
+    expect((result.config.tool as {with: object}).with).not.toHaveProperty('method');
+  });
+
+  it('rejects invalid standalone tool inputs', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          input_schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {query: {type: 'string'}},
+            required: ['query'],
+          },
+          with: {query: 42},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toBeInstanceOf(ToolConfigInvalidError);
+  });
+
+  it('wraps provider input schema compilation failures', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          input_schema: {required: ['query']},
+          with: {query: 'open issues'},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+      message: expect.stringContaining('Tool input schema is invalid:'),
     });
   });
 
