@@ -28,12 +28,13 @@ import {
   type WorkflowRunOverview,
   type WorkflowRunOverviewJob,
   type WorkflowRunRerunMode,
-  type WorkflowRunSelectionResolution,
   type WorkflowRunSource,
 } from '#core/workflow-run.js';
 import {
-  type WorkflowRunSelectionInput,
   withoutWorkflowRunSelectionSearch,
+  workflowJobSelectionFromRunSelection,
+  workflowRunSelectionFromResolution,
+  workflowRunSelectionMatches,
 } from '#core/workflow-run-url-state.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
@@ -482,7 +483,7 @@ function useCanonicalizeWorkflowRunSelection({
           jobId: canonicalSelection.jobId,
         },
         search: workflowJobSearchParams(
-          workflowJobSearchFromSelection(canonicalSelection),
+          workflowJobSelectionFromRunSelection(canonicalSelection),
         ) as never,
         replace: true,
       });
@@ -511,40 +512,6 @@ function useCanonicalizeWorkflowRunSelection({
     workflowRunId,
     workspaceSlug,
   ]);
-}
-
-function workflowRunSelectionFromResolution(
-  resolution: WorkflowRunSelectionResolution,
-): WorkflowRunSelectionInput {
-  return {
-    ...(resolution.jobId ? {jobId: resolution.jobId} : {}),
-    ...(resolution.jobExecutionId ? {jobExecutionId: resolution.jobExecutionId} : {}),
-    ...(resolution.stepId ? {stepId: resolution.stepId} : {}),
-    ...(resolution.stepAttemptId ? {stepAttemptId: resolution.stepAttemptId} : {}),
-    runAttempt: resolution.workflowRunAttempt,
-  };
-}
-
-function workflowJobSearchFromSelection(selection: WorkflowRunSelectionInput): WorkflowJobSearch {
-  return {
-    ...(selection.jobExecutionId ? {jobExecutionId: selection.jobExecutionId} : {}),
-    ...(selection.stepId ? {stepId: selection.stepId} : {}),
-    ...(selection.stepAttemptId ? {stepAttemptId: selection.stepAttemptId} : {}),
-    ...(selection.runAttempt === undefined ? {} : {runAttempt: selection.runAttempt}),
-  };
-}
-
-function workflowRunSelectionMatches(
-  current: WorkflowRunsSearch | undefined,
-  canonical: WorkflowRunSelectionInput,
-): boolean {
-  return (
-    current?.jobId === canonical.jobId &&
-    current?.jobExecutionId === canonical.jobExecutionId &&
-    current?.stepId === canonical.stepId &&
-    current?.stepAttemptId === canonical.stepAttemptId &&
-    current?.runAttempt === canonical.runAttempt
-  );
 }
 
 function useRefreshWorkflowRunHeadOnTerminal({
@@ -682,6 +649,14 @@ function RunViewContent({
     });
   }
 
+  function clearWorkflowRunSelection() {
+    void navigate({
+      search: ((previous: Record<string, unknown>) =>
+        withoutWorkflowRunSelectionSearch(previous)) as never,
+      replace: true,
+    });
+  }
+
   function cancelRun() {
     cancelMutation.mutate(undefined, {
       onError: (error) => toast.error(cancelErrorMessage(error)),
@@ -717,6 +692,7 @@ function RunViewContent({
       onSelectGraphJob={selectGraphJob}
       onSelectAnnotationJob={selectAnnotationJob}
       onClearAnnotationFilters={clearAnnotationFilters}
+      onClearSelection={clearWorkflowRunSelection}
     />
   );
 }
@@ -763,6 +739,7 @@ function RunViewLayout({
   onSelectGraphJob,
   onSelectAnnotationJob,
   onClearAnnotationFilters,
+  onClearSelection,
 }: {
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -791,6 +768,7 @@ function RunViewLayout({
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
+  onClearSelection: () => void;
 }) {
   const newerAttempt =
     shellRun && headQuery.data && headQuery.data.latestAttempt > shellRun.runAttempt.attempt
@@ -867,6 +845,7 @@ function RunViewLayout({
               onSelectGraphJob={onSelectGraphJob}
               onSelectAnnotationJob={onSelectAnnotationJob}
               onClearAnnotationFilters={onClearAnnotationFilters}
+              onClearSelection={onClearSelection}
               highlightedLineRange={highlightedLineRange}
             />
           </div>
@@ -896,6 +875,7 @@ function RunWorkspaceContent({
   onSelectGraphJob,
   onSelectAnnotationJob,
   onClearAnnotationFilters,
+  onClearSelection,
   highlightedLineRange,
 }: {
   boundaryQuery:
@@ -919,6 +899,7 @@ function RunWorkspaceContent({
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
+  onClearSelection: () => void;
   highlightedLineRange: StepSourceLocation | null;
 }) {
   if (
@@ -935,6 +916,7 @@ function RunWorkspaceContent({
     return <div className="min-h-0 flex-1 overflow-auto p-panel">{error}</div>;
   }
   const selectionBoundary = workflowRunSelectionBoundary({
+    onClearSelection,
     query: selectionQuery,
     enabled: selectionResolutionEnabled,
   });
@@ -1005,20 +987,21 @@ function workspaceSectionFallback({
 }
 
 function workflowRunSelectionBoundary({
+  onClearSelection,
   query,
   enabled,
 }: {
+  onClearSelection: () => void;
   query: ReturnType<typeof useWorkflowRunSelectionQuery>;
   enabled: boolean;
 }): ReactNode | undefined {
   if (!enabled || !query.isError) return undefined;
-  const error =
-    query.error instanceof ApiError && query.error.status === 404 ? (
-      <WorkflowRunSelectionNotFound />
-    ) : (
-      <QueryLoadError query={query} subject="workflow run selection" icon="pulseLine" />
-    );
-  return <div className="min-h-0 flex-1 overflow-auto p-panel">{error}</div>;
+  if (!(query.error instanceof ApiError && query.error.status === 404)) return undefined;
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-panel">
+      <WorkflowRunSelectionNotFound onClearSelection={onClearSelection} />
+    </div>
+  );
 }
 
 function containsWorkflowRunSelection(selection: WorkflowRunsSearch | undefined): boolean {

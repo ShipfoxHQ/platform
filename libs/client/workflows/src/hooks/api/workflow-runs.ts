@@ -79,6 +79,8 @@ export const workflowRunsQueryKeys = {
       stepId?: string | undefined;
       stepAttemptId?: string | undefined;
     },
+    /** Retained for callers compiled against the previous key factory; not part of the key. */
+    _runAttempt?: number | undefined,
   ) =>
     [
       ...workflowRunsQueryKeys.all,

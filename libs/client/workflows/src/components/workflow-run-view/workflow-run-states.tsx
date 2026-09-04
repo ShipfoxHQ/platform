@@ -51,12 +51,20 @@ export function WorkflowRunNotFound() {
   );
 }
 
-export function WorkflowRunSelectionNotFound() {
+export function WorkflowRunSelectionNotFound({onClearSelection}: {onClearSelection: () => void}) {
   return (
     <EmptyState
+      role="status"
+      aria-live="polite"
+      tone="error"
       icon="pulseLine"
-      title="Selection not found"
-      description="This resource is not part of the selected workflow run or is no longer available."
+      title="Job or step not found"
+      description="This job or step is not part of this run or is no longer available."
+      action={
+        <Button type="button" size="sm" variant="secondary" onClick={onClearSelection}>
+          View workflow run
+        </Button>
+      }
     />
   );
 }

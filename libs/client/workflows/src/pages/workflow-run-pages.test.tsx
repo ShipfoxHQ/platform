@@ -38,6 +38,15 @@ const DEPLOY_RETRY_STEP_ID = '99999999-9999-4999-8999-000000000003';
 const DEPLOY_ATTEMPT_ONE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001';
 const DEPLOY_ATTEMPT_TWO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const DEPLOY_EXECUTION_ID = '77777777-7777-4777-8777-000000000002';
+const DEFAULT_SELECTION_RESPONSE = {
+  workflow_run_attempt: 1,
+  job_id: DEPLOY_JOB_ID,
+  job_execution_id: DEPLOY_EXECUTION_ID,
+  step_id: DEPLOY_STEP_ID,
+  step_attempt_id: DEPLOY_ATTEMPT_TWO_ID,
+  step_attempt: 2,
+  source_location: null,
+} satisfies Omit<WorkflowRunSelectionResponseDto, 'workflow_run_id'>;
 const SMOKE_WEB_RE = /smoke-web/u;
 const DEPLOY_WEB_RE = /deploy-web/u;
 const DEPLOY_PRODUCTION_RE = /deploy-production/u;
@@ -52,7 +61,8 @@ const ORIGIN_FILTER_RE = /^Origin\b.*filter$/u;
 const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
-const SELECTION_NOT_FOUND_DESCRIPTION_RE = /not part of the selected workflow run/u;
+const SELECTION_NOT_FOUND_DESCRIPTION_RE = /not part of this run/u;
+const SELECTION_LOAD_ERROR_RE = /Could not load workflow run selection/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_HEAD_PATH_RE = /^\/workflows\/runs\/([^/]+)\/head$/u;
 const RUN_OVERVIEW_PATH_RE = /^\/workflows\/runs\/([^/]+)\/overview$/u;
@@ -367,6 +377,15 @@ describe('WorkflowRunPages', () => {
       runAttempt: '1',
     });
     expect(await screen.findByRole('heading', {name: 'deploy'})).toBeInTheDocument();
+    const selectionRequest = fetchImpl.mock.calls.find((call) => {
+      const url = new URL(requestInputUrl(call[0]));
+      return url.pathname === `/workflows/runs/${RUN_ID}/selection`;
+    });
+    expect(selectionRequest).toBeDefined();
+    if (!selectionRequest) throw new Error('Expected a selection resolver request');
+    const selectionUrl = new URL(requestInputUrl(selectionRequest[0]));
+    expect(selectionUrl.searchParams.get('step_id')).toBe(DEPLOY_STEP_ID);
+    expect(selectionUrl.searchParams.get('step_attempt_id')).toBe(DEPLOY_ATTEMPT_TWO_ID);
     expect(
       fetchImpl.mock.calls.some((call) => {
         const url = new URL(requestInputUrl(call[0]));
@@ -413,7 +432,7 @@ describe('WorkflowRunPages', () => {
         const url = new URL(requestInputUrl(call[0]));
         return url.pathname === `/workflows/runs/${RUN_ID}/selection`;
       }),
-    ).not.toHaveLength(0);
+    ).toHaveLength(1);
     expect(router.history.length).toBe(initialHistoryLength);
     expect(
       fetchImpl.mock.calls.some((call) => {
@@ -427,16 +446,57 @@ describe('WorkflowRunPages', () => {
     const fetchImpl = createRunDetailFetch({selectionResponse: null});
     configureApiClient({fetchImpl});
 
-    renderRunPath(`?step=${DEPLOY_STEP_ID}`);
+    const {router} = renderRunPath(`?step=${DEPLOY_STEP_ID}`);
 
-    expect(await screen.findByText('Selection not found')).toBeInTheDocument();
+    expect(await screen.findByText('Job or step not found')).toBeInTheDocument();
     expect(screen.getByText(SELECTION_NOT_FOUND_DESCRIPTION_RE)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     expect(
       fetchImpl.mock.calls.some((call) => {
         const url = new URL(requestInputUrl(call[0]));
         return url.pathname === `/workflows/runs/${RUN_ID}`;
       }),
     ).toBe(false);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', {name: 'View workflow run'}));
+    await waitFor(() => expect(currentSearch(router).step).toBeUndefined());
+  });
+
+  test('keeps the run workspace available when selection resolution fails unexpectedly', async () => {
+    const fetchImpl = createRunDetailFetch({selectionErrorStatus: 500});
+    configureApiClient({fetchImpl});
+
+    renderRunPath(`?step=${DEPLOY_STEP_ID}`);
+
+    expect(await screen.findByRole('region', {name: 'All jobs summary'})).toBeInTheDocument();
+    expect(screen.queryByText('Job or step not found')).not.toBeInTheDocument();
+    expect(screen.queryByText(SELECTION_LOAD_ERROR_RE)).not.toBeInTheDocument();
+  });
+
+  test('resolves an execution-only link through the default selection fixture', async () => {
+    const fetchImpl = createRunDetailFetch();
+    configureApiClient({fetchImpl});
+
+    const {router} = renderRunPath(`?jobExecution=${DEPLOY_EXECUTION_ID}`);
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        `/w/${PROJECT_TEST_WSLUG}/p/project/runs/${RUN_ID}/jobs/${DEPLOY_JOB_ID}`,
+      ),
+    );
+    expect(currentSearch(router)).toMatchObject({
+      jobExecution: DEPLOY_EXECUTION_ID,
+      runAttempt: '1',
+    });
+    const selectionRequest = fetchImpl.mock.calls.find((call) => {
+      const url = new URL(requestInputUrl(call[0]));
+      return url.pathname === `/workflows/runs/${RUN_ID}/selection`;
+    });
+    expect(selectionRequest).toBeDefined();
+    if (!selectionRequest) throw new Error('Expected a selection resolver request');
+    const selectionUrl = new URL(requestInputUrl(selectionRequest[0]));
+    expect(selectionUrl.search).toBe(`?job_execution_id=${DEPLOY_EXECUTION_ID}`);
   });
 
   test('navigates between run details and restores Summary with browser history', async () => {
@@ -838,10 +898,12 @@ function createRunDetailFetch({
   runs = [workflowRunDto(RUN_OVERRIDES)],
   details = {[RUN_ID]: defaultRunDetailDto()},
   selectionResponse,
+  selectionErrorStatus,
 }: {
   runs?: WorkflowRunResponseDto[];
   details?: Record<string, WorkflowRunDetailResponseDto>;
   selectionResponse?: WorkflowRunSelectionResponseDto | null | undefined;
+  selectionErrorStatus?: number | undefined;
 } = {}) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = new URL(requestInputUrl(input));
@@ -849,6 +911,12 @@ function createRunDetailFetch({
     if (url.pathname === '/workflows/runs') {
       return Promise.resolve(
         jsonResponse({runs, next_cursor: null, filtered_total_count: runs.length}),
+      );
+    }
+
+    if (url.pathname.match(RUN_SELECTION_PATH_RE) && selectionErrorStatus !== undefined) {
+      return Promise.resolve(
+        jsonResponse({code: 'selection-error'}, {status: selectionErrorStatus}),
       );
     }
 
@@ -871,7 +939,7 @@ function runResourceResponseForRequest(
   if (selectionMatch?.[1]) {
     return selectionResponse === null
       ? undefined
-      : (selectionResponse ?? selectionResponseFromDetail(url, details));
+      : (selectionResponse ?? defaultSelectionResponse(selectionMatch[1]));
   }
 
   const runDetail = runDetailResponse(url, details);
@@ -886,6 +954,10 @@ function runResourceResponseForRequest(
   return workflowStepLogResponse(url);
 }
 
+function defaultSelectionResponse(runId: string): WorkflowRunSelectionResponseDto {
+  return {workflow_run_id: runId, ...DEFAULT_SELECTION_RESPONSE};
+}
+
 function runLineageHeadResponse(url: URL, details: Record<string, WorkflowRunDetailResponseDto>) {
   const runMatch = url.pathname.match(RUN_HEAD_PATH_RE);
   const detail = runMatch?.[1] ? details[runMatch[1]] : undefined;
@@ -897,135 +969,6 @@ function runLineageHeadResponse(url: URL, details: Record<string, WorkflowRunDet
         updated_at: detail.updated_at,
       }
     : undefined;
-}
-
-function selectionResponseFromDetail(
-  url: URL,
-  details: Record<string, WorkflowRunDetailResponseDto>,
-): WorkflowRunSelectionResponseDto | undefined {
-  const runId = url.pathname.match(RUN_SELECTION_PATH_RE)?.[1];
-  const detail = runId ? details[runId] : undefined;
-  if (!runId || !detail) return undefined;
-
-  const requestedJobId = url.searchParams.get('job_id');
-  const requestedExecutionId = url.searchParams.get('job_execution_id');
-  const requestedStepId = url.searchParams.get('step_id');
-  const requestedStepAttemptId = url.searchParams.get('step_attempt_id');
-  const jobs = detail.jobs;
-  const resources = selectionResourcesFromDetail(jobs, {
-    requestedExecutionId,
-    requestedJobId,
-    requestedStepAttemptId,
-    requestedStepId,
-  });
-  if (
-    !resources.owningJob ||
-    !selectionMatchesRequestedIdentity({
-      requestedExecutionId,
-      requestedJobId,
-      requestedStepAttemptId,
-      requestedStepId,
-      owningExecutionId: resources.owningExecution?.id,
-      owningJobId: resources.owningJob.id,
-      owningStepId: resources.owningStep?.id,
-      stepAttemptId: resources.stepAttempt?.id,
-      stepAttemptStepId: resources.stepAttempt?.step_id,
-    })
-  )
-    return undefined;
-
-  return {
-    workflow_run_id: runId,
-    workflow_run_attempt: detail.run_attempt.attempt,
-    job_id: resources.owningJob.id,
-    job_execution_id: resources.owningExecution?.id ?? null,
-    step_id: resources.owningStep?.id ?? null,
-    step_attempt_id: resources.stepAttempt?.id ?? null,
-    step_attempt: resources.stepAttempt?.attempt ?? null,
-    source_location: resources.owningStep?.source_location ?? null,
-  };
-}
-
-function selectionResourcesFromDetail(
-  jobs: WorkflowRunDetailResponseDto['jobs'],
-  {
-    requestedExecutionId,
-    requestedJobId,
-    requestedStepAttemptId,
-    requestedStepId,
-  }: {
-    requestedExecutionId: string | null;
-    requestedJobId: string | null;
-    requestedStepAttemptId: string | null;
-    requestedStepId: string | null;
-  },
-) {
-  const executions = jobs.flatMap((candidate) => candidate.job_executions);
-  const steps = executions.flatMap((candidate) => candidate.steps);
-  const stepAttempts = steps.flatMap((candidate) => candidate.attempts);
-  const job = jobs.find((candidate) => candidate.id === requestedJobId);
-  const execution = executions.find((candidate) => candidate.id === requestedExecutionId);
-  const step = steps.find((candidate) => candidate.id === requestedStepId);
-  const stepAttempt = stepAttempts.find((candidate) => candidate.id === requestedStepAttemptId);
-  const owningStep = step ?? findStepForAttempt(steps, stepAttempt);
-  const owningExecution = execution ?? findExecutionForStep(executions, owningStep);
-  const owningJob = job ?? findJobForExecution(jobs, owningExecution);
-  return {owningExecution, owningJob, owningStep, stepAttempt};
-}
-
-function findStepForAttempt(
-  steps: WorkflowRunDetailResponseDto['jobs'][number]['job_executions'][number]['steps'],
-  stepAttempt:
-    | WorkflowRunDetailResponseDto['jobs'][number]['job_executions'][number]['steps'][number]['attempts'][number]
-    | undefined,
-) {
-  return stepAttempt ? steps.find((candidate) => candidate.id === stepAttempt.step_id) : undefined;
-}
-
-function findExecutionForStep(
-  executions: WorkflowRunDetailResponseDto['jobs'][number]['job_executions'],
-  step:
-    | WorkflowRunDetailResponseDto['jobs'][number]['job_executions'][number]['steps'][number]
-    | undefined,
-) {
-  return step ? executions.find((candidate) => candidate.id === step.job_execution_id) : undefined;
-}
-
-function findJobForExecution(
-  jobs: WorkflowRunDetailResponseDto['jobs'],
-  execution: WorkflowRunDetailResponseDto['jobs'][number]['job_executions'][number] | undefined,
-) {
-  return execution ? jobs.find((candidate) => candidate.id === execution.job_id) : undefined;
-}
-
-function selectionMatchesRequestedIdentity({
-  requestedExecutionId,
-  requestedJobId,
-  requestedStepAttemptId,
-  requestedStepId,
-  owningExecutionId,
-  owningJobId,
-  owningStepId,
-  stepAttemptId,
-  stepAttemptStepId,
-}: {
-  requestedExecutionId: string | null;
-  requestedJobId: string | null;
-  requestedStepAttemptId: string | null;
-  requestedStepId: string | null;
-  owningExecutionId: string | undefined;
-  owningJobId: string;
-  owningStepId: string | undefined;
-  stepAttemptId: string | undefined;
-  stepAttemptStepId: string | undefined;
-}): boolean {
-  return (
-    (!requestedJobId || owningJobId === requestedJobId) &&
-    (!requestedExecutionId || owningExecutionId === requestedExecutionId) &&
-    (!requestedStepId || owningStepId === requestedStepId) &&
-    (!requestedStepAttemptId || stepAttemptId === requestedStepAttemptId) &&
-    (!requestedStepId || !stepAttemptStepId || stepAttemptStepId === requestedStepId)
-  );
 }
 
 function runDetailResponse(
@@ -1136,6 +1079,7 @@ function defaultRunDetailDto(
         dependencies: ['build'],
         job_executions: [
           workflowJobExecutionDto({
+            id: DEPLOY_EXECUTION_ID,
             job_id: DEPLOY_JOB_ID,
             status: 'running',
             steps: [
