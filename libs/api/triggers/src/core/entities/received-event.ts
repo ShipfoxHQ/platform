@@ -46,7 +46,8 @@ export interface TriggerEventReplay {
 
 /**
  * Trigger event shape for list read models.
- * It omits payload because webhook bodies can be large/untrusted and only detail views render them.
+ * It omits payload and processing diagnostics. Webhook bodies can be large or
+ * untrusted, and only detail views render diagnostics.
  */
 export type TriggerReceivedEventSummary = Omit<
   TriggerReceivedEvent,
