@@ -1,11 +1,15 @@
+import {
+  DEFAULT_STEP_LOG_TAIL_LINES,
+  MAX_STEP_LOG_TAIL_LINES,
+} from '@shipfox/api-logs-dto/inter-module';
 import {z} from 'zod';
 import type {AgentAccessObjectSchema} from './envelope.js';
 import {idSchema, utf8CappedString} from './primitives.js';
 
 export const AGENT_ACCESS_LOG_CONTENT_MAX_BYTES = 64 * 1024;
 export const AGENT_ACCESS_LOG_SECTION_MAX_ITEMS = 10;
-export const AGENT_ACCESS_LOG_TAIL_LINES_DEFAULT = 500;
-export const AGENT_ACCESS_LOG_TAIL_LINES_MAX = 2_000;
+export const AGENT_ACCESS_LOG_TAIL_LINES_DEFAULT = DEFAULT_STEP_LOG_TAIL_LINES;
+export const AGENT_ACCESS_LOG_TAIL_LINES_MAX = MAX_STEP_LOG_TAIL_LINES;
 export const AGENT_ACCESS_LOG_ATTEMPT_MAX = 2_147_483_647;
 
 const attemptSchema = z.number().int().min(1).max(AGENT_ACCESS_LOG_ATTEMPT_MAX);
@@ -114,12 +118,26 @@ const attempt = {
   maximum: AGENT_ACCESS_LOG_ATTEMPT_MAX,
 } as const;
 
-export const getStepLogsInputJsonSchema = {
+const directInputJsonSchema = {
   type: 'object',
   properties: {
     step_id: uuid,
-    run_id: uuid,
     attempt,
+    tail_lines: {
+      type: 'integer',
+      minimum: 1,
+      maximum: AGENT_ACCESS_LOG_TAIL_LINES_MAX,
+      default: AGENT_ACCESS_LOG_TAIL_LINES_DEFAULT,
+    },
+  },
+  required: ['step_id'],
+  additionalProperties: false,
+} as const;
+
+const failedOnlyInputJsonSchema = {
+  type: 'object',
+  properties: {
+    run_id: uuid,
     failed_only: {const: true},
     tail_lines: {
       type: 'integer',
@@ -128,7 +146,13 @@ export const getStepLogsInputJsonSchema = {
       default: AGENT_ACCESS_LOG_TAIL_LINES_DEFAULT,
     },
   },
+  required: ['run_id', 'failed_only'],
   additionalProperties: false,
+} as const;
+
+export const getStepLogsInputJsonSchema = {
+  type: 'object',
+  oneOf: [directInputJsonSchema, failedOnlyInputJsonSchema],
 } as const satisfies AgentAccessObjectSchema;
 
 const logSectionJsonSchema = {
@@ -150,7 +174,21 @@ const logSectionJsonSchema = {
   additionalProperties: false,
 } as const;
 
-export const getStepLogsResultJsonSchema = {
+const directResultJsonSchema = {
+  type: 'object',
+  properties: {
+    sections: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 1,
+      items: logSectionJsonSchema,
+    },
+  },
+  required: ['sections'],
+  additionalProperties: false,
+} as const;
+
+const aggregateResultJsonSchema = {
   type: 'object',
   properties: {
     run_id: uuid,
@@ -161,6 +199,11 @@ export const getStepLogsResultJsonSchema = {
       items: logSectionJsonSchema,
     },
   },
-  required: ['sections'],
+  required: ['run_id', 'workflow_run_attempt', 'sections'],
   additionalProperties: false,
+} as const;
+
+export const getStepLogsResultJsonSchema = {
+  type: 'object',
+  oneOf: [directResultJsonSchema, aggregateResultJsonSchema],
 } as const satisfies AgentAccessObjectSchema;

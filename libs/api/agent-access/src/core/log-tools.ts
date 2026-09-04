@@ -23,7 +23,7 @@ export interface AgentAccessLogToolsOptions {
   logs: LogsModuleClient;
 }
 
-/** Creates the bounded log tool kept separate until the gateway activation issue composes it. */
+/** Creates the bounded step-log tools. */
 export function createAgentAccessLogTools(
   options: AgentAccessLogToolsOptions,
 ): readonly AgentAccessTool[] {
@@ -253,16 +253,18 @@ function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
   if (hasTrailingNewline) lines.pop();
 
   const selected: string[] = [];
+  let selectedBytes = 0;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const candidateLines = [lines[index] ?? '', ...selected];
-    const candidate = `${candidateLines.join('\n')}${hasTrailingNewline ? '\n' : ''}`;
-    if (utf8Encoder.encode(candidate).byteLength <= maxBytes) {
-      selected.unshift(lines[index] ?? '');
-    }
+    const line = lines[index] ?? '';
+    const lineBytes = utf8Encoder.encode(line).byteLength;
+    const separatorBytes = selected.length > 0 || hasTrailingNewline ? 1 : 0;
+    if (selectedBytes + separatorBytes + lineBytes > maxBytes) break;
+    selected.push(line);
+    selectedBytes += separatorBytes + lineBytes;
   }
 
   return {
-    value: `${selected.join('\n')}${hasTrailingNewline && selected.length > 0 ? '\n' : ''}`,
+    value: `${selected.reverse().join('\n')}${hasTrailingNewline && selected.length > 0 ? '\n' : ''}`,
     truncated: true,
     totalBytes,
   };

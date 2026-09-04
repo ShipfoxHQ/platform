@@ -2197,6 +2197,9 @@ importers:
 
   libs/api/agent-access-dto:
     dependencies:
+      '@shipfox/api-logs-dto':
+        specifier: workspace:*
+        version: link:../logs-dto
       zod:
         specifier: 'catalog:'
         version: 4.4.3

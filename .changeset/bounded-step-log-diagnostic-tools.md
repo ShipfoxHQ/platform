@@ -3,4 +3,4 @@
 "@shipfox/api-agent-access-dto": minor
 ---
 
-Adds a bounded step-log diagnostic tool for exact attempts and failed-step aggregation.
+Adds a `get_step_logs` tool that reads a log tail for one exact workflow step attempt, or the first failed step attempts in a workflow run.
