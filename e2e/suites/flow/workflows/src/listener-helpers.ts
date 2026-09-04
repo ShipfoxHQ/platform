@@ -180,6 +180,7 @@ export async function waitForListenerExecution(params: {
   jobKey: string;
   sequence: number;
   status?: WorkflowExecutionObservation['status'] | undefined;
+  includeContext?: boolean | undefined;
   timeoutMs: number;
 }): Promise<WorkflowRunObservation> {
   return await waitForRunObservationMatching({
@@ -188,7 +189,13 @@ export async function waitForListenerExecution(params: {
     timeoutMs: params.timeoutMs,
     description: `listener job ${params.jobKey} execution ${params.sequence}`,
     selection: {
-      jobs: [{jobKey: params.jobKey, executionSequences: [params.sequence]}],
+      jobs: [
+        {
+          jobKey: params.jobKey,
+          executionSequences: [params.sequence],
+          ...(params.includeContext === true ? {includeContext: true} : {}),
+        },
+      ],
     },
     matches: (observation) => {
       if (params.status !== undefined) {

@@ -1,9 +1,10 @@
+import {WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES} from '@shipfox/api-workflows-dto';
+import {PollTimeoutError, pollUntil} from '@shipfox/e2e-core';
 import {
-  WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
-  type WorkflowRunDetailResponseDto,
-  type WorkflowRunJobExecutionDetailDto,
-} from '@shipfox/api-workflows-dto';
-import {createApiClient, PollTimeoutError, pollUntil} from '@shipfox/e2e-core';
+  observeRun,
+  type WorkflowExecutionObservation,
+  type WorkflowRunObservation,
+} from '@shipfox/e2e-observe-workflows';
 import {
   findListenerExecutionBySequence,
   findListenerJob,
@@ -22,7 +23,7 @@ import {
   stepLogText,
   stopRunner,
 } from '#listener-jobs.js';
-import {waitForRunDetailMatching} from '#polling.js';
+import {waitForRunObservationMatching} from '#polling.js';
 import {
   assertSerializedUtf8ByteLength,
   buildProductionListenerEvent,
@@ -55,20 +56,18 @@ function attachTestArtifact(testInfo: {
   };
 }
 
-function listenerExecutions(
-  runDetail: WorkflowRunDetailResponseDto,
-): WorkflowRunJobExecutionDetailDto[] {
-  const job = findListenerJob(runDetail, LISTENER_JOB);
+function listenerExecutions(observation: WorkflowRunObservation): WorkflowExecutionObservation[] {
+  const job = findListenerJob(observation, LISTENER_JOB);
   if (!job) throw new Error(`Listener job ${LISTENER_JOB} missing`);
-  return job.job_executions;
+  return job.executions;
 }
 
 function listenerExecution(
-  runDetail: WorkflowRunDetailResponseDto,
+  observation: WorkflowRunObservation,
   sequence: number,
-): WorkflowRunJobExecutionDetailDto {
+): WorkflowExecutionObservation {
   const execution = findListenerExecutionBySequence({
-    runDetail,
+    observation,
     jobKey: LISTENER_JOB,
     sequence,
   });
@@ -81,8 +80,7 @@ async function assertNoListenerExecutions(params: {
   runId: string;
   timeoutMs: number;
 }): Promise<void> {
-  const client = createApiClient({token: params.token});
-  let diagnostic = 'no workflow run detail response observed';
+  let diagnostic = 'no bounded workflow observation observed';
   try {
     const unexpected = await pollUntil(
       {
@@ -92,11 +90,12 @@ async function assertNoListenerExecutions(params: {
         describe: () => `no listener executions: ${diagnostic}`,
       },
       async () => {
-        const runDetail = await client.requestJson<WorkflowRunDetailResponseDto>(
-          'get',
-          `/workflows/runs/${encodeURIComponent(params.runId)}`,
-        );
-        const executions = listenerExecutions(runDetail);
+        const observation = await observeRun({
+          runId: params.runId,
+          selection: {jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all'}]},
+          token: params.token,
+        });
+        const executions = listenerExecutions(observation);
         diagnostic = `listener execution count=${executions.length}`;
         return executions.length === 0
           ? null
@@ -135,23 +134,31 @@ test.describe('production-shaped workflow payloads', () => {
         token: testCase.token,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: 'build', includeDefaultExecution: true, stepKeys: ['sized-config']}],
+        },
       });
       const build = terminal.jobs.find((job) => job.key === 'build');
-      const execution = build?.job_executions.at(-1);
+      const execution = build?.executions.at(-1);
       const step = execution?.steps.find((candidate) => candidate.key === 'sized-config');
-      if (!step || !execution) throw new Error('Resolved config step did not execute');
+      const attempt = step?.attempt_details.find(
+        (candidate) => candidate.attempt === step.current_attempt,
+      );
+      if (!step || !execution || !attempt) {
+        throw new Error('Resolved config step did not execute');
+      }
 
       assertSerializedUtf8ByteLength(
-        step.config,
+        attempt.config,
         PRODUCTION_RESOLVED_CONFIG_BYTES,
-        'resolved config in run detail',
+        'resolved config in workflow step attempt detail',
       );
-      expect(step.config).toEqual(expectedConfig);
+      expect(attempt.config).toEqual(expectedConfig);
       expect(step.status).toBe('succeeded');
       expect(terminal.status).toBe('succeeded');
       await expect(
         stepLogText({
-          runDetail: terminal,
+          observation: terminal,
           token: testCase.token,
           jobKey: 'build',
           sequence: execution.sequence,
@@ -203,6 +210,7 @@ test.describe('production-shaped workflow payloads', () => {
         jobKey: LISTENER_JOB,
         sequence: 1,
         status: 'succeeded',
+        includeContext: true,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
       });
       const execution = listenerExecution(materialized, 1);
@@ -290,28 +298,31 @@ test.describe('production-shaped workflow payloads', () => {
         });
       }
 
-      const materialized = await waitForRunDetailMatching({
+      const materialized = await waitForRunObservationMatching({
         token: testCase.token,
         runId,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         description: 'all byte-sized listener deliveries',
-        matches: (runDetail) => {
-          const job = findListenerJob(runDetail, LISTENER_JOB);
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        },
+        matches: (observation) => {
+          const job = findListenerJob(observation, LISTENER_JOB);
           if (!job) {
             return {matched: false, diagnostic: `listener job ${LISTENER_JOB} missing`};
           }
-          const observed = job.job_executions.flatMap((execution) =>
+          const observed = job.executions.flatMap((execution) =>
             execution.trigger_events.map((event) => event.delivery_id),
           );
           const orderMatches = observed.every(
             (deliveryId, index) => deliveryId === deliveryIds[index],
           );
-          const statusMatches = job.job_executions.every(
+          const statusMatches = job.executions.every(
             (execution) => execution.status === 'succeeded',
           );
           return {
             matched: observed.length === deliveryIds.length && orderMatches && statusMatches,
-            diagnostic: `listener deliveries observed=[${observed.join(', ')}], expected=[${deliveryIds.join(', ')}], statuses=[${job.job_executions.map((execution) => execution.status).join(', ')}]`,
+            diagnostic: `listener deliveries observed=[${observed.join(', ')}], expected=[${deliveryIds.join(', ')}], statuses=[${job.executions.map((execution) => execution.status).join(', ')}]`,
           };
         },
       });
@@ -335,6 +346,9 @@ test.describe('production-shaped workflow payloads', () => {
         token: testCase.token,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        },
       });
       expect(terminal.status).toBe('succeeded');
       expect(listenerExecutions(terminal).map((execution) => execution.sequence)).toEqual(
@@ -428,6 +442,7 @@ test.describe('production-shaped workflow payloads', () => {
         jobKey: LISTENER_JOB,
         sequence: 1,
         status: 'succeeded',
+        includeContext: true,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
       });
       expect(
@@ -496,6 +511,9 @@ test.describe('production-shaped workflow payloads', () => {
         token: testCase.token,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        },
       });
 
       expect(detail.decisions).toEqual(
@@ -506,8 +524,8 @@ test.describe('production-shaped workflow payloads', () => {
           }),
         ]),
       );
-      expect(resolved.jobs.find((job) => job.key === LISTENER_JOB)?.resolution_reason).toBe(
-        'until',
+      expect(resolved.jobs.find((job) => job.key === LISTENER_JOB)?.listener_status).toBe(
+        'resolved',
       );
       expect(terminal.status).toBe('succeeded');
       expect(listenerExecutions(terminal)).toHaveLength(0);
