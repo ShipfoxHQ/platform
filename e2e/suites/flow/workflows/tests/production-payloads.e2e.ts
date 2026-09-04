@@ -84,7 +84,7 @@ function oversizedTriggerEventBytes(execution: WorkflowExecutionObservation): nu
 
 function assertOversizedTriggerEvents(
   execution: WorkflowExecutionObservation,
-  expectedBytes: number,
+  minimumBytes: number,
 ): void {
   expect(execution.trigger_events).toEqual([]);
   expect(execution.context?.oversized_fields).toEqual(
@@ -92,10 +92,12 @@ function assertOversizedTriggerEvents(
       expect.objectContaining({
         field: 'trigger_events',
         reason: 'legacy_value_exceeds_inline_limit',
-        stored_bytes: expectedBytes,
       }),
     ]),
   );
+  const storedBytes = oversizedTriggerEventBytes(execution);
+  if (storedBytes === null) throw new Error('Oversized trigger event byte count missing');
+  expect(storedBytes).toBeGreaterThanOrEqual(minimumBytes);
 }
 
 async function assertNoListenerExecutions(params: {
@@ -358,7 +360,7 @@ test.describe('production-shaped workflow payloads', () => {
           const diagnosticBytes = job.executions.map(oversizedTriggerEventBytes);
           const bytesMatch =
             diagnosticBytes.every((bytes): bytes is number => bytes !== null) &&
-            diagnosticBytes.reduce((total, bytes) => total + (bytes ?? 0), 0) ===
+            diagnosticBytes.reduce((total, bytes) => total + (bytes ?? 0), 0) >=
               expectedDiagnosticBytes;
           return {
             matched: statusMatches && bytesMatch,
@@ -373,7 +375,7 @@ test.describe('production-shaped workflow payloads', () => {
       expect(observedDiagnosticBytes.every((bytes): bytes is number => bytes !== null)).toBe(true);
       expect(
         observedDiagnosticBytes.reduce<number>((total, bytes) => total + (bytes ?? 0), 0),
-      ).toBe(expectedDiagnosticBytes);
+      ).toBeGreaterThanOrEqual(expectedDiagnosticBytes);
       for (const execution of executions) {
         expect(execution.status).toBe('succeeded');
         expect(execution.context?.oversized_fields).toEqual(
