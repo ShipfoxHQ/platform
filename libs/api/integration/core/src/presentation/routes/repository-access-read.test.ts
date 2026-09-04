@@ -42,7 +42,7 @@ describe('GET /integration-connections/:connectionId/repository-access', () => {
     expect(listRepositories).not.toHaveBeenCalled();
   });
 
-  it('returns project-backed repositories directly', async () => {
+  it('returns project-backed repositories after persisting selected mode', async () => {
     const projectId = crypto.randomUUID();
     const listProjectsBySourceConnection = vi.fn(async () => ({
       projects: [
@@ -62,12 +62,27 @@ describe('GET /integration-connections/:connectionId/repository-access', () => {
     });
     const connection = await createConnection();
 
+    const allResponse = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'all'},
+    });
+    const selectedResponse = await app.inject({
+      method: 'PUT',
+      url: `/integration-connections/${connection.id}/repository-access`,
+      headers: {authorization: 'Bearer user'},
+      payload: {mode: 'selected'},
+    });
     const response = await app.inject({
       method: 'GET',
       url: `/integration-connections/${connection.id}/repository-access`,
       headers: {authorization: 'Bearer user'},
     });
 
+    expect(allResponse.statusCode).toBe(200);
+    expect(selectedResponse.statusCode).toBe(200);
+    expect(selectedResponse.json()).toEqual({mode: 'selected'});
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       mode: 'selected',

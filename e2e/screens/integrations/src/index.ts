@@ -153,7 +153,12 @@ export class ConnectionDetailsScreen {
   }
 
   async saveMode(): Promise<void> {
-    await this.saveButton().click();
+    const saveResponse = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname.endsWith('/repository-access'),
+    );
+    await Promise.all([saveResponse, this.saveButton().click()]);
     await this.toast.expectVisible('Access mode saved.');
   }
 
