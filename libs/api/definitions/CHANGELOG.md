@@ -1,5 +1,12 @@
 # @shipfox/api-definitions
 
+## 21.1.0
+
+### Patch Changes
+
+- Updated dependencies [f534da6]
+  - @shipfox/api-agent-dto@21.1.0
+
 ## 21.0.0
 
 ### Minor Changes

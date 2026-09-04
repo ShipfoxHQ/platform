@@ -1,5 +1,14 @@
 # @shipfox/api-logs
 
+## 21.1.0
+
+### Patch Changes
+
+- Updated dependencies [01af160]
+- Updated dependencies [8a98a87]
+- Updated dependencies [6fac62f]
+  - @shipfox/api-workflows-dto@21.1.0
+
 ## 21.0.0
 
 ### Patch Changes

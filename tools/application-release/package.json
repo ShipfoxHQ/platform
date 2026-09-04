@@ -1,6 +1,6 @@
 {
   "name": "@shipfox/application-release",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

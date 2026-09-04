@@ -1,5 +1,11 @@
 # @shipfox/application-release
 
+## 0.2.0
+
+### Minor Changes
+
+- 5b5081d: Adds renderFixtureWorkspaceConfig so packed-consumer fixtures carry the repository's minimum release age policy instead of resolving day-old third-party releases. Adds yaml as a runtime dependency.
+
 ## 0.1.7
 
 ### Patch Changes

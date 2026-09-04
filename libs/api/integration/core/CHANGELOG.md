@@ -1,5 +1,19 @@
 # @shipfox/api-integration-core
 
+## 21.1.0
+
+### Patch Changes
+
+- 4cfc256: Persists structured agent tool protocol errors and session termination diagnostics.
+- Updated dependencies [01af160]
+- Updated dependencies [f534da6]
+- Updated dependencies [5b5081d]
+- Updated dependencies [8a98a87]
+- Updated dependencies [6fac62f]
+  - @shipfox/api-workflows-dto@21.1.0
+  - @shipfox/api-agent-dto@21.1.0
+  - @shipfox/api-integration-github@21.1.0
+
 ## 21.0.0
 
 ### Major Changes

@@ -1,5 +1,14 @@
 # @shipfox/client-onboarding
 
+## 34.0.0
+
+### Patch Changes
+
+- @shipfox/client-runners@34.0.0
+- @shipfox/client-shell@32.0.0
+- @shipfox/client-agent@34.0.0
+- @shipfox/client-projects@34.0.0
+
 ## 33.0.0
 
 ### Patch Changes

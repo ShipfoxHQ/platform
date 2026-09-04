@@ -1,5 +1,28 @@
 # @shipfox/api-workflows
 
+## 21.1.0
+
+### Minor Changes
+
+- 01af160: Separates execution payload limits from diagnostic read limits and bounds oversized workflow failures.
+- 6fac62f: Adds runner identity to the `runners.job.claimed` projection on `job_executions`, and adds `workspaceId`, `projectId`, `definitionId`, `jobKey`, `queuedAt`, `startedAt`, and runner identity to `workflows.job_execution.terminated` and `jobKey`, `definitionId`, and `runNumber` to `workflows.job_execution.queued`, so a consumer can build a complete usage record from a single event.
+
+### Patch Changes
+
+- 2d17e02: Accepts listener executions that fit the bounded execution payload limit and keeps overflow trigger events pending.
+- f534da6: Snapshots renewable inference eligibility at job claim and rejects runtime credentials after cancellation or attempt replacement.
+- 8a98a87: Bounds workflow step-attempt detail responses and adds typed oversized-field reasons to step-attempt diagnostics.
+- 843f6c3: Persists listener event byte metadata and terminal outcomes for consumed, honored, rejected, and abandoned events.
+- ae3526f: Consumes listener events in exact application-sized batches and keeps legacy oversized heads pending, surfacing an alert instead of a retry loop.
+- Updated dependencies [01af160]
+- Updated dependencies [be1c862]
+- Updated dependencies [f534da6]
+- Updated dependencies [8a98a87]
+- Updated dependencies [6fac62f]
+  - @shipfox/api-workflows-dto@21.1.0
+  - @shipfox/api-runners-dto@21.1.0
+  - @shipfox/api-agent-dto@21.1.0
+
 ## 21.0.0
 
 ### Minor Changes

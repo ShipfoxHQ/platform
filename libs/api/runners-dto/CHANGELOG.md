@@ -1,5 +1,12 @@
 # @shipfox/api-runners-dto
 
+## 21.1.0
+
+### Minor Changes
+
+- be1c862: Adds runner identity and provisioning fields to `runners.job.claimed` events and `expiredAt` to `runners.job.lease_expired` events.
+- f534da6: Snapshots renewable inference eligibility at job claim and rejects runtime credentials after cancellation or attempt replacement.
+
 ## 21.0.0
 
 ### Minor Changes
