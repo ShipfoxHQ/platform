@@ -165,6 +165,13 @@ describe('validatePredicateExpression', () => {
     expect(result.expression).toMatchObject({source});
   });
 
+  it('accepts run.attempt in the typed predicate context', () => {
+    const result = validate({field: 'job.if', source: 'run.attempt >= 1'});
+
+    expect(result.issues).toEqual([]);
+    expect(result.expression).toMatchObject({source: 'run.attempt >= 1', check: 'typed'});
+  });
+
   it.each([
     [
       'step.success',

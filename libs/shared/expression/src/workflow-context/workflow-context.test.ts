@@ -175,6 +175,7 @@ describe('workflow context registry', () => {
         fields: {
           id: 'string',
           number: 'int',
+          attempt: 'int',
           name: 'string',
           project_id: 'string',
           workspace_id: 'string',
@@ -186,6 +187,12 @@ describe('workflow context registry', () => {
     expect(() =>
       createWorkflowExpression({
         source: 'run.number > 0',
+        check: {mode: 'typed', typeEnvironment: runTypeEnvironment},
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createWorkflowExpression({
+        source: 'run.attempt > 0',
         check: {mode: 'typed', typeEnvironment: runTypeEnvironment},
       }),
     ).not.toThrow();

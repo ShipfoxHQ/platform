@@ -105,6 +105,7 @@ describe('assembleWorkflowRunContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -133,6 +134,7 @@ describe('assembleWorkflowRunContext', () => {
       run: {
         id: 'run-1',
         number: 1n,
+        attempt: 1n,
         name: 'Build',
         project_id: 'proj-1',
         workspace_id: 'workspace-1',
@@ -149,6 +151,12 @@ describe('assembleWorkflowRunContext', () => {
       event: {ref: 'refs/heads/main'},
       inputs: {deploy: true},
     });
+
+    const expression = createWorkflowExpression({
+      source: 'run.attempt == 1',
+      check: {mode: 'syntax'},
+    });
+    expect(evaluateWorkflowExpression(expression, context)).toBe(true);
   });
 
   it.each([
@@ -175,6 +183,7 @@ describe('assembleCreationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -245,6 +254,7 @@ describe('assembleExecutionCreationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -369,6 +379,7 @@ describe('assembleJobActivationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -487,6 +498,7 @@ describe('listener filter snapshots', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -809,10 +821,11 @@ describe('listener filter snapshots', () => {
 
     const [matcher] = applyListenerFilterSnapshots(plan.on, context);
     const jobs = matcher?.filter_snapshot?.jobs as Record<string, {executions: {index: unknown}[]}>;
-    const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown};
+    const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown; attempt: unknown};
 
     expect(typeof jobs.build?.executions[0]?.index).toBe('number');
     expect(typeof snapshotRun.number).toBe('number');
+    expect(typeof snapshotRun.attempt).toBe('number');
     expect(() => JSON.stringify(matcher?.filter_snapshot)).not.toThrow();
   });
 });
@@ -1240,6 +1253,7 @@ describe('assembleExecutionResolutionContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',

@@ -3,6 +3,7 @@ import type {AgentDefaultsResolver} from '#core/agent-defaults.js';
 import type {AgentToolMaterializationSnapshot} from '#core/agent-tools.js';
 import {NoFailedJobsError, RunNotTerminalError, SourceRunNotFoundError} from '#core/errors.js';
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
+import {assembleWorkflowRunContext} from '#core/step-config/assemble-run-context.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {
   buildModel,
@@ -612,6 +613,19 @@ describe('workflow run queries', () => {
       expect(second.currentAttempt).toBe(2);
       expect(second.id).toBe(source.id);
       expect(third).toMatchObject({id: source.id, currentAttempt: 3});
+
+      const sourceContext = assembleWorkflowRunContext({
+        run: source,
+        triggerPayload: source.triggerPayload,
+        inputs: source.inputs,
+      });
+      const secondContext = assembleWorkflowRunContext({
+        run: second,
+        triggerPayload: second.triggerPayload,
+        inputs: second.inputs,
+      });
+      expect(sourceContext.run).toMatchObject({id: source.id, attempt: 1n});
+      expect(secondContext.run).toMatchObject({id: source.id, attempt: 2n});
     });
 
     test('pins the current attempt as the source across consecutive failed reruns', async () => {
