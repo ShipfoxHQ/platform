@@ -49,7 +49,7 @@ describe('trigger event mapper', () => {
 
   test('maps matched workflow results into their domain contract', () => {
     const detail = toTriggerEventDetail({
-      ...triggerEventDto(),
+      ...triggerEventDto({matched_count: 2}),
       connection_name: 'Shipfox',
       payload: {ref: 'main'},
       decisions: [
@@ -71,6 +71,24 @@ describe('trigger event mapper', () => {
           reason: null,
           created_at: '2026-06-01T00:00:01.000Z',
         },
+        {
+          id: '99999999-9999-4999-8999-999999999999',
+          received_event_id: EVENT_ID,
+          subscription_kind: 'listener',
+          subscription_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          subscription_name: 'Notify',
+          workflow_definition_id: null,
+          project_id: null,
+          workflow_run_id: null,
+          job_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          matcher_kind: 'on',
+          matcher_ordinal: 0,
+          decision: 'rejected',
+          run_id: null,
+          run_name: null,
+          reason: 'payload-too-large',
+          created_at: '2026-06-01T00:00:01.000Z',
+        },
       ],
       replays: [],
     } satisfies TriggerEventDetailResponseDto);
@@ -84,6 +102,15 @@ describe('trigger event mapper', () => {
         runId: '88888888-8888-4888-8888-888888888888',
         runName: 'deploy #1',
         reason: null,
+      },
+      {
+        id: '99999999-9999-4999-8999-999999999999',
+        subscriptionName: 'Notify',
+        decision: 'rejected',
+        projectId: null,
+        runId: null,
+        runName: null,
+        reason: 'payload-too-large',
       },
     ]);
   });

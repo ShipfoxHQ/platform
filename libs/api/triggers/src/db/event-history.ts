@@ -224,6 +224,35 @@ export interface UpsertListenerFailedDecisionParams {
   reason: string;
 }
 
+export interface UpsertListenerDeliveryRejectedDecisionParams {
+  receivedEventId: string;
+  subscription: JobListenerSubscription;
+  reason: 'payload-too-large';
+}
+
+export async function upsertListenerDeliveryRejectedDecision(
+  params: UpsertListenerDeliveryRejectedDecisionParams,
+): Promise<void> {
+  await db()
+    .insert(triggersDecisions)
+    .values({
+      ...listenerDecisionIdentity(params),
+      decision: 'rejected',
+      runId: null,
+      runName: null,
+      reason: params.reason,
+    })
+    .onConflictDoUpdate({
+      target: [
+        triggersDecisions.receivedEventId,
+        triggersDecisions.subscriptionKind,
+        triggersDecisions.subscriptionId,
+      ],
+      set: {decision: 'rejected', runId: null, runName: null, reason: params.reason},
+      setWhere: ne(triggersDecisions.decision, 'triggered'),
+    });
+}
+
 export async function upsertListenerFilterErrorDecision(
   params: UpsertListenerFailedDecisionParams,
 ): Promise<void> {

@@ -85,6 +85,7 @@ export {
   deliverEventToListener,
   getStepById,
   getStepByIdForJobExecution,
+  type ListenerDeliveryRejection,
   migrationsPath,
   workflowsOutbox,
 } from '#db/index.js';

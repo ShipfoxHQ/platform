@@ -645,6 +645,42 @@ describe('dispatchIntegrationEvent', () => {
     });
   });
 
+  test('records rejected listener-only matches as errored without triggering a listener', async () => {
+    const workspaceId = crypto.randomUUID();
+    const eventRef = crypto.randomUUID();
+    const subscription = await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+    });
+    deliverEventToListener.mockResolvedValueOnce({
+      buffered: false,
+      skipped: false,
+      rejection: {
+        reason: 'payload-too-large',
+        eventId: crypto.randomUUID(),
+        measuredBytes: 786_433,
+        limitBytes: 786_432,
+      },
+    });
+
+    await dispatch({workspaceId, eventRef});
+
+    expect(runWorkflow).not.toHaveBeenCalled();
+    const event = await receivedEvent(eventRef);
+    if (!event) throw new Error('received event not found');
+    expect(event.outcome).toBe('errored');
+    expect(event.matchedCount).toBe(1);
+    const decisions = await decisionsForEvent(event.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      subscriptionKind: 'listener',
+      subscriptionId: subscription.id,
+      decision: 'rejected',
+      reason: 'payload-too-large',
+    });
+  });
+
   test('treats listener replay conflicts as routed idempotent success', async () => {
     const workspaceId = crypto.randomUUID();
     const eventRef = crypto.randomUUID();

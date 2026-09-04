@@ -104,6 +104,29 @@ describe('toTriggerDecision', () => {
 
     expect(result.decision).toBe('dispatch-error');
   });
+
+  test('maps rejected rows to the rejected outcome', () => {
+    const row = {
+      id: '019e98ab-6656-7ca1-b9ad-1ca4442c479d',
+      receivedEventId: '019e98ab-b90f-7265-b13c-8b441c991381',
+      subscriptionKind: 'listener',
+      subscriptionId: '019e98ab-b90f-7265-b13c-8b441c991382',
+      subscriptionName: 'listener on[0] github/push',
+      workflowDefinitionId: null,
+      projectId: null,
+      workflowRunId: '019e98ab-b90f-7265-b13c-8b441c991383',
+      jobId: '019e98ab-b90f-7265-b13c-8b441c991384',
+      matcherKind: 'on',
+      matcherOrdinal: 0,
+      decision: 'rejected',
+      runId: null,
+      runName: null,
+      reason: 'payload-too-large',
+      createdAt: new Date('2026-06-09T10:00:02.000Z'),
+    } as unknown as TriggerDecisionDb;
+
+    expect(toTriggerDecision(row).decision).toBe('rejected');
+  });
 });
 
 describe('triggers_decisions schema', () => {

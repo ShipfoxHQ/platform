@@ -1,6 +1,11 @@
 import type {JobListenerMatcherKind} from './job-listener-subscription.js';
 
-export const triggerDecisionOutcomes = ['triggered', 'filter-error', 'dispatch-error'] as const;
+export const triggerDecisionOutcomes = [
+  'triggered',
+  'filter-error',
+  'dispatch-error',
+  'rejected',
+] as const;
 export type TriggerDecisionOutcome = (typeof triggerDecisionOutcomes)[number];
 export type TriggerDecisionSubscriptionKind = 'trigger' | 'listener' | 'dev';
 

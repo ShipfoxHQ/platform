@@ -9,7 +9,10 @@ import type {JobListeningTrigger, JobStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
-import {MAX_LISTENER_TRIGGER_EVENTS_BYTES} from '#core/listener-event-batching.js';
+import {
+  MAX_LISTENER_FIRE_EVENT_BYTES,
+  MAX_LISTENER_TRIGGER_EVENTS_BYTES,
+} from '#core/listener-event-batching.js';
 import {db} from '#db/db.js';
 import {deliverEventToListener} from '#db/job-listener-events.js';
 import {
@@ -502,8 +505,16 @@ describe('resolveJobListener', () => {
 
   it('honors resolve events and abandons fire events when resolved until', async () => {
     const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    const oversizedPayload = {body: 'x'.repeat(MAX_LISTENER_FIRE_EVENT_BYTES)};
     await bufferEvent(job.id, 'fire');
-    await bufferEvent(job.id, 'resolve');
+    const resolveResult = await bufferEvent(
+      job.id,
+      'resolve',
+      crypto.randomUUID(),
+      new Date(),
+      undefined,
+      oversizedPayload,
+    );
 
     await resolveJobListener({jobId: job.id, reason: 'until'});
 
@@ -525,10 +536,11 @@ describe('resolveJobListener', () => {
           outcome: 'honored',
           outcomeReason: null,
           consumedByExecutionId: null,
-          payload: {action: 'opened'},
+          payload: oversizedPayload,
         }),
       ]),
     );
+    expect(resolveResult).toEqual({buffered: true, skipped: false});
   });
 
   it.each([

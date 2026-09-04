@@ -11,6 +11,7 @@ import type {
   JobListenerEventOutcomeReason,
 } from '#core/entities/job-listener-event.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import {MAX_LISTENER_FIRE_EVENT_BYTES} from '#core/listener-event-batching.js';
 import {recordListenerEventReceived} from '#metrics/instance.js';
 import {db, type Tx} from './db.js';
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
@@ -33,6 +34,14 @@ export interface DeliverEventToListenerParams {
 export interface DeliverEventToListenerResult {
   buffered: boolean;
   skipped: boolean;
+  rejection?: ListenerDeliveryRejection;
+}
+
+export interface ListenerDeliveryRejection {
+  reason: 'payload-too-large';
+  eventId: string;
+  measuredBytes: number;
+  limitBytes: number;
 }
 
 export interface FinalizedListenerEventCounts {
@@ -97,51 +106,118 @@ export async function finalizePendingListenerEvents(
 export async function deliverEventToListener(
   params: DeliverEventToListenerParams,
 ): Promise<DeliverEventToListenerResult> {
-  const result = await db().transaction(async (tx) => {
-    const [job] = await tx
-      .select({id: jobs.id, status: jobs.status})
-      .from(jobs)
-      .where(eq(jobs.id, params.jobId))
-      .for('update')
-      .limit(1);
+  const storedPayloadBytes = diagnosticValueByteLength(params.payload);
+  const normalizedEventBytes = diagnosticValueByteLength([normalizeListenerEvent(params)]);
+  const rejectsFireEvent =
+    params.disposition === 'fire' && normalizedEventBytes > MAX_LISTENER_FIRE_EVENT_BYTES;
 
-    if (!job || isJobTerminal(job.status)) return {buffered: false, skipped: true};
-
-    const rows = await tx
-      .insert(jobListenerEvents)
-      .values({
-        jobId: params.jobId,
-        disposition: params.disposition,
-        eventRef: params.eventRef,
-        deliveryId: params.deliveryId,
-        source: params.source,
-        event: params.event,
-        triggerReference: params.triggerReference ?? null,
-        outcome: 'pending',
-        outcomeReason: null,
-        payload: params.payload,
-        storedPayloadBytes: diagnosticValueByteLength(params.payload),
-        normalizedEventBytes: diagnosticValueByteLength([normalizeListenerEvent(params)]),
-        receivedAt: params.receivedAt,
-      })
-      .onConflictDoNothing({target: [jobListenerEvents.jobId, jobListenerEvents.eventRef]})
-      .returning({id: jobListenerEvents.id});
-
-    if (!rows[0]) return {buffered: false, skipped: false};
-    await writeWorkflowsOutboxEvent(tx, {
-      type: WORKFLOWS_JOB_EVENT_DELIVERED,
-      payload: {
-        jobId: params.jobId,
-        disposition: params.disposition,
-        eventRef: params.eventRef,
-        eventName: params.event,
-      },
-    });
-    return {buffered: true, skipped: false};
-  });
+  const result = await db().transaction((tx) =>
+    persistListenerEvent(tx, params, {
+      rejectsFireEvent,
+      storedPayloadBytes,
+      normalizedEventBytes,
+    }),
+  );
 
   if (!result.buffered) return result;
 
   recordListenerEventReceived(params.provider);
   return result;
+}
+
+async function persistListenerEvent(
+  tx: Tx,
+  params: DeliverEventToListenerParams,
+  sizes: {
+    rejectsFireEvent: boolean;
+    storedPayloadBytes: number;
+    normalizedEventBytes: number;
+  },
+): Promise<DeliverEventToListenerResult> {
+  const [job] = await tx
+    .select({id: jobs.id, status: jobs.status})
+    .from(jobs)
+    .where(eq(jobs.id, params.jobId))
+    .for('update')
+    .limit(1);
+
+  if (!job || isJobTerminal(job.status)) return {buffered: false, skipped: true};
+
+  const rows = await tx
+    .insert(jobListenerEvents)
+    .values({
+      jobId: params.jobId,
+      disposition: params.disposition,
+      eventRef: params.eventRef,
+      deliveryId: params.deliveryId,
+      source: params.source,
+      event: params.event,
+      triggerReference: params.triggerReference ?? null,
+      outcome: sizes.rejectsFireEvent ? 'rejected' : 'pending',
+      outcomeReason: sizes.rejectsFireEvent ? 'payload_too_large' : null,
+      payload: sizes.rejectsFireEvent ? null : params.payload,
+      storedPayloadBytes: sizes.storedPayloadBytes,
+      normalizedEventBytes: sizes.normalizedEventBytes,
+      receivedAt: params.receivedAt,
+    })
+    .onConflictDoNothing({target: [jobListenerEvents.jobId, jobListenerEvents.eventRef]})
+    .returning({id: jobListenerEvents.id});
+
+  if (!rows[0]) return findExistingListenerEvent(tx, params);
+  if (sizes.rejectsFireEvent) {
+    return {
+      buffered: false,
+      skipped: false,
+      rejection: createListenerDeliveryRejection(rows[0].id, sizes.normalizedEventBytes),
+    };
+  }
+
+  await writeWorkflowsOutboxEvent(tx, {
+    type: WORKFLOWS_JOB_EVENT_DELIVERED,
+    payload: {
+      jobId: params.jobId,
+      disposition: params.disposition,
+      eventRef: params.eventRef,
+      eventName: params.event,
+    },
+  });
+  return {buffered: true, skipped: false};
+}
+
+async function findExistingListenerEvent(
+  tx: Tx,
+  params: Pick<DeliverEventToListenerParams, 'jobId' | 'eventRef'>,
+): Promise<DeliverEventToListenerResult> {
+  const [existing] = await tx
+    .select({
+      id: jobListenerEvents.id,
+      outcome: jobListenerEvents.outcome,
+      normalizedEventBytes: jobListenerEvents.normalizedEventBytes,
+    })
+    .from(jobListenerEvents)
+    .where(
+      and(
+        eq(jobListenerEvents.jobId, params.jobId),
+        eq(jobListenerEvents.eventRef, params.eventRef),
+      ),
+    )
+    .limit(1);
+  if (existing?.outcome !== 'rejected') return {buffered: false, skipped: false};
+  return {
+    buffered: false,
+    skipped: false,
+    rejection: createListenerDeliveryRejection(existing.id, existing.normalizedEventBytes),
+  };
+}
+
+function createListenerDeliveryRejection(
+  eventId: string,
+  measuredBytes: number,
+): ListenerDeliveryRejection {
+  return {
+    reason: 'payload-too-large',
+    eventId,
+    measuredBytes,
+    limitBytes: MAX_LISTENER_FIRE_EVENT_BYTES,
+  };
 }

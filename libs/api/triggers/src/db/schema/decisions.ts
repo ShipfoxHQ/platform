@@ -79,7 +79,12 @@ export function toTriggerDecision(row: TriggerDecisionDb): TriggerDecision {
 
 function toTriggerDecisionOutcome(decision: string): TriggerDecision['decision'] {
   if (decision === 'errored') return 'dispatch-error';
-  if (decision === 'triggered' || decision === 'filter-error' || decision === 'dispatch-error') {
+  if (
+    decision === 'triggered' ||
+    decision === 'filter-error' ||
+    decision === 'dispatch-error' ||
+    decision === 'rejected'
+  ) {
     return decision;
   }
   return 'dispatch-error';

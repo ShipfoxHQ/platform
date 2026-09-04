@@ -165,6 +165,39 @@ describe('trigger diagnostic tools', () => {
     expect(result.replays.map((item) => item.id)).toEqual([uuid(22), uuid(21)]);
   });
 
+  test('accepts rejected listener decisions in the trigger event tool result', async () => {
+    const mocks = clients();
+    mocks.getTriggerEvent.mockResolvedValue({
+      ...event(),
+      decisions: [
+        {
+          ...decision(1),
+          subscriptionKind: 'listener' as const,
+          workflowDefinitionId: null,
+          projectId: null,
+          decision: 'rejected' as const,
+          runId: null,
+          reason: 'payload-too-large',
+        },
+      ],
+      replays: [],
+      decisionsTotalCount: 1,
+      replaysTotalCount: 0,
+    });
+
+    const response = await tool(mocks, 'get_trigger_event').execute({
+      context,
+      arguments: {event_id: eventId},
+    });
+    const result = success<TriggerResult>(response);
+
+    expect(result.decisions[0]).toMatchObject({
+      outcome: 'rejected',
+      reason: 'payload-too-large',
+    });
+    expect(getTriggerEventResultJsonSchema.properties.decisions.items).toBeDefined();
+  });
+
   test('keeps an escaping-heavy capped payload valid JSON and reports its original byte size', async () => {
     const mocks = clients();
     const payload = {message: '\\"\n\\\\🙂'.repeat(8_000)};

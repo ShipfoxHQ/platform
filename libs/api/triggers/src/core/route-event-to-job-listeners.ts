@@ -5,6 +5,7 @@ import {
 import {projectWorkflowPredicateContext, rehydrateJsonExpressionRecord} from '@shipfox/expression';
 import {logger} from '@shipfox/node-opentelemetry';
 import {findMatchingJobListenerSubscriptions} from '#db/job-listener-subscriptions.js';
+import {listenerDeliveryRejectionsCount} from '#metrics/instance.js';
 import {evaluateStoredFilter, type StoredFilterEvaluation} from './config.js';
 import type {JobListenerSubscription} from './entities/job-listener-subscription.js';
 import {type TriggerHistoryRecorder, toReason} from './record-trigger-history.js';
@@ -32,8 +33,9 @@ export interface RouteEventToJobListenersParams {
 export interface RouteEventToJobListenersResult {
   /**
    * Listener outcomes that should contribute to received_event.matched_count:
-   * filter errors, accepted deliveries, and dispatch errors. Stale skipped jobs
-   * are intentionally excluded because they did not produce an auditable decision.
+   * filter errors, accepted deliveries, rejected deliveries, and dispatch errors.
+   * Stale skipped jobs are intentionally excluded because they did not produce an
+   * auditable decision.
    */
   engagedCount: number;
   /**
@@ -84,7 +86,11 @@ export async function routeEventToJobListeners(
   );
 
   return {
-    engagedCount: filterErrorCount + delivery.acceptedJobCount + delivery.dispatchErrorCount,
+    engagedCount:
+      filterErrorCount +
+      delivery.acceptedJobCount +
+      delivery.rejectedJobCount +
+      delivery.dispatchErrorCount,
     matchedJobCount: effectiveMatchByJobId.size,
     acceptedJobCount: delivery.acceptedJobCount,
     deliveredCount: delivery.deliveredCount,
@@ -121,6 +127,7 @@ async function collectEffectiveListenerMatches(
 interface ListenerDeliveryState {
   acceptedJobCount: number;
   deliveredCount: number;
+  rejectedJobCount: number;
   dispatchErrorCount: number;
   sawTransientError: boolean;
   firstTransientError: unknown;
@@ -136,6 +143,7 @@ async function deliverEventToMatchedListeners(
   const state: ListenerDeliveryState = {
     acceptedJobCount: 0,
     deliveredCount: 0,
+    rejectedJobCount: 0,
     dispatchErrorCount: 0,
     sawTransientError: false,
     firstTransientError: undefined,
@@ -168,11 +176,17 @@ async function deliverEventToMatchedListener(
       payload: params.payload,
       receivedAt: params.receivedAt.toISOString(),
     });
-    if (!result.skipped) {
-      state.acceptedJobCount += 1;
-      await params.history.listenerTriggered(subscription);
+    if (result.rejection !== undefined) {
+      state.rejectedJobCount += 1;
+      await params.history.listenerDeliveryRejected(subscription, result.rejection.reason);
+      listenerDeliveryRejectionsCount.add(1, {reason: 'payload_too_large'});
+    } else {
+      if (!result.skipped) {
+        state.acceptedJobCount += 1;
+        await params.history.listenerTriggered(subscription);
+      }
+      if (result.buffered) state.deliveredCount += 1;
     }
-    if (result.buffered) state.deliveredCount += 1;
   } catch (error) {
     state.dispatchErrorCount += 1;
     await params.history.listenerDispatchErrored(subscription, toReason(error));

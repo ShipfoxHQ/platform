@@ -4,6 +4,9 @@ import type {WorkflowExecutionEvent} from './entities/job-execution.js';
 /** Maximum UTF-8 bytes in the normalized trigger-event array sent to execution. */
 export const MAX_LISTENER_TRIGGER_EVENTS_BYTES = MAX_JSON_OUTPUT_BYTES;
 
+/** Maximum normalized bytes in one fire event accepted into a listener buffer. */
+export const MAX_LISTENER_FIRE_EVENT_BYTES = 768 * 1024;
+
 export type ListenerBatchPartitionReason = 'byte_limit' | 'count_limit';
 
 export type ListenerEventBatch =

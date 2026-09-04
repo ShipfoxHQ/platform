@@ -28,7 +28,12 @@ export type GetTriggerEventFacetsInputDto = z.infer<typeof getTriggerEventFacets
 
 const triggerOriginSchema = z.enum(['integration', 'manual', 'cron', 'dev']);
 const triggerOutcomeSchema = z.enum(['received', 'routed', 'discarded', 'failed', 'errored']);
-const triggerDecisionOutcomeSchema = z.enum(['triggered', 'filter-error', 'dispatch-error']);
+const triggerDecisionOutcomeSchema = z.enum([
+  'triggered',
+  'filter-error',
+  'dispatch-error',
+  'rejected',
+]);
 const triggerDecisionSchema = z
   .object({
     id: idSchema,
@@ -135,7 +140,10 @@ const triggerDecisionJsonSchema = {
   properties: {
     id: uuid,
     subscription_kind: {type: 'string', enum: ['trigger', 'listener', 'dev']},
-    outcome: {type: 'string', enum: ['triggered', 'filter-error', 'dispatch-error']},
+    outcome: {
+      type: 'string',
+      enum: ['triggered', 'filter-error', 'dispatch-error', 'rejected'],
+    },
     reason: nullable(text),
     workflow_definition_id: nullable(uuid),
     project_id: nullable(uuid),

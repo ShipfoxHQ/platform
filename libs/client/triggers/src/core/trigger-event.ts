@@ -10,7 +10,11 @@ export const triggerEventOutcomes = [
   'errored',
 ] as const satisfies readonly TriggerEventOutcome[];
 
-export type TriggerEventDecisionOutcome = 'triggered' | 'filter-error' | 'dispatch-error';
+export type TriggerEventDecisionOutcome =
+  | 'triggered'
+  | 'filter-error'
+  | 'dispatch-error'
+  | 'rejected';
 
 export interface TriggerEventSource {
   provider: string | null;

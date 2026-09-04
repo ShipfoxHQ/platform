@@ -255,6 +255,16 @@ describe('workflowsInterModuleContract', () => {
       payload: {ref: 'refs/heads/main'},
       receivedAt: '2026-07-20T12:00:00.000Z',
     });
+    const rejection = workflowsInterModuleContract.methods.deliverEventToJobListener.output.parse({
+      buffered: false,
+      skipped: false,
+      rejection: {
+        reason: 'payload-too-large',
+        eventId: 'listener-event-1',
+        measuredBytes: 786_433,
+        limitBytes: 786_432,
+      },
+    });
     const reference =
       workflowsInterModuleContract.methods.resolveWorkflowRunTriggerReference.input.parse({
         workspaceId: '00000000-0000-4000-8000-000000000001',
@@ -271,6 +281,7 @@ describe('workflowsInterModuleContract', () => {
     expect(start.idempotencyKey).toBe('subscription-1:event-1');
     expect(start.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
     expect(delivery.disposition).toBe('fire');
+    expect(rejection.rejection?.reason).toBe('payload-too-large');
     expect(reference.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
     expect(delivery.triggerConnectionId).toBe('00000000-0000-4000-8000-000000000005');
   });
