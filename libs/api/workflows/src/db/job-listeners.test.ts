@@ -883,6 +883,31 @@ describe('drainListenerEventsIntoExecution', () => {
     );
   });
 
+  it('consumes one batch when concurrent drains claim the same sequence', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    await bufferEvent(job.id, 'fire', crypto.randomUUID(), new Date('2026-01-01T00:00:00.000Z'));
+
+    const results = await Promise.all([
+      drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1}),
+      drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1}),
+    ]);
+    const executions = await db()
+      .select()
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, job.id));
+    const events = await db()
+      .select()
+      .from(jobListenerEvents)
+      .where(eq(jobListenerEvents.jobId, job.id));
+
+    expect(results.every((result) => result.kind === 'execution')).toBe(true);
+    expect(
+      new Set(results.map((result) => result.kind === 'execution' && result.jobExecutionId)).size,
+    ).toBe(1);
+    expect(executions).toHaveLength(1);
+    expect(events).toMatchObject([{outcome: 'consumed', consumedByExecutionId: executions[0]?.id}]);
+  });
+
   it('materializes a listener batch larger than the diagnostic read cap', async () => {
     const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
     await bufferEvent(job.id, 'fire', crypto.randomUUID(), new Date(), undefined, {
@@ -918,6 +943,10 @@ describe('drainListenerEventsIntoExecution', () => {
         {name, body: 'x'.repeat(400_000)},
       );
     }
+    await db()
+      .update(jobListenerEvents)
+      .set({normalizedEventBytes: 1})
+      .where(eq(jobListenerEvents.jobId, job.id));
 
     const firstDrain = await drainListenerEventsIntoExecution({
       jobId: job.id,

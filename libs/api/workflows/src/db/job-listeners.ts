@@ -8,7 +8,7 @@ import {
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, eq, gt, inArray, isNull, notInArray, or, sql} from 'drizzle-orm';
+import {and, asc, count, eq, inArray, isNull, lte, notInArray, or, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {
   type AgentToolMaterializationContext,
@@ -82,6 +82,11 @@ import {
 
 const TERMINAL_EXECUTION_STATUSES: JobExecutionStatus[] = ['succeeded', 'failed', 'cancelled'];
 const MAX_LISTENER_RESOLUTION_ATTEMPTS = 3;
+// Stored sizes use PostgreSQL JSONB text accounting, while execution payloads use compact JSON.
+// Keep the SQL prefix conservative; exact application serialization remains authoritative.
+const LISTENER_EVENT_SQL_BYTE_SAFETY_MARGIN_BYTES = 1_024;
+const LISTENER_EVENT_SQL_BYTE_LIMIT =
+  MAX_LISTENER_TRIGGER_EVENTS_BYTES - LISTENER_EVENT_SQL_BYTE_SAFETY_MARGIN_BYTES;
 
 function pendingListenerEventCondition() {
   return and(
@@ -300,11 +305,6 @@ interface LockedListenerEventBatch {
   readonly bufferedEvents: readonly JobListenerEventDb[];
   readonly triggerEvents: readonly WorkflowExecutionEvent[];
   readonly partitionReason?: ListenerBatchPartitionReason;
-}
-
-interface ListenerEventCursor {
-  readonly receivedAt: Date;
-  readonly id: string;
 }
 
 interface ListenerDrainTransactionParams {
@@ -733,51 +733,87 @@ async function lockBufferedFireEventBatch(
   params: DrainListenerEventsParams,
   tx: Tx,
 ): Promise<LockedListenerEventBatch> {
+  if (params.maxSize !== undefined && params.maxSize <= 0) {
+    return {bufferedEvents: [], triggerEvents: []};
+  }
+
+  const candidateQuery = tx
+    .select({
+      id: jobListenerEvents.id,
+      receivedAt: jobListenerEvents.receivedAt,
+      candidateNumber: sql<number>`row_number() over (
+        order by ${jobListenerEvents.receivedAt} asc, ${jobListenerEvents.id} asc
+      )`.as('candidate_number'),
+      runningBytes: sql<number>`sum(
+        case
+          when ${jobListenerEvents.normalizedEventBytes} = 0
+            then ${MAX_LISTENER_TRIGGER_EVENTS_BYTES}
+          else ${jobListenerEvents.normalizedEventBytes}
+        end
+      ) over (
+        order by ${jobListenerEvents.receivedAt} asc, ${jobListenerEvents.id} asc
+        rows between unbounded preceding and current row
+      )`.as('running_bytes'),
+      candidateCount: sql<number>`count(*) over ()`.as('candidate_count'),
+    })
+    .from(jobListenerEvents)
+    .where(
+      and(
+        eq(jobListenerEvents.jobId, params.jobId),
+        eq(jobListenerEvents.disposition, 'fire'),
+        pendingListenerEventCondition(),
+      ),
+    )
+    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
+  const candidateSelection =
+    params.maxSize === undefined
+      ? candidateQuery.as('listener_event_candidates')
+      : candidateQuery.limit(params.maxSize).as('listener_event_candidates');
+  const candidateRows = await tx
+    .select({id: candidateSelection.id, candidateCount: candidateSelection.candidateCount})
+    .from(candidateSelection)
+    .where(
+      or(
+        lte(candidateSelection.runningBytes, LISTENER_EVENT_SQL_BYTE_LIMIT),
+        eq(candidateSelection.candidateNumber, 1),
+      ),
+    )
+    .orderBy(asc(candidateSelection.receivedAt), asc(candidateSelection.id));
+  if (candidateRows.length === 0) return {bufferedEvents: [], triggerEvents: []};
+
+  // The projection above excludes payload so PostgreSQL can choose a cheap numeric prefix.
+  // Hydration is intentionally a second query over only those IDs, in lock order.
+  const hydratedEvents = await tx
+    .select()
+    .from(jobListenerEvents)
+    .where(
+      inArray(
+        jobListenerEvents.id,
+        candidateRows.map((row) => row.id),
+      ),
+    )
+    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
+    .for('update');
   const packer = createListenerEventBatchPacker();
-  const bufferedEvents: JobListenerEventDb[] = [];
-  let cursor: ListenerEventCursor | undefined;
-
-  while (params.maxSize === undefined || bufferedEvents.length < params.maxSize) {
-    const [event] = await tx
-      .select()
-      .from(jobListenerEvents)
-      .where(
-        and(
-          eq(jobListenerEvents.jobId, params.jobId),
-          eq(jobListenerEvents.disposition, 'fire'),
-          pendingListenerEventCondition(),
-          cursor === undefined
-            ? undefined
-            : or(
-                gt(jobListenerEvents.receivedAt, cursor.receivedAt),
-                and(
-                  eq(jobListenerEvents.receivedAt, cursor.receivedAt),
-                  gt(jobListenerEvents.id, cursor.id),
-                ),
-              ),
-        ),
-      )
-      .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
-      .limit(1)
-      .for('update');
-    if (event === undefined) break;
-
-    const triggerEvent = listenerTriggerEvent(event);
-    if (!packer.add(triggerEvent)) break;
-
-    bufferedEvents.push(event);
-    cursor = {receivedAt: event.receivedAt, id: event.id};
+  for (const event of hydratedEvents) {
+    if (!packer.add(listenerTriggerEvent(event))) break;
   }
 
   const batch = packer.finish({
     countLimitReached:
       params.maxSize !== undefined &&
-      bufferedEvents.length > 0 &&
-      bufferedEvents.length >= params.maxSize,
+      candidateRows.length > 0 &&
+      candidateRows.length >= params.maxSize,
   });
-  const partitionReason = batch.kind === 'empty' ? batch.reason : batch.partitionReason;
+  const sqlPartitionReason =
+    candidateRows[0] && candidateRows[0].candidateCount > candidateRows.length
+      ? ('byte_limit' as const)
+      : undefined;
+  const partitionReason =
+    batch.kind === 'empty' ? batch.reason : (batch.partitionReason ?? sqlPartitionReason);
+  const selectedEventCount = batch.kind === 'empty' ? 0 : batch.events.length;
   return {
-    bufferedEvents,
+    bufferedEvents: hydratedEvents.slice(0, selectedEventCount),
     triggerEvents: batch.kind === 'empty' ? [] : batch.events,
     ...(partitionReason === undefined ? {} : {partitionReason}),
   };
