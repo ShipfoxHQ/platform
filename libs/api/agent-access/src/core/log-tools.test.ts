@@ -200,6 +200,42 @@ describe('bounded step-log agent-access tool', () => {
     expect(getStepLogsResultSchema.safeParse(result).success).toBe(true);
   });
 
+  test('keeps readable failed sections when one compacted log is unavailable', async () => {
+    const mocks = clients();
+    const coordinates = [failedCoordinate(0), failedCoordinate(1)];
+    const unavailable = coordinates[0];
+    const readable = coordinates[1];
+    if (unavailable === undefined || readable === undefined) {
+      throw new Error('Expected failed coordinates');
+    }
+    mocks.workflows.listFailedStepAttempts.mockResolvedValue({
+      workflow_run_attempt: 4,
+      items: coordinates,
+    });
+    mocks.logs.readStepLogTail.mockImplementation(({stepId: requestedStepId}) => {
+      if (requestedStepId === unavailable.step_id) {
+        throw createInterModuleKnownError(
+          logsInterModuleContract.methods.readStepLogTail,
+          'compacted-log-unavailable',
+          {},
+        );
+      }
+      return {content: 'readable failed section'};
+    });
+
+    const response = await tool(mocks).execute({
+      context,
+      arguments: {run_id: runId, failed_only: true},
+    });
+    const result = success(response);
+
+    expect(result.sections).toEqual([
+      expect.objectContaining({step_id: unavailable.step_id, content: ''}),
+      expect.objectContaining({step_id: readable.step_id, content: 'readable failed section'}),
+    ]);
+    expect(getStepLogsResultSchema.safeParse(result).success).toBe(true);
+  });
+
   test('returns an empty successful aggregate when the run has no failed coordinates', async () => {
     const mocks = clients();
     mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({

@@ -125,7 +125,7 @@ async function readFailedStepLogs(
   const sectionBudget = equalSectionBudget(coordinates.length);
   const logReads = await Promise.all(
     coordinates.map((coordinate) =>
-      logs.readStepLogTail({
+      readFailedStepLog(logs, {
         stepId: coordinate.step_id,
         attempt: coordinate.step_attempt,
         tailLines: input.tail_lines,
@@ -141,6 +141,22 @@ async function readFailedStepLogs(
     workflow_run_attempt: page.workflow_run_attempt,
     sections,
   });
+}
+
+async function readFailedStepLog(
+  logs: LogsModuleClient,
+  input: {stepId: string; attempt: number; tailLines: number},
+): Promise<StepLogTailRead | null> {
+  try {
+    return await logs.readStepLogTail(input);
+  } catch (error) {
+    // A compacted stream can disappear between the workflow listing and the log read. Keep the
+    // coordinate so one unavailable section does not discard the other readable failures.
+    if (isInterModuleKnownError(logsInterModuleContract.methods.readStepLogTail, error)) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function projectDetailSection(
