@@ -161,9 +161,7 @@ async function loadGithubModuleParts(
     publishSourcePush,
     recordDeliveryOnly,
     getIntegrationConnectionById,
-    repositoryAuthorization: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION
-      ? 'enforced'
-      : 'unclassified',
+    repositoryAuthorization: 'enforced',
     invalidateRepositoryAuthorizationCache: options.invalidateRepositoryAuthorizationCache,
     coreDb: db,
     deleteSecrets: options.secrets?.deleteSecrets,

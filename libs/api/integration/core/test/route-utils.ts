@@ -12,6 +12,7 @@ import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
 import {
   createIntegrationsModule,
+  createRepositoryAuthorizer,
   type IntegrationProvider,
   type RepositoryAuthorizer,
 } from '#index.js';
@@ -106,7 +107,8 @@ export async function createTestApp(
   const integrationsModule = await createIntegrationsModule({
     providers,
     projects: options.projects,
-    repositoryAuthorizer: options.repositoryAuthorizer,
+    repositoryAuthorizer:
+      options.repositoryAuthorizer ?? createRepositoryAuthorizer({enabled: false}),
   });
   const app = await createApp({
     auth: [createFakeUserAuth(memberships)],

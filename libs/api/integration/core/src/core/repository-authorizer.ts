@@ -154,8 +154,8 @@ export async function resolveRepositoryAuthorization({
 }
 
 /**
- * Creates the integration-owned dark-gated authorizer. A disabled authorizer
- * returns `undefined`, allowing its caller to preserve the existing behavior.
+ * Creates the integration-owned authorizer. A disabled authorizer returns
+ * `undefined`, allowing test callers to preserve the pre-enforcement behavior.
  */
 export function createRepositoryAuthorizer({
   projects,

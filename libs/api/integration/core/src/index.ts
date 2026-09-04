@@ -13,7 +13,6 @@ import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inte
 import {reportError} from '@shipfox/node-error-monitoring';
 import type {ModuleService, ShipfoxModule} from '@shipfox/node-module';
 import {logger} from '@shipfox/node-opentelemetry';
-import {config} from '#config.js';
 import type {IntegrationProvider} from '#core/entities/provider.js';
 import {WebhookProcessorNotConfiguredError} from '#core/errors.js';
 import {
@@ -286,7 +285,7 @@ export async function createIntegrationsContext(
     options.repositoryAuthorizer ??
     createRepositoryAuthorizer({
       projects: options.projects,
-      enabled: config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION,
+      enabled: true,
     });
   const workspaces = options.workspaces;
   const parts: IntegrationModuleParts[] =

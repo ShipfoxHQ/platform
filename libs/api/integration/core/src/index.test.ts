@@ -1,7 +1,13 @@
 import type {StoredWebhookRequest, WebhookRequestProcessor} from '@shipfox/api-integration-spi';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {createOutboxRegistry, type ModuleService, startModuleServices} from '@shipfox/node-module';
-import {createIntegrationsContext, WebhookProcessorNotConfiguredError} from './index.js';
+import {
+  createIntegrationsContext,
+  createRepositoryAuthorizer,
+  WebhookProcessorNotConfiguredError,
+} from './index.js';
+
+const disabledRepositoryAuthorizer = createRepositoryAuthorizer({enabled: false});
 
 const request = {
   schema_version: 1,
@@ -36,6 +42,7 @@ describe('createIntegrationsContext', () => {
         },
       ],
       webhookDeliverySource: deliverySource,
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     expect(context.module.services).toEqual([service]);
@@ -56,6 +63,7 @@ describe('createIntegrationsContext', () => {
   it('does not register a service without a delivery source', async () => {
     const context = await createIntegrationsContext({
       parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     expect(context.module.services).toBeUndefined();
@@ -76,6 +84,7 @@ describe('createIntegrationsContext', () => {
           services: [service],
         },
       ],
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     expect(context.module.services).toEqual([service]);
@@ -91,6 +100,7 @@ describe('createIntegrationsContext', () => {
   it('rejects a queued request with no registered processor', async () => {
     const context = await createIntegrationsContext({
       parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     const result = context.webhookProcessor.process(request);
@@ -113,6 +123,7 @@ describe('createIntegrationsContext', () => {
           ],
         },
       ],
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     await expect(result).rejects.toThrow(
@@ -130,52 +141,13 @@ describe('createIntegrationsContext', () => {
           throw sourceError;
         },
       },
+      repositoryAuthorizer: disabledRepositoryAuthorizer,
     });
 
     await expect(result).rejects.toThrow(sourceError);
   });
 
-  it('keeps the repository authorization gate disabled by default', async () => {
-    vi.stubEnv('INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION', 'false');
-    vi.resetModules();
-
-    const getProjectBySource = vi.fn();
-    const findProjectBySourceRepositoryName = vi.fn();
-    const projects = {
-      getProjectBySource,
-      findProjectBySourceRepositoryName,
-    } as unknown as ProjectsModuleClient;
-
-    try {
-      const {createIntegrationsContext: createContext} = await import('./index.js');
-      const context = await createContext({
-        parts: [{provider: {provider: 'github', displayName: 'GitHub', adapters: {}}}],
-        projects,
-      });
-
-      expect(context.repositoryAuthorizer.enabled).toBe(false);
-      expect(context.capabilities.repositoryAuthorizer).toBe(context.repositoryAuthorizer);
-      await expect(
-        context.repositoryAuthorizer.resolveRepositoryAuthorization({
-          workspaceId: 'workspace-1',
-          connectionId: 'connection-1',
-          mode: 'all',
-          repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
-          capability: 'checkout',
-        }),
-      ).resolves.toBeUndefined();
-      expect(getProjectBySource).not.toHaveBeenCalled();
-      expect(findProjectBySourceRepositoryName).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllEnvs();
-      vi.resetModules();
-    }
-  });
-
-  it('enables repository authorization through the integration context flag', async () => {
-    vi.stubEnv('INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION', 'true');
-    vi.resetModules();
-
+  it('enforces repository authorization by default', async () => {
     const getProjectBySource = vi.fn().mockResolvedValue({project: null});
     const projects = {
       getProjectBySource,
@@ -202,64 +174,58 @@ describe('createIntegrationsContext', () => {
       ref: 'main',
     });
 
-    try {
-      const {createIntegrationsContext: createContext} = await import('./index.js');
-      const context = await createContext({
-        parts: [
-          {
-            provider: {
-              provider: 'github',
-              displayName: 'GitHub',
-              adapters: {
-                source_control: {
-                  listRepositories: vi.fn(),
-                  resolveRepository: vi.fn(),
-                  listFiles: vi.fn(),
-                  fetchFile: vi.fn(),
-                  resolveTriggerReference: vi.fn().mockReturnValue(null),
-                  resolveRef: vi.fn(),
-                  createCheckoutSpec,
-                },
+    const context = await createIntegrationsContext({
+      parts: [
+        {
+          provider: {
+            provider: 'github',
+            displayName: 'GitHub',
+            adapters: {
+              source_control: {
+                listRepositories: vi.fn(),
+                resolveRepository: vi.fn(),
+                listFiles: vi.fn(),
+                fetchFile: vi.fn(),
+                resolveTriggerReference: vi.fn().mockReturnValue(null),
+                resolveRef: vi.fn(),
+                createCheckoutSpec,
               },
             },
           },
-        ],
-        projects,
-        getIntegrationConnectionById,
-      });
+        },
+      ],
+      projects,
+      getIntegrationConnectionById,
+    });
 
-      expect(context.repositoryAuthorizer.enabled).toBe(true);
-      await expect(
-        context.repositoryAuthorizer.resolveRepositoryAuthorization({
-          workspaceId: 'workspace-1',
-          connectionId: 'connection-1',
-          mode: 'selected',
-          repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
-          capability: 'checkout',
-        }),
-      ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
-      expect(getProjectBySource).toHaveBeenCalledWith({
-        workspaceId: 'workspace-1',
-        sourceConnectionId: 'connection-1',
-        sourceExternalRepositoryId: 'github:42',
-      });
-
-      await expect(
-        context.sourceControl.createCheckoutSpec({
-          workspaceId,
-          connectionId: connection.id,
-          target: {kind: 'external-id', externalRepositoryId: 'github:42'},
-        }),
-      ).rejects.toMatchObject({reason: 'repository_not_granted'});
-      expect(createCheckoutSpec).not.toHaveBeenCalled();
-      expect(getProjectBySource).toHaveBeenLastCalledWith({
+    expect(context.repositoryAuthorizer.enabled).toBe(true);
+    await expect(
+      context.repositoryAuthorizer.resolveRepositoryAuthorization({
         workspaceId,
-        sourceConnectionId: connection.id,
-        sourceExternalRepositoryId: 'github:42',
-      });
-    } finally {
-      vi.unstubAllEnvs();
-      vi.resetModules();
-    }
+        connectionId: connection.id,
+        mode: 'selected',
+        repository: {kind: 'external-id', externalRepositoryId: 'github:42'},
+        capability: 'checkout',
+      }),
+    ).resolves.toEqual({authorized: false, reason: 'repository_not_granted'});
+    expect(getProjectBySource).toHaveBeenCalledWith({
+      workspaceId,
+      sourceConnectionId: connection.id,
+      sourceExternalRepositoryId: 'github:42',
+    });
+
+    await expect(
+      context.sourceControl.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        target: {kind: 'external-id', externalRepositoryId: 'github:42'},
+      }),
+    ).rejects.toMatchObject({reason: 'repository_not_granted'});
+    expect(createCheckoutSpec).not.toHaveBeenCalled();
+    expect(getProjectBySource).toHaveBeenLastCalledWith({
+      workspaceId,
+      sourceConnectionId: connection.id,
+      sourceExternalRepositoryId: 'github:42',
+    });
   });
 });
