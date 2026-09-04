@@ -1,3 +1,5 @@
+import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
+import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {jobListenerSubscriptionFactory, triggerSubscriptionFactory} from '#test/index.js';
 
 const runWorkflow = vi.fn();
@@ -272,5 +274,15 @@ describe('toReason', () => {
     const reason = toReason(new Error('definition deleted'));
 
     expect(reason).toBe('definition deleted');
+  });
+
+  test('persists the policy reason for an admission denial', () => {
+    const error = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.startRunFromTrigger,
+      'admission-denied',
+      {workspaceId: crypto.randomUUID(), reason: 'billing-payment-method-required'},
+    );
+
+    expect(toReason(error)).toBe('billing-payment-method-required');
   });
 });

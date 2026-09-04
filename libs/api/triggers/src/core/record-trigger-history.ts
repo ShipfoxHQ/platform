@@ -1,3 +1,5 @@
+import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
+import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {JobListenerSubscription} from '#core/entities/job-listener-subscription.js';
@@ -27,11 +29,24 @@ const MAX_REASON_LENGTH = 2000;
 export function toReason(error: unknown): string {
   let message: string;
   try {
-    message = error instanceof Error ? error.message : String(error);
+    message = admissionReason(error) ?? (error instanceof Error ? error.message : String(error));
   } catch {
     message = '[unprintable thrown value]';
   }
   return message.slice(0, MAX_REASON_LENGTH);
+}
+
+function admissionReason(error: unknown): string | undefined {
+  const methods = [
+    workflowsInterModuleContract.methods.startRunFromTrigger,
+    workflowsInterModuleContract.methods.startDevRun,
+    workflowsInterModuleContract.methods.deliverEventToJobListener,
+  ] as const;
+  for (const method of methods) {
+    if (!isInterModuleKnownError(method, error) || error.code !== 'admission-denied') continue;
+    return error.details.reason;
+  }
+  return undefined;
 }
 
 export interface TriggerRun {

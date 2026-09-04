@@ -10,12 +10,13 @@ import {
   workspacesInterModuleContract,
 } from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
-import {ClientError} from '@shipfox/node-fastify';
+import {ClientError, errorHandler} from '@shipfox/node-fastify';
 import type {DomainEvent} from '@shipfox/node-outbox';
 import {eq} from 'drizzle-orm';
 import type {FastifyInstance} from 'fastify';
 import Fastify from 'fastify';
 import {serializerCompiler, validatorCompiler} from 'fastify-type-provider-zod';
+import type {WorkflowAdmissionPolicy} from '#core/workspace-admission.js';
 import {db} from '#db/db.js';
 import {steps} from '#db/schema/steps.js';
 import {
@@ -41,6 +42,8 @@ const projects = {
 } as unknown as ProjectsModuleClient;
 const getWorkspaceOperatingState = vi.fn();
 const workspaces = {getWorkspaceOperatingState} as unknown as WorkspacesInterModuleClient;
+const admit = vi.fn<WorkflowAdmissionPolicy['admit']>();
+const admission = {policy: {admit}};
 const startMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@shipfox/node-temporal', async (importOriginal) => ({
@@ -77,6 +80,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
 
   beforeAll(async () => {
     app = Fastify();
+    app.setErrorHandler(errorHandler);
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     app.addHook('onRequest', (request, _reply, done) => {
@@ -90,7 +94,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       );
       done();
     });
-    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces));
+    app.post('/api/workflows/runs/:id/rerun', rerunRunRoute(projects, workspaces, admission));
     await app.ready();
   });
 
@@ -112,6 +116,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       }),
     );
     getWorkspaceOperatingState.mockResolvedValue({status: 'active'});
+    admit.mockResolvedValue({allowed: true});
   });
 
   async function createTerminalRun(status: 'succeeded' | 'failed' = 'failed') {
@@ -296,6 +301,38 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().code).toBe('workspace-suspended');
     expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+  });
+
+  test('returns an admission denial with required action before creating a new attempt', async () => {
+    const source = await createTerminalRun('failed');
+    const requiredAction = {
+      reason: 'billing-payment-method-required',
+      message: 'Add a payment method to continue.',
+      url: '/settings/billing',
+    };
+    admit.mockResolvedValue({allowed: false, reason: requiredAction.reason, requiredAction});
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/workflows/runs/${source.id}/rerun`,
+      payload: {mode: 'all'},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: 'admission-denied',
+      details: {
+        workspace_id: source.workspaceId,
+        reason: requiredAction.reason,
+        required_action: requiredAction,
+      },
+    });
+    expect(admit).toHaveBeenCalledWith({
+      workspaceId: source.workspaceId,
+      source: source.triggerSource,
+      definitionId: source.definitionId,
+    });
+    await expect(getWorkflowRunById(source.id)).resolves.toMatchObject({currentAttempt: 1});
   });
 
   test('returns workspace-deleted before creating a new attempt', async () => {

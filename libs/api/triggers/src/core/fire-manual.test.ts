@@ -132,6 +132,37 @@ describe('fireManualSubscription (trigger history)', () => {
     expect(decisions[0]?.reason).toContain('definition-not-found');
   });
 
+  test('records an admission denial reason as a terminal manual event', async () => {
+    const subscription = await triggerSubscriptionFactory.create({
+      source: 'manual',
+      event: 'fire',
+      config: {},
+    });
+    const reason = 'billing-payment-method-required';
+    runWorkflow.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'admission-denied',
+        {workspaceId: subscription.workspaceId, reason},
+      ),
+    );
+
+    await expect(
+      fireManualSubscription({
+        workflows,
+        subscriptionId: subscription.id,
+        callerWorkspaceId: subscription.workspaceId,
+        userId: crypto.randomUUID(),
+      }),
+    ).rejects.toMatchObject({code: 'admission-denied'});
+
+    const [event] = await eventsForWorkspace(subscription.workspaceId);
+    if (!event) throw new Error('received event not found');
+    expect(event.outcome).toBe('errored');
+    const [decision] = await decisionsForEvent(event.id);
+    expect(decision).toMatchObject({decision: 'dispatch-error', reason});
+  });
+
   test('falls back to fire in history when a bad row stores a NULL event', async () => {
     const subscription = await triggerSubscriptionFactory.create({
       source: 'manual',

@@ -26,6 +26,7 @@ export {
   SourceRunNotFoundError,
   StepNotFoundError,
   StepNotRunningError,
+  WorkflowAdmissionDeniedError,
   WorkflowDiagnosticTooLargeError,
   WorkflowExecutionPayloadTooLargeError,
   WorkflowRunNotCancellableError,
@@ -60,3 +61,10 @@ export {
   type ScheduleRuntimeDagInput,
   scheduleRuntimeDag,
 } from './workflow-scheduling/index.js';
+export type {
+  RequiredAction,
+  WorkflowAdmissionCheck,
+  WorkflowAdmissionDecision,
+  WorkflowAdmissionInput,
+  WorkflowAdmissionPolicy,
+} from './workspace-admission.js';

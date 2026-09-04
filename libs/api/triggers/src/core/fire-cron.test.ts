@@ -102,6 +102,36 @@ describe('fireCronSubscription', () => {
     expect(decisions[0]?.reason).toContain('definition-not-found');
   });
 
+  test('records an admission denial reason as a terminal cron event', async () => {
+    const subscription = await triggerSubscriptionFactory.create({
+      source: 'cron',
+      event: 'tick',
+      config: {},
+    });
+    const reason = 'billing-payment-method-required';
+    runWorkflow.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'admission-denied',
+        {workspaceId: subscription.workspaceId, reason},
+      ),
+    );
+
+    await expect(
+      fireCronSubscription({
+        workflows,
+        subscriptionId: subscription.id,
+        scheduledSlot: SLOT,
+      }),
+    ).resolves.toEqual({outcome: 'errored'});
+
+    const [event] = await eventsForWorkspace(subscription.workspaceId);
+    if (!event) throw new Error('received event not found');
+    expect(event.outcome).toBe('errored');
+    const [decision] = await decisionsForEvent(event.id);
+    expect(decision).toMatchObject({decision: 'dispatch-error', reason});
+  });
+
   test('omits inputs when the subscription has no configured inputs', async () => {
     const subscription = await triggerSubscriptionFactory.create({
       source: 'cron',

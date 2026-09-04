@@ -776,6 +776,27 @@ describe('createDevRun', () => {
     expect(await subscriptionsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
 
+  test('records an admission denial reason as a terminal dev event', async () => {
+    const params = buildParams();
+    const reason = 'billing-payment-method-required';
+    resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(undefined));
+    startDevRun.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startDevRun,
+        'admission-denied',
+        {workspaceId: params.workspaceId, reason},
+      ),
+    );
+
+    await expect(createDevRun(params)).rejects.toMatchObject({code: 'admission-denied'});
+
+    const [event] = await eventsForWorkspace(params.workspaceId);
+    if (!event) throw new Error('received event not found');
+    expect(event.outcome).toBe('errored');
+    const [decision] = await decisionsForEvent(event.id);
+    expect(decision).toMatchObject({decision: 'dispatch-error', reason});
+  });
+
   test('journals a retryable dev failure and rethrows the original error', async () => {
     const params = buildParams();
     resolveDefinitionAtRef.mockResolvedValue(resolvedDefinition(undefined));

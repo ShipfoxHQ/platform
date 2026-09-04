@@ -33,6 +33,11 @@ export function createFireManualTriggerRoute(workflows: WorkflowsModuleClient) {
       body: fireManualTriggerBodySchema,
       response: {
         201: fireManualTriggerResponseSchema,
+        409: z.object({
+          code: z.string(),
+          message: z.string().optional(),
+          details: z.unknown().optional(),
+        }),
         422: z.object({
           code: z.string(),
           details: startRunErrorDetailsSchema.optional(),

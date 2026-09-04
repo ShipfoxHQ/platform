@@ -1,7 +1,15 @@
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
-import {WorkspaceDeletedError, WorkspaceNotFoundError, WorkspaceSuspendedError} from './errors.js';
-import {assertWorkspaceAdmitsNewJobs} from './workspace-admission.js';
+import {
+  type WorkflowAdmissionDeniedError,
+  WorkspaceDeletedError,
+  WorkspaceNotFoundError,
+  WorkspaceSuspendedError,
+} from './errors.js';
+import {
+  assertWorkspaceAdmitsNewJobs,
+  WORKFLOW_ADMISSION_POLICY_TIMEOUT_MS,
+} from './workspace-admission.js';
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 
@@ -12,6 +20,83 @@ describe('assertWorkspaceAdmitsNewJobs', () => {
     await assertWorkspaceAdmitsNewJobs({getWorkspaceOperatingState}, workspaceId);
 
     expect(getWorkspaceOperatingState).toHaveBeenCalledWith({workspaceId});
+  });
+
+  test('passes the workflow context to an admission policy', async () => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+    const admit = vi.fn().mockResolvedValue({allowed: true});
+
+    await assertWorkspaceAdmitsNewJobs({getWorkspaceOperatingState}, workspaceId, {
+      policy: {admit},
+      source: 'manual',
+      definitionId: 'definition-1',
+    });
+
+    expect(admit).toHaveBeenCalledWith({
+      workspaceId,
+      source: 'manual',
+      definitionId: 'definition-1',
+    });
+  });
+
+  test('rejects an explicit policy denial with its required action', async () => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+    const requiredAction = {
+      reason: 'billing-payment-method-required',
+      message: 'Add a payment method to continue.',
+      url: '/settings/billing',
+    };
+    const admit = vi.fn().mockResolvedValue({
+      allowed: false,
+      reason: requiredAction.reason,
+      requiredAction,
+    });
+
+    await expect(
+      assertWorkspaceAdmitsNewJobs({getWorkspaceOperatingState}, workspaceId, {
+        policy: {admit},
+        source: 'github',
+        definitionId: 'definition-1',
+      }),
+    ).rejects.toMatchObject({
+      name: 'WorkflowAdmissionDeniedError',
+      workspaceId,
+      reason: requiredAction.reason,
+      requiredAction,
+    } satisfies Partial<WorkflowAdmissionDeniedError>);
+  });
+
+  test('runs the operating-state gate before the policy', async () => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'suspended'});
+    const admit = vi.fn().mockResolvedValue({allowed: false, reason: 'policy-denied'});
+
+    await expect(
+      assertWorkspaceAdmitsNewJobs({getWorkspaceOperatingState}, workspaceId, {
+        policy: {admit},
+        source: 'manual',
+        definitionId: 'definition-1',
+      }),
+    ).rejects.toBeInstanceOf(WorkspaceSuspendedError);
+    expect(admit).not.toHaveBeenCalled();
+  });
+
+  test('treats a hanging policy as a transient timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+      const admit = vi.fn().mockReturnValue(new Promise<never>(() => undefined));
+      const check = assertWorkspaceAdmitsNewJobs({getWorkspaceOperatingState}, workspaceId, {
+        policy: {admit},
+        source: 'manual',
+        definitionId: 'definition-1',
+      });
+      const rejection = expect(check).rejects.toThrow('Workflow admission policy timed out');
+
+      await vi.advanceTimersByTimeAsync(WORKFLOW_ADMISSION_POLICY_TIMEOUT_MS);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test.each([

@@ -49,6 +49,17 @@ import {
 } from './schemas/workflow-run-overview.js';
 
 const idSchema = z.string().uuid();
+const admissionDeniedDetailsSchema = z.object({
+  workspaceId: idSchema,
+  reason: z.string(),
+  requiredAction: z
+    .object({
+      reason: z.string(),
+      message: z.string(),
+      url: z.string(),
+    })
+    .optional(),
+});
 const workflowRunTriggerReferenceSchema = z.object({
   project: z.object({id: idSchema}).nullable(),
   repository: z.string().nullable(),
@@ -196,6 +207,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'workspace-not-found': z.object({workspaceId: idSchema}),
         'workspace-suspended': z.object({workspaceId: idSchema}),
         'workspace-deleted': z.object({workspaceId: idSchema}),
+        'admission-denied': admissionDeniedDetailsSchema,
         'definition-not-found': z.object({definitionId: idSchema}),
         'project-mismatch': z.object({}),
         'agent-config-unresolvable': z.object({definitionId: idSchema}),
@@ -248,6 +260,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'workspace-not-found': z.object({workspaceId: idSchema}),
         'workspace-suspended': z.object({workspaceId: idSchema}),
         'workspace-deleted': z.object({workspaceId: idSchema}),
+        'admission-denied': admissionDeniedDetailsSchema,
         'agent-config-unresolvable': z.object({definitionId: idSchema}),
         'agent-integration-materialization-failed': z.object({}),
         'interpolation-unresolvable': z.object({
@@ -301,6 +314,7 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         'workspace-not-found': z.object({workspaceId: idSchema}),
         'workspace-suspended': z.object({workspaceId: idSchema}),
         'workspace-deleted': z.object({workspaceId: idSchema}),
+        'admission-denied': admissionDeniedDetailsSchema,
       },
     },
     getStepLogContext: {

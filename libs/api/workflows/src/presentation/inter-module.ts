@@ -37,6 +37,7 @@ import type {Step} from '#core/entities/step.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
+  WorkflowAdmissionDeniedError,
   WorkflowExecutionPayloadTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
   WorkspaceDeletedError,
@@ -53,7 +54,10 @@ import {
   runWorkflow,
 } from '#core/index.js';
 import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
-import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
+import {
+  assertWorkspaceAdmitsNewJobs,
+  type WorkflowAdmissionPolicy,
+} from '#core/workspace-admission.js';
 import {
   getJobScope,
   getLatestRunAttempt,
@@ -116,6 +120,7 @@ export function createWorkflowsInterModulePresentation(params: {
   runners: RunnersInterModuleClient;
   integrations: IntegrationsModuleClient;
   projects: ProjectsModuleClient;
+  admission?: {policy: WorkflowAdmissionPolicy} | undefined;
 }): InterModulePresentation<typeof workflowsInterModuleContract> {
   /**
    * Shared lease + running-agent-step resolution for the lease-authed
@@ -179,7 +184,11 @@ export function createWorkflowsInterModulePresentation(params: {
   return defineInterModulePresentation(workflowsInterModuleContract, {
     startRunFromTrigger: async (input) => {
       try {
-        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId);
+        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId, {
+          policy: params.admission?.policy,
+          source: input.triggerPayload.source,
+          definitionId: input.definitionId,
+        });
         const run = await runWorkflow(
           params.definitions,
           {
@@ -203,7 +212,11 @@ export function createWorkflowsInterModulePresentation(params: {
     },
     startDevRun: async (input) => {
       try {
-        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId);
+        await assertWorkspaceAdmitsNewJobs(params.workspaces, input.workspaceId, {
+          policy: params.admission?.policy,
+          source: input.triggerPayload.source,
+          definitionId: input.workflowId,
+        });
         const run = await runDevWorkflow(
           params.agent,
           {
@@ -242,7 +255,11 @@ export function createWorkflowsInterModulePresentation(params: {
       try {
         const scope = input.disposition === 'fire' ? await getJobScope(input.jobId) : undefined;
         if (scope) {
-          await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId);
+          await assertWorkspaceAdmitsNewJobs(params.workspaces, scope.workspaceId, {
+            policy: params.admission?.policy,
+            source: input.source,
+            definitionId: scope.definitionId,
+          });
         }
 
         let triggerReference: WorkflowRunTriggerReference | null = null;
@@ -907,6 +924,13 @@ function toWorkspaceAdmissionKnownError(
   if (error instanceof WorkspaceNotFoundError) {
     return createInterModuleKnownError(method, 'workspace-not-found', {
       workspaceId: error.workspaceId,
+    });
+  }
+  if (error instanceof WorkflowAdmissionDeniedError) {
+    return createInterModuleKnownError(method, 'admission-denied', {
+      workspaceId: error.workspaceId,
+      reason: error.reason,
+      ...(error.requiredAction === undefined ? {} : {requiredAction: error.requiredAction}),
     });
   }
   return undefined;

@@ -33,6 +33,8 @@ const fixtureTemplate = join(externalRoot, 'fixture');
 const REGISTRY_SHIPFOX_PACKAGE_PATTERN = /^@shipfox\+[^@]+@\d/u;
 const EXPECTED_COLLISION_DIAGNOSTIC =
   'Route "/auth/login" is contributed by both features "shipfox.auth" and "fixture.unapproved-collision". Set override: true to replace it explicitly.';
+// PostCSS 8.5.27 omitted the NodeProps import required by its declarations.
+const FIXTURE_OVERRIDES = {postcss: '8.5.23'};
 const arguments_ = process.argv.slice(2).filter((argument) => argument !== '--');
 const linkMode = arguments_.includes('--link');
 
@@ -209,12 +211,13 @@ async function configureFixture(root, consumerPackages, packageSpecs) {
   const consumerDependencies = Object.fromEntries(
     consumerPackages.map((name) => [name, packageSpecs[name]]),
   );
+  const overrides = {...packageSpecs, ...FIXTURE_OVERRIDES};
   manifest.dependencies = {...manifest.dependencies, ...consumerDependencies};
   await Promise.all([
     writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`),
     writeFile(
       join(root, 'pnpm-workspace.yaml'),
-      renderFixtureWorkspaceConfig({repositoryRoot, overrides: packageSpecs}),
+      renderFixtureWorkspaceConfig({repositoryRoot, overrides}),
     ),
   ]);
 }

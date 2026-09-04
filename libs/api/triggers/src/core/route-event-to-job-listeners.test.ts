@@ -346,6 +346,32 @@ describe('routeEventToJobListeners', () => {
     });
   });
 
+  it('records an admission denial reason without retrying listener delivery', async () => {
+    const workspaceId = crypto.randomUUID();
+    const reason = 'billing-payment-method-required';
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request_review',
+    });
+    const error = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.deliverEventToJobListener,
+      'admission-denied',
+      {workspaceId, reason},
+    );
+    deliverEventToListener.mockRejectedValueOnce(error);
+
+    const result = await route({workspaceId});
+
+    expect(listenerDispatchErrored).toHaveBeenCalledWith(expect.anything(), reason);
+    expect(result).toMatchObject({
+      engagedCount: 1,
+      acceptedJobCount: 0,
+      deliveredCount: 0,
+      transientErrored: false,
+    });
+  });
+
   it('delivers only when a listener filter matches the payload and snapshot', async () => {
     const workspaceId = crypto.randomUUID();
     const jobId = crypto.randomUUID();

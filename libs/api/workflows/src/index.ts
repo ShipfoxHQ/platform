@@ -28,6 +28,7 @@ import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inte
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
 import {config} from '#config.js';
 import {createToolStepExecutor} from '#core/tool-step/tool-step-executor.js';
+import type {WorkflowAdmissionPolicy} from '#core/workspace-admission.js';
 import {db, migrationsPath, workflowsOutbox} from '#db/index.js';
 import {registerWorkflowsServiceMetrics} from '#metrics/index.js';
 import {
@@ -62,6 +63,7 @@ export {
   isPermanentRunWorkflowError,
   ProjectMismatchError,
   runWorkflow,
+  WorkflowAdmissionDeniedError,
   WorkflowDiagnosticTooLargeError,
   WorkflowExecutionPayloadTooLargeError,
   WorkflowRunNotCancellableError,
@@ -69,6 +71,12 @@ export {
   WorkflowStepAttemptInvocationLimitError,
   WorkflowStepResultTooLargeError,
 } from '#core/index.js';
+export type {
+  RequiredAction,
+  WorkflowAdmissionDecision,
+  WorkflowAdmissionInput,
+  WorkflowAdmissionPolicy,
+} from '#core/workspace-admission.js';
 export {
   closeDb,
   type DeliverEventToListenerParams,
@@ -87,6 +95,10 @@ const workflowsPath = resolve(packageRoot, 'dist/temporal/workflows/index.js');
 
 const subscriber = subscriberFactory<WorkflowsEventMapDto & RunnersEventMap>();
 
+export interface CreateWorkflowsModuleOptions {
+  admission?: {policy: WorkflowAdmissionPolicy} | undefined;
+}
+
 export function createWorkflowsModule({
   agent,
   definitions,
@@ -98,7 +110,8 @@ export function createWorkflowsModule({
   runners,
   secrets,
   workspaces,
-}: {
+  admission,
+}: CreateWorkflowsModuleOptions & {
   agent: AgentInterModuleClient;
   definitions: DefinitionsInterModuleClient;
   annotations: AnnotationsInterModuleClient;
@@ -125,6 +138,7 @@ export function createWorkflowsModule({
       runners,
       secrets,
       workspaces,
+      admission,
     }),
     metrics: registerWorkflowsServiceMetrics,
     ...(config.WORKFLOWS_TOOL_STEP_EXECUTOR_ENABLED ? {services: [toolStepExecutor.service]} : {}),
@@ -162,6 +176,7 @@ export function createWorkflowsModule({
         runners,
         secrets,
         workspaces,
+        admission,
       }),
     ],
   };
