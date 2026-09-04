@@ -36,27 +36,27 @@ export function AgentAccessSettingsPage({workspaceId}: {workspaceId: string}) {
   const grants = (grantsQuery.data ?? []).filter((grant) => grant.workspaceId === workspaceId);
 
   return (
-    <section className="flex min-w-0 flex-col gap-group" aria-labelledby="authorized-apps-title">
+    <section className="flex min-w-0 flex-col gap-group" aria-labelledby="connected-apps-title">
       <div className="flex flex-col gap-tight">
-        <Header id="authorized-apps-title" variant="h3">
-          Authorized apps
+        <Header id="connected-apps-title" variant="h3">
+          Connected apps
         </Header>
         <Text size="sm" className="text-foreground-neutral-muted">
-          OAuth apps you authorized to access this workspace.
+          Tools connected to this workspace through MCP.
         </Text>
       </div>
       {grantsQuery.isPending ? <GrantListSkeleton /> : null}
       {grantsQuery.isError && grantsQuery.data === undefined ? (
         <Panel>
-          <QueryLoadError query={grantsQuery} subject="authorized apps" variant="panel" />
+          <QueryLoadError query={grantsQuery} subject="connected apps" variant="panel" />
         </Panel>
       ) : null}
       {grantsQuery.data !== undefined && grants.length === 0 ? (
         <Panel>
           <EmptyState
-            icon="robot2Line"
-            title="No authorized apps"
-            description="OAuth apps you authorize for this workspace will appear here."
+            icon="terminalBoxLine"
+            title="No connected apps"
+            description="Apps you connect to this workspace through MCP will appear here."
             variant="panel"
           />
         </Panel>
@@ -74,8 +74,8 @@ export function AgentGrantList({grants}: {grants: AgentGrant[]}) {
           <TableHeader>
             <TableRow>
               <TableHead>App</TableHead>
-              <TableHead className="w-144">Authorized</TableHead>
-              <TableHead className="w-160">Last token refresh</TableHead>
+              <TableHead className="w-144">Connected</TableHead>
+              <TableHead className="w-160">Access refreshed</TableHead>
               <TableHead className="w-128 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -99,7 +99,7 @@ export function AgentGrantList({grants}: {grants: AgentGrant[]}) {
       </div>
       <ul
         className="hidden flex-col divide-y divide-border-neutral-base max-[760px]:flex"
-        aria-label="Authorized apps"
+        aria-label="Connected apps"
       >
         {grants.map((grant) => (
           <li key={grant.id} className="flex flex-col gap-group p-panel-compact">
@@ -108,7 +108,7 @@ export function AgentGrantList({grants}: {grants: AgentGrant[]}) {
                 {grant.clientName}
               </Text>
               <Text size="sm" className="mt-tight text-foreground-neutral-muted">
-                Authorized <CredentialDate value={grant.createdAt} /> · Last token refresh{' '}
+                Connected <CredentialDate value={grant.createdAt} /> · Access refreshed{' '}
                 <CredentialDate value={grant.lastRefreshedAt} />
               </Text>
             </div>
@@ -142,15 +142,15 @@ function RevokeGrantButton({grant}: {grant: AgentGrant}) {
     <Modal open={open} onOpenChange={handleOpenChange}>
       <ModalTrigger asChild>
         <Button type="button" size="sm" variant="transparent">
-          Revoke access
+          Disconnect
         </Button>
       </ModalTrigger>
       <ModalContent aria-describedby={undefined} className="max-w-[420px]">
-        <ModalTitle className="sr-only">Revoke OAuth access?</ModalTitle>
-        <ModalHeader title="Revoke OAuth access?" />
+        <ModalTitle className="sr-only">Disconnect {grant.clientName}?</ModalTitle>
+        <ModalHeader title={`Disconnect ${grant.clientName}?`} />
         <ModalBody className="gap-group">
           <Text size="sm" className="text-foreground-neutral-muted">
-            {grant.clientName} will no longer be able to refresh its access. Existing access may
+            This app will no longer be able to refresh its access to Shipfox. Existing access may
             continue for up to 15 minutes.
           </Text>
           {revoke.error ? (
@@ -169,7 +169,7 @@ function RevokeGrantButton({grant}: {grant: AgentGrant}) {
             isLoading={revoke.isPending}
             onClick={() => void handleRevoke()}
           >
-            Revoke access
+            Disconnect app
           </Button>
         </ModalFooter>
       </ModalContent>
@@ -192,7 +192,7 @@ function GrantListSkeleton() {
   return (
     <Panel
       role="status"
-      aria-label="Loading authorized apps"
+      aria-label="Loading connected apps"
       className="divide-y divide-border-neutral-base"
     >
       {[0, 1, 2].map((row) => (

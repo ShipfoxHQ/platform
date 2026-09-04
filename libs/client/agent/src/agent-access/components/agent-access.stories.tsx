@@ -85,7 +85,7 @@ function StoryProviders({children, view}: {children: ReactNode; view: View}) {
 }
 
 const meta = {
-  title: 'Agent access/Surfaces',
+  title: 'MCP connections/Surfaces',
   component: AgentAccessStory,
   parameters: {layout: 'fullscreen'},
   decorators: [withStoryProviders],
@@ -120,7 +120,7 @@ export const Settings: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
     await canvas.findAllByText('Claude Desktop');
-    await canvas.findByRole('heading', {name: 'Authorized apps'});
+    await canvas.findByRole('heading', {name: 'Connected apps'});
   },
 };
 
@@ -128,7 +128,7 @@ export const EmptySettings: Story = {
   args: {view: 'settings-empty'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText('No authorized apps');
+    await canvas.findByText('No connected apps');
   },
 };
 
@@ -136,7 +136,7 @@ export const SettingsErrors: Story = {
   args: {view: 'settings-errors'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText("Couldn't load authorized apps");
+    await canvas.findByText("Couldn't load connected apps");
   },
 };
 

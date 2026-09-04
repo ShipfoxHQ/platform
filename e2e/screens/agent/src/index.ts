@@ -100,26 +100,26 @@ export class AgentAccessSettingsScreen {
   }
 
   heading(): Locator {
-    return this.page.getByRole('heading', {name: 'Agent access', exact: true});
+    return this.page.getByRole('heading', {name: 'MCP connections', exact: true});
   }
 
-  authorizedAppsHeading(): Locator {
-    return this.page.getByRole('heading', {name: 'Authorized apps', exact: true});
+  connectedAppsHeading(): Locator {
+    return this.page.getByRole('heading', {name: 'Connected apps', exact: true});
   }
 
   emptyState(): Locator {
-    return this.page.getByText('No authorized apps', {exact: true});
+    return this.page.getByText('No connected apps', {exact: true});
   }
 
-  authorizedAppRow(clientName: string): Locator {
+  connectedAppRow(clientName: string): Locator {
     return this.page.getByRole('row').filter({hasText: clientName});
   }
 
-  async openRevokeDialog(clientName: string): Promise<Dialog> {
-    await this.authorizedAppRow(clientName)
-      .getByRole('button', {name: 'Revoke access', exact: true})
+  async openDisconnectDialog(clientName: string): Promise<Dialog> {
+    await this.connectedAppRow(clientName)
+      .getByRole('button', {name: 'Disconnect', exact: true})
       .click();
-    const dialog = new Dialog(this.page, 'Revoke OAuth access?');
+    const dialog = new Dialog(this.page, `Disconnect ${clientName}?`);
     await dialog.expectVisible();
     return dialog;
   }

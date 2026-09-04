@@ -1,15 +1,15 @@
 import {ApiError} from '@shipfox/client-api';
 import {agentAccessErrorMessage, oauthConsentErrorMessage} from './errors.js';
 
-describe('agent access error copy', () => {
+describe('MCP connection error copy', () => {
   test.each([
     [
       'workspace-suspended',
-      'This workspace is suspended. Restore it before changing agent access.',
+      'This workspace is suspended. Restore it before managing MCP connections.',
     ],
     [
       'auth-dependency-unavailable',
-      'Agent access is temporarily unavailable. Try again in a moment.',
+      'MCP connections are temporarily unavailable. Try again in a moment.',
     ],
   ])('owns copy for %s', (code, expected) => {
     expect(agentAccessErrorMessage(new ApiError({code, message: 'Server copy', status: 409}))).toBe(

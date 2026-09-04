@@ -43,7 +43,7 @@ describe('AgentAccessSettingsPage', () => {
 
     expect((await screen.findAllByText('Claude Desktop')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Hidden')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', {name: 'Authorized apps'})).toBeVisible();
+    expect(screen.getByRole('heading', {name: 'Connected apps'})).toBeVisible();
   });
 
   test('confirms OAuth revocation with its actual propagation window', async () => {
@@ -61,15 +61,15 @@ describe('AgentAccessSettingsPage', () => {
     renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
 
     expect((await screen.findAllByText('Claude Desktop')).length).toBeGreaterThan(0);
-    const revokeButton = screen.getAllByRole('button', {name: 'Revoke access'})[0];
-    if (!revokeButton) throw new Error('Revoke access button not rendered');
+    const revokeButton = screen.getAllByRole('button', {name: 'Disconnect'})[0];
+    if (!revokeButton) throw new Error('Disconnect button not rendered');
     await user.click(revokeButton);
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('heading', {name: 'Revoke OAuth access?'})).toBeVisible();
+    expect(within(dialog).getByRole('heading', {name: 'Disconnect Claude Desktop?'})).toBeVisible();
     expect(within(dialog).getByText(REVOCATION_WINDOW_COPY)).toBeVisible();
-    await user.click(within(dialog).getByRole('button', {name: 'Revoke access'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Disconnect app'}));
 
-    await waitFor(() => expect(screen.getByText('No authorized apps')).toBeVisible());
+    await waitFor(() => expect(screen.getByText('No connected apps')).toBeVisible());
   });
 });
 

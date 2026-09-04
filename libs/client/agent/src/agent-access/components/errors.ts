@@ -7,15 +7,15 @@ export function agentAccessErrorMessage(error: unknown): string {
     case 'network-error':
       return "We couldn't reach the server. Check your connection and try again.";
     case 'workspace-suspended':
-      return 'This workspace is suspended. Restore it before changing agent access.';
+      return 'This workspace is suspended. Restore it before managing MCP connections.';
     case 'workspace-inactive':
-      return 'This workspace is not active, so its agent access cannot be changed.';
+      return 'This workspace is not active, so its MCP connections cannot be changed.';
     case 'forbidden':
-      return "You don't have permission to change agent access for this workspace.";
+      return "You don't have permission to manage MCP connections for this workspace.";
     case 'auth-dependency-unavailable':
-      return 'Agent access is temporarily unavailable. Try again in a moment.';
+      return 'MCP connections are temporarily unavailable. Try again in a moment.';
     case 'not-found':
-      return 'This credential no longer exists. Refresh the page to see the latest list.';
+      return 'This connection no longer exists. Refresh the page to see the latest list.';
     default:
       return error.message;
   }

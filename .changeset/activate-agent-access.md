@@ -2,6 +2,7 @@
 "@shipfox/api-agent-access": minor
 "@shipfox/api-auth": minor
 "@shipfox/api-server": minor
+"@shipfox/client-agent": patch
 "@shipfox/client-features": minor
 ---
 

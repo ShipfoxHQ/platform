@@ -2,7 +2,7 @@ import {createHash, randomBytes} from 'node:crypto';
 import {config} from '@shipfox/e2e-core';
 import {expect, test} from './test.js';
 
-test('routes the composed Agent access settings surface and loads grant state', async ({
+test('routes the composed MCP connections settings surface and loads grant state', async ({
   agentAccessSettings,
   createReadyWorkspace,
   page,
@@ -13,11 +13,11 @@ test('routes the composed Agent access settings surface and loads grant state', 
 
   await expect(page).toHaveURL(new RegExp(`/w/${workspaceSlug}/settings/agent-access/?$`, 'u'));
   await expect(agentAccessSettings.heading()).toBeVisible();
-  await expect(agentAccessSettings.authorizedAppsHeading()).toBeVisible();
+  await expect(agentAccessSettings.connectedAppsHeading()).toBeVisible();
   await expect(agentAccessSettings.emptyState()).toBeVisible();
 });
 
-test('reviews consent and revokes an authorized Agent access app', async ({
+test('reviews consent and disconnects an MCP app', async ({
   agentAccessSettings,
   createReadyWorkspace,
   oauthConsent,
@@ -89,12 +89,12 @@ test('reviews consent and revokes an authorized Agent access app', async ({
   expect(approval.status()).toBe(200);
 
   await agentAccessSettings.goto(workspaceSlug);
-  await expect(agentAccessSettings.authorizedAppRow(clientName)).toBeVisible();
-  const cancelDialog = await agentAccessSettings.openRevokeDialog(clientName);
+  await expect(agentAccessSettings.connectedAppRow(clientName)).toBeVisible();
+  const cancelDialog = await agentAccessSettings.openDisconnectDialog(clientName);
   await cancelDialog.confirm('Cancel');
   await cancelDialog.expectClosed();
 
-  const revokeDialog = await agentAccessSettings.openRevokeDialog(clientName);
-  await revokeDialog.confirm('Revoke access');
+  const disconnectDialog = await agentAccessSettings.openDisconnectDialog(clientName);
+  await disconnectDialog.confirm('Disconnect app');
   await expect(agentAccessSettings.emptyState()).toBeVisible();
 });
