@@ -8,7 +8,7 @@ import {
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {logger} from '@shipfox/node-opentelemetry';
-import {and, asc, count, eq, inArray, isNull, lte, notInArray, or, sql} from 'drizzle-orm';
+import {and, asc, count, eq, inArray, isNull, notInArray, sql} from 'drizzle-orm';
 import {type AgentDefaultsResolver, createAgentDefaultsResolver} from '#core/agent-defaults.js';
 import {
   type AgentToolMaterializationContext,
@@ -87,6 +87,9 @@ const MAX_LISTENER_RESOLUTION_ATTEMPTS = 3;
 const LISTENER_EVENT_SQL_BYTE_SAFETY_MARGIN_BYTES = 1_024;
 const LISTENER_EVENT_SQL_BYTE_LIMIT =
   MAX_LISTENER_TRIGGER_EVENTS_BYTES - LISTENER_EVENT_SQL_BYTE_SAFETY_MARGIN_BYTES;
+// Bound the metadata probe and payload hydration when the author did not set
+// a batch count. The application packer remains the byte authority.
+const LISTENER_EVENT_SQL_CANDIDATE_COUNT_LIMIT = 100;
 
 function pendingListenerEventCondition() {
   return and(
@@ -307,6 +310,12 @@ interface LockedListenerEventBatch {
   readonly partitionReason?: ListenerBatchPartitionReason;
 }
 
+interface ListenerEventCandidateRow {
+  readonly id: string;
+  readonly candidateNumber: number;
+  readonly runningBytes: number;
+}
+
 interface ListenerDrainTransactionParams {
   readonly drain: DrainListenerEventsParams;
   readonly model: WorkflowModel | null;
@@ -425,6 +434,8 @@ async function drainListenerEventsInTransaction(
         : {partitionReason: bufferedEventBatch.partitionReason}),
     };
   }
+  const existingAfterEventLock = await findExistingExecution(params.drain, tx);
+  if (existingAfterEventLock) return {result: existingAfterEventLock};
 
   const priorExecutions = await loadListenerPriorExecutions(
     params.drain.jobId,
@@ -737,24 +748,12 @@ async function lockBufferedFireEventBatch(
     return {bufferedEvents: [], triggerEvents: []};
   }
 
-  const candidateQuery = tx
+  const candidateCountLimit = params.maxSize ?? LISTENER_EVENT_SQL_CANDIDATE_COUNT_LIMIT;
+  const candidateInput = tx
     .select({
       id: jobListenerEvents.id,
       receivedAt: jobListenerEvents.receivedAt,
-      candidateNumber: sql<number>`row_number() over (
-        order by ${jobListenerEvents.receivedAt} asc, ${jobListenerEvents.id} asc
-      )`.as('candidate_number'),
-      runningBytes: sql<number>`sum(
-        case
-          when ${jobListenerEvents.normalizedEventBytes} = 0
-            then ${MAX_LISTENER_TRIGGER_EVENTS_BYTES}
-          else ${jobListenerEvents.normalizedEventBytes}
-        end
-      ) over (
-        order by ${jobListenerEvents.receivedAt} asc, ${jobListenerEvents.id} asc
-        rows between unbounded preceding and current row
-      )`.as('running_bytes'),
-      candidateCount: sql<number>`count(*) over ()`.as('candidate_count'),
+      normalizedEventBytes: jobListenerEvents.normalizedEventBytes,
     })
     .from(jobListenerEvents)
     .where(
@@ -764,22 +763,44 @@ async function lockBufferedFireEventBatch(
         pendingListenerEventCondition(),
       ),
     )
-    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
-  const candidateSelection =
-    params.maxSize === undefined
-      ? candidateQuery.as('listener_event_candidates')
-      : candidateQuery.limit(params.maxSize).as('listener_event_candidates');
-  const candidateRows = await tx
-    .select({id: candidateSelection.id, candidateCount: candidateSelection.candidateCount})
+    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
+    .limit(candidateCountLimit + 1)
+    .as('listener_event_candidate_input');
+  const candidateSelection = tx
+    .select({
+      id: candidateInput.id,
+      receivedAt: candidateInput.receivedAt,
+      candidateNumber: sql<number>`row_number() over (
+        order by ${candidateInput.receivedAt} asc, ${candidateInput.id} asc
+      )`.as('candidate_number'),
+      runningBytes: sql<number>`sum(
+        case
+          when ${candidateInput.normalizedEventBytes} = 0
+            then 0
+          else ${candidateInput.normalizedEventBytes}
+        end
+      ) over (
+        order by ${candidateInput.receivedAt} asc, ${candidateInput.id} asc
+        rows between unbounded preceding and current row
+      )`.as('running_bytes'),
+    })
+    .from(candidateInput)
+    .as('listener_event_candidates');
+  const candidateProjectionRows = await tx
+    .select({
+      id: candidateSelection.id,
+      candidateNumber: candidateSelection.candidateNumber,
+      runningBytes: candidateSelection.runningBytes,
+    })
     .from(candidateSelection)
-    .where(
-      or(
-        lte(candidateSelection.runningBytes, LISTENER_EVENT_SQL_BYTE_LIMIT),
-        eq(candidateSelection.candidateNumber, 1),
-      ),
-    )
     .orderBy(asc(candidateSelection.receivedAt), asc(candidateSelection.id));
+  const candidateRows = selectListenerEventCandidates(candidateProjectionRows, candidateCountLimit);
   if (candidateRows.length === 0) return {bufferedEvents: [], triggerEvents: []};
+
+  const sqlPartitionReason = listenerSqlPartitionReason(
+    candidateProjectionRows,
+    candidateCountLimit,
+  );
 
   // The projection above excludes payload so PostgreSQL can choose a cheap numeric prefix.
   // Hydration is intentionally a second query over only those IDs, in lock order.
@@ -787,9 +808,14 @@ async function lockBufferedFireEventBatch(
     .select()
     .from(jobListenerEvents)
     .where(
-      inArray(
-        jobListenerEvents.id,
-        candidateRows.map((row) => row.id),
+      and(
+        inArray(
+          jobListenerEvents.id,
+          candidateRows.map((row) => row.id),
+        ),
+        eq(jobListenerEvents.jobId, params.jobId),
+        eq(jobListenerEvents.disposition, 'fire'),
+        pendingListenerEventCondition(),
       ),
     )
     .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
@@ -800,15 +826,8 @@ async function lockBufferedFireEventBatch(
   }
 
   const batch = packer.finish({
-    countLimitReached:
-      params.maxSize !== undefined &&
-      candidateRows.length > 0 &&
-      candidateRows.length >= params.maxSize,
+    countLimitReached: sqlPartitionReason === 'count_limit',
   });
-  const sqlPartitionReason =
-    candidateRows[0] && candidateRows[0].candidateCount > candidateRows.length
-      ? ('byte_limit' as const)
-      : undefined;
   const partitionReason =
     batch.kind === 'empty' ? batch.reason : (batch.partitionReason ?? sqlPartitionReason);
   const selectedEventCount = batch.kind === 'empty' ? 0 : batch.events.length;
@@ -817,6 +836,28 @@ async function lockBufferedFireEventBatch(
     triggerEvents: batch.kind === 'empty' ? [] : batch.events,
     ...(partitionReason === undefined ? {} : {partitionReason}),
   };
+}
+
+function selectListenerEventCandidates(
+  rows: readonly ListenerEventCandidateRow[],
+  countLimit: number,
+): ListenerEventCandidateRow[] {
+  return rows.filter((row) => {
+    const candidateNumber = Number(row.candidateNumber);
+    if (candidateNumber > countLimit) return false;
+    return candidateNumber === 1 || Number(row.runningBytes) <= LISTENER_EVENT_SQL_BYTE_LIMIT;
+  });
+}
+
+function listenerSqlPartitionReason(
+  rows: readonly ListenerEventCandidateRow[],
+  countLimit: number,
+): ListenerBatchPartitionReason | undefined {
+  if (rows.some((row) => Number(row.runningBytes) > LISTENER_EVENT_SQL_BYTE_LIMIT)) {
+    return 'byte_limit';
+  }
+  if (rows.length > countLimit) return 'count_limit';
+  return undefined;
 }
 
 function listenerTriggerEvent(event: JobListenerEventDb): WorkflowExecutionEvent {

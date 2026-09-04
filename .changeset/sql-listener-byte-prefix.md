@@ -2,4 +2,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Selects listener event prefixes from persisted byte metadata before hydrating payloads, then trims and consumes only the exact application-sized prefix.
+Consumes listener events in exact application-sized batches and keeps legacy oversized heads pending, surfacing an alert instead of a retry loop.
