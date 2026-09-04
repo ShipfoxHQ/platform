@@ -1,13 +1,7 @@
-import {deriveStepErrorCategory} from '@shipfox/api-workflows-dto';
 import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
 import type {Job, JobExecution, Step, StepError} from '#core/workflow-run.js';
-import {
-  AGENT_CONFIG_ISSUES,
-  deriveJobDisplayStatus,
-  deriveJobExecutionDisplayStatus,
-  STEP_ERROR_REASONS,
-} from '#core/workflow-run.js';
+import {deriveJobDisplayStatus, deriveJobExecutionDisplayStatus} from '#core/workflow-run.js';
 import type {StepListEmptyState} from '../step-list/index.js';
 import {formatJobExecutionTime} from './job-execution-time-text.js';
 
@@ -15,6 +9,9 @@ const MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION =
   'A materialized job output could not be persisted: it exceeded a size or entry cap, contained a non-JSON-safe value, or referenced an unresolved value. Check the output mapping and values before re-running the workflow.';
 const OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION =
   'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
+const LEGACY_TRIGGER_PAYLOAD_FAILURE_DESCRIPTION =
+  'The trigger events for this execution exceeded a legacy payload limit. Re-running failed jobs preserves the same events, so reduce the listener batch or start a new run from a smaller event payload.';
+const LEGACY_DIAGNOSTIC_FIELD_RE = /^Workflow diagnostic field "([^"]+)"/u;
 
 export function outputFailureDescriptionForExecution(
   jobExecution: JobExecution,
@@ -102,13 +99,10 @@ export function emptyStateForJob(
   }
 
   if (displayStatus === 'failed') {
+    const reason = jobExecution.statusReason ?? job.statusReason;
     return {
-      title: 'Job failed before its first step started',
-      description: preStepFailureDescription(
-        jobExecution.statusReason ?? job.statusReason,
-        runner,
-        jobExecution.statusReasonMessage,
-      ),
+      title: preStepFailureTitle(reason, jobExecution.statusReasonMessage),
+      description: preStepFailureDescription(reason, runner, jobExecution.statusReasonMessage),
       status: displayStatus,
     };
   }
@@ -231,6 +225,9 @@ function preStepFailureDescription(
     case 'step_failed':
       return `The execution failed before step details were recorded.${runnerCopy} Review run annotations before re-running the workflow.`;
     case 'output_too_large':
+      if (legacyDiagnosticField(statusReasonMessage) === 'trigger_events') {
+        return LEGACY_TRIGGER_PAYLOAD_FAILURE_DESCRIPTION;
+      }
       return statusReasonMessage || OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION;
     case 'output_invalid':
       return statusReasonMessage || MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION;
@@ -250,6 +247,22 @@ function preStepFailureDescription(
   }
 }
 
+function preStepFailureTitle(reason: string | null, statusReasonMessage: string | null): string {
+  if (
+    reason === 'output_too_large' &&
+    legacyDiagnosticField(statusReasonMessage) === 'trigger_events'
+  ) {
+    return 'Trigger events exceeded a legacy payload limit';
+  }
+  return 'Job failed before its first step started';
+}
+
+function legacyDiagnosticField(message: string | null): string | undefined {
+  if (!message) return undefined;
+  const match = LEGACY_DIAGNOSTIC_FIELD_RE.exec(message);
+  return match?.[1];
+}
+
 function humanizeFailureReason(reason: string): string {
   return reason.replaceAll('_', ' ').replaceAll('-', ' ');
 }
@@ -264,66 +277,6 @@ export function CarriedOverStepPanel() {
       variant="panel"
     />
   );
-}
-
-export function toSelectedAttemptError(
-  step: Step,
-  error: Record<string, unknown> | null,
-): StepError | null {
-  if (error === null) return null;
-
-  const parsedReason = parsedStepErrorReason(error.reason);
-  const rawAgentConfigIssue = error.agentConfigIssue ?? error.agent_config_issue;
-  const agentConfigIssue = parsedAgentConfigIssue(rawAgentConfigIssue);
-  const exitCode = error.exitCode ?? error.exit_code;
-  const resolvedReason = parsedReason ?? (agentConfigIssue ? 'agent_config_invalid' : undefined);
-
-  if (resolvedReason === undefined) return null;
-
-  const stringFields = selectedErrorStringFields(error);
-  const managedProviderId = selectedManagedProviderId(error);
-
-  return {
-    message: typeof error.message === 'string' ? error.message : '',
-    ...stringFields,
-    ...(managedProviderId === undefined ? {} : {managedProviderId}),
-    exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
-    signal: typeof error.signal === 'string' ? error.signal : undefined,
-    reason: resolvedReason,
-    agentConfigIssue,
-    category: deriveStepErrorCategory(step.type, resolvedReason),
-  };
-}
-
-function selectedErrorStringFields(
-  error: Record<string, unknown>,
-): Pick<StepError, 'code' | 'field' | 'source'> {
-  return {
-    ...(typeof error.code === 'string' ? {code: error.code} : {}),
-    ...(typeof error.field === 'string' ? {field: error.field} : {}),
-    ...(typeof error.source === 'string' ? {source: error.source} : {}),
-  };
-}
-
-function parsedStepErrorReason(value: unknown): NonNullable<StepError['reason']> | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (!STEP_ERROR_REASONS.has(value as StepError['reason'] & string)) return undefined;
-  return value as NonNullable<StepError['reason']>;
-}
-
-function parsedAgentConfigIssue(
-  value: unknown,
-): NonNullable<StepError['agentConfigIssue']> | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (!AGENT_CONFIG_ISSUES.has(value as NonNullable<StepError['agentConfigIssue']>))
-    return undefined;
-  return value as NonNullable<StepError['agentConfigIssue']>;
-}
-
-function selectedManagedProviderId(error: Record<string, unknown>): string | undefined {
-  if (typeof error.managedProviderId === 'string') return error.managedProviderId;
-  if (typeof error.managed_provider_id === 'string') return error.managed_provider_id;
-  return undefined;
 }
 
 export function isAgentConfigFailure(step: Step, error: StepError | null): boolean {

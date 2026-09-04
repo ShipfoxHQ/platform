@@ -165,6 +165,7 @@ function toStepEntries(step: StepModel, carriedOverJob: boolean): StepListEntryM
       outputs: null,
       response: null,
       error: null,
+      stepError: null,
       gateResult: null,
       restartFeedback: null,
       invocations: [],

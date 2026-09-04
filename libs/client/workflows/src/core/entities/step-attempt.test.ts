@@ -106,6 +106,7 @@ function compactAttempt(): StepAttempt {
     outputs: {mapped: 'compact'},
     response: 'compact response',
     error: {message: 'compact error'},
+    stepError: null,
     gateResult: {kind: 'passed', passed: true, source: 'compact', exitCode: 0},
     restartFeedback: 'compact feedback',
     invocations: [

@@ -12,6 +12,11 @@ export type {
   WorkflowDiagnosticField,
   WorkflowDiagnosticUnavailableField,
   WorkflowDiagnosticUnavailableReason,
+  WorkflowPayloadField,
+} from './workflow-diagnostics.js';
+export {
+  isWorkflowConfigurationPayloadField,
+  workflowPayloadFieldLabel,
 } from './workflow-diagnostics.js';
 
 /** A bounded page returned by one of the selected-job cursor endpoints. */

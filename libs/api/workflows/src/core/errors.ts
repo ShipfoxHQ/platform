@@ -267,6 +267,8 @@ export class WorkflowDiagnosticTooLargeError extends Error {
     readonly measuredBytes: number,
   ) {
     const overshootBytes = measuredBytes - limitBytes;
+    // The client reads this prefix to identify trigger-event failures persisted before structured
+    // payload fields existed. Keep the field-bearing prefix stable for legacy record compatibility.
     super(
       `Workflow diagnostic field "${field}" exceeds the size limit of ${limitBytes} bytes ` +
         `(measured ${measuredBytes} bytes; overshoot ${overshootBytes} bytes).`,

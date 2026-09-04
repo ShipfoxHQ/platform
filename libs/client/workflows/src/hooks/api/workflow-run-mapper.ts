@@ -21,11 +21,13 @@ import type {
   WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {
+  deriveStepErrorCategory,
   WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
   WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
   WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
 } from '@shipfox/api-workflows-dto';
 import {
+  AGENT_CONFIG_ISSUES,
   defaultJobExecution,
   deriveJobExecutionDisplayStatus,
   type EvaluationTraceEntry,
@@ -33,9 +35,11 @@ import {
   JobExecution,
   type JobListening,
   type JobStatus,
+  STEP_ERROR_REASONS,
   type Step,
   StepAttempt,
   type StepAttemptSession,
+  type StepError,
   type StepGateResult,
   toWorkflowRunOverviewExecutionDuration,
   type WorkflowExecutionEvent,
@@ -648,31 +652,40 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     agentConfig: toAgentStepConfig(dto),
     toolConfig: toToolStepConfig(dto),
-    error: dto.error
-      ? {
-          message: dto.error.message,
-          ...(dto.error.code === undefined ? {} : {code: dto.error.code}),
-          ...(dto.error.managed_provider_id === undefined
-            ? {}
-            : {managedProviderId: dto.error.managed_provider_id}),
-          ...(dto.error.field === undefined ? {} : {field: dto.error.field}),
-          ...(dto.error.source === undefined ? {} : {source: dto.error.source}),
-          exitCode: dto.error.exit_code ?? null,
-          signal: dto.error.signal,
-          reason: dto.error.reason,
-          agentConfigIssue: dto.error.agent_config_issue,
-          category: dto.error.category,
-        }
-      : null,
+    error: toStepError(dto.error),
     position: dto.position,
     currentAttempt: dto.current_attempt,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
-    attempts: dto.attempts.map((attempt) => toStepAttempt(attempt, dto.job_execution_id)),
+    attempts: dto.attempts.map((attempt) => toStepAttempt(attempt, dto.job_execution_id, dto.type)),
   };
 }
 
-export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): StepAttempt {
+function toStepError(error: WorkflowRunStepDetailDto['error']): StepError | null {
+  if (!error) return null;
+  return {
+    message: error.message,
+    ...(error.code === undefined ? {} : {code: error.code}),
+    ...(error.managed_provider_id === undefined
+      ? {}
+      : {managedProviderId: error.managed_provider_id}),
+    ...(error.field === undefined ? {} : {field: error.field}),
+    ...(error.source === undefined ? {} : {source: error.source}),
+    ...(error.retryable === undefined ? {} : {retryable: error.retryable}),
+    ...toStepErrorSizeFields(error),
+    exitCode: error.exit_code ?? null,
+    signal: error.signal,
+    reason: error.reason,
+    agentConfigIssue: error.agent_config_issue,
+    category: error.category,
+  };
+}
+
+export function toStepAttempt(
+  dto: StepAttemptDto,
+  jobExecutionId: string,
+  stepType = 'run',
+): StepAttempt {
   return new StepAttempt({
     id: dto.id,
     stepId: dto.step_id,
@@ -685,12 +698,104 @@ export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): Step
     outputs: dto.outputs ?? dto.output ?? null,
     response: dto.response ?? null,
     error: dto.error ?? null,
+    stepError: toAttemptStepError(stepType, dto.error),
     gateResult: toStepGateResult(dto.gate_result),
     restartFeedback: dto.restart_feedback ?? null,
     invocations: dto.invocations.map(toStepAttemptInvocation),
     startedAt: dto.started_at,
     finishedAt: dto.finished_at ?? null,
   });
+}
+
+function toAttemptStepError(
+  stepType: string,
+  error: Record<string, unknown> | null | undefined,
+): StepError | null {
+  if (!error) return null;
+
+  const parsedReason = parsedStepErrorReason(error.reason);
+  const rawAgentConfigIssue = error.agentConfigIssue ?? error.agent_config_issue;
+  const agentConfigIssue = parsedAgentConfigIssue(rawAgentConfigIssue);
+  const reason = parsedReason ?? (agentConfigIssue ? 'agent_config_invalid' : undefined);
+
+  const exitCode = error.exitCode ?? error.exit_code;
+  const managedProviderId = selectedString(error, 'managedProviderId', 'managed_provider_id');
+  const retryable = typeof error.retryable === 'boolean' ? error.retryable : undefined;
+
+  return {
+    message: typeof error.message === 'string' ? error.message : '',
+    ...selectedStepErrorStringFields(error),
+    ...toStepErrorSizeFields(error),
+    ...(managedProviderId === undefined ? {} : {managedProviderId}),
+    ...(retryable === undefined ? {} : {retryable}),
+    exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
+    signal: typeof error.signal === 'string' ? error.signal : undefined,
+    reason,
+    agentConfigIssue,
+    category: reason === undefined ? undefined : deriveStepErrorCategory(stepType, reason),
+  };
+}
+
+interface StepErrorSizeSource {
+  limitBytes?: unknown;
+  limit_bytes?: unknown;
+  measuredBytes?: unknown;
+  measured_bytes?: unknown;
+  overshootBytes?: unknown;
+  overshoot_bytes?: unknown;
+}
+
+function toStepErrorSizeFields(
+  error: StepErrorSizeSource,
+): Pick<StepError, 'limitBytes' | 'measuredBytes' | 'overshootBytes'> {
+  const limitBytes = selectedByteCount(error.limitBytes, error.limit_bytes);
+  const measuredBytes = selectedByteCount(error.measuredBytes, error.measured_bytes);
+  const overshootBytes = selectedByteCount(error.overshootBytes, error.overshoot_bytes);
+  return {
+    ...(limitBytes === undefined ? {} : {limitBytes}),
+    ...(measuredBytes === undefined ? {} : {measuredBytes}),
+    ...(overshootBytes === undefined ? {} : {overshootBytes}),
+  };
+}
+
+function selectedByteCount(camelCaseValue: unknown, snakeCaseValue: unknown): number | undefined {
+  const value = camelCaseValue ?? snakeCaseValue;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function selectedStepErrorStringFields(
+  error: Record<string, unknown>,
+): Pick<StepError, 'code' | 'field' | 'source'> {
+  return {
+    ...(typeof error.code === 'string' ? {code: error.code} : {}),
+    ...(typeof error.field === 'string' ? {field: error.field} : {}),
+    ...(typeof error.source === 'string' ? {source: error.source} : {}),
+  };
+}
+
+function selectedString(
+  error: Record<string, unknown>,
+  camelCaseKey: string,
+  snakeCaseKey: string,
+): string | undefined {
+  const value = error[camelCaseKey] ?? error[snakeCaseKey];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function parsedStepErrorReason(value: unknown): NonNullable<StepError['reason']> | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (!STEP_ERROR_REASONS.has(value as StepError['reason'] & string)) return undefined;
+  return value as NonNullable<StepError['reason']>;
+}
+
+function parsedAgentConfigIssue(
+  value: unknown,
+): NonNullable<StepError['agentConfigIssue']> | undefined {
+  if (typeof value !== 'string') return undefined;
+  if (!AGENT_CONFIG_ISSUES.has(value as NonNullable<StepError['agentConfigIssue']>)) {
+    return undefined;
+  }
+  return value as NonNullable<StepError['agentConfigIssue']>;
 }
 
 export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {

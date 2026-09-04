@@ -386,6 +386,11 @@ describe('WorkflowRunSummary', () => {
     const rerunButton = await screen.findByRole('button', {name: 'Re-run jobs'});
     expect(rerunButton).toHaveClass('bg-background-neutral-base');
     await user.click(rerunButton);
+    expect(
+      await screen.findByText(
+        "Re-running failed jobs preserves this attempt's inputs and successful job outputs. Re-run all jobs to recompute them.",
+      ),
+    ).toBeInTheDocument();
     expect(await screen.findByRole('menuitem', {name: 'Re-run all jobs'})).toBeInTheDocument();
     await user.click(await screen.findByRole('menuitem', {name: 'Re-run failed jobs'}));
 
