@@ -5,7 +5,6 @@ import {
   WORKFLOWS_JOB_STEPS_SETTLED,
   WORKFLOWS_STEP_ATTEMPT_TERMINATED,
   WORKFLOWS_STEP_RESTART_ENQUEUED,
-  type WorkflowsJobExecutionTerminatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import type {JobStatusReason} from '#core/entities/job.js';
@@ -54,9 +53,10 @@ export async function writeJobExecutionTerminatedOutbox(
     finishedAt?: Date | null | undefined;
     statusReason: JobStatusReason | null;
     statusReasonMessage?: string | null | undefined;
-    // Runner identity and lifecycle timestamps carried on the job_executions row,
-    // so the terminated event is a self-sufficient usage record: null when the
-    // execution was never queued, never claimed, or claimed by no known provisioner.
+    // Runner identity and lifecycle timestamps carried on the job_executions row, so the
+    // terminated event is a self-sufficient usage record. Null when the execution was never
+    // queued or never claimed, and startedAt/runner identity can also be null for a claimed
+    // execution if the runners.job.claimed projection has not landed yet (see events.ts).
     queuedAt: Date | null;
     startedAt: Date | null;
     runnerLabels: string[] | null;
@@ -100,15 +100,9 @@ export async function writeJobExecutionTerminatedOutbox(
       runnerLabels: params.runnerLabels,
       templateKey: params.templateKey,
       provisionerId: params.provisionerId,
-      // Stored as plain text (see the job_executions schema); cast to the DTO's
-      // closed set here, at the one place this value crosses into the strict
-      // event contract. A value outside the set can only come from a producer
-      // migration ahead of this package, so it is passed through rather than
-      // dropped or thrown on.
-      provisionerScope:
-        params.provisionerScope as WorkflowsJobExecutionTerminatedEventDto['provisionerScope'],
+      provisionerScope: params.provisionerScope,
       providerKind: params.providerKind,
-      launchKind: params.launchKind as WorkflowsJobExecutionTerminatedEventDto['launchKind'],
+      launchKind: params.launchKind,
     },
   });
 }

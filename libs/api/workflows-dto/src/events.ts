@@ -5,12 +5,6 @@ import {logOutcomeSchema} from './schemas/log-outcome.js';
 
 const nonEmptyStringSchema = z.string().nonempty();
 
-// Mirrors the runners module's own (unexported) event-contract enums. Kept local
-// rather than imported: this package owns its own public contract independently
-// of runners-dto's.
-const jobExecutionProvisionerScopeSchema = z.enum(['installation', 'workspace']);
-const jobExecutionLaunchKindSchema = z.enum(['demand', 'warm', 'manual']);
-
 export const WORKFLOWS_WORKFLOW_RUN_ATTEMPT_CREATED =
   'workflows.workflow_run_attempt.created' as const;
 // Terminal fact for a workflow run, written in the same transaction as the status flip.
@@ -111,8 +105,11 @@ export const workflowsJobExecutionTerminatedSchema = z.object({
   cancellationReason: workflowStopReasonSchema.nullable().optional(),
   statusReasonMessage: z.string().nullable().optional(),
   // Optional so consumers can continue to read events written before these fields existed. New
-  // outbox events always include the identity fields; the timestamps and runner identity are
-  // null when the execution was never queued, never claimed, or claimed by no known provisioner.
+  // outbox events always include the identity fields. The timestamps and runner identity are
+  // null when the execution was never queued or never claimed, and can also be null for a
+  // claimed execution when the runners.job.claimed projection has not landed yet at termination
+  // time (async, at-least-once, first-write-wins like startedAt today) — a rare race the Usage
+  // context tolerates by treating a late claim as filling display fields only.
   // Added so a consumer can build a complete usage record from this one event.
   workspaceId: nonEmptyStringSchema.optional(),
   projectId: nonEmptyStringSchema.optional(),
@@ -123,9 +120,13 @@ export const workflowsJobExecutionTerminatedSchema = z.object({
   runnerLabels: z.array(nonEmptyStringSchema).min(1).nullable().optional(),
   templateKey: nonEmptyStringSchema.nullable().optional(),
   provisionerId: nonEmptyStringSchema.nullable().optional(),
-  provisionerScope: jobExecutionProvisionerScopeSchema.nullable().optional(),
+  // Not a closed enum: the runners module owns and validates this value (also true of
+  // providerKind below). A schema this package doesn't need to keep in lockstep with a
+  // release it doesn't control, since the dispatcher validates every outbox payload against
+  // this schema and dead-letters after repeated failures.
+  provisionerScope: nonEmptyStringSchema.nullable().optional(),
   providerKind: nonEmptyStringSchema.nullable().optional(),
-  launchKind: jobExecutionLaunchKindSchema.nullable().optional(),
+  launchKind: nonEmptyStringSchema.nullable().optional(),
 });
 export type WorkflowsJobExecutionTerminatedEventDto = z.infer<
   typeof workflowsJobExecutionTerminatedSchema

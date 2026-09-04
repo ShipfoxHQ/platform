@@ -38,6 +38,7 @@ describe('onRunnerJobClaimed', () => {
     expect(jobExecution).toBeDefined();
     if (!jobExecution) return;
     const claimedAt = new Date('2026-06-22T10:05:00.000Z');
+    const provisionerId = crypto.randomUUID();
 
     await onRunnerJobClaimed({
       workflowRunId: run.id,
@@ -47,7 +48,7 @@ describe('onRunnerJobClaimed', () => {
       claimedAt: claimedAt.toISOString(),
       runnerLabels: ['linux', 'x64'],
       templateKey: 'standard',
-      provisionerId: crypto.randomUUID(),
+      provisionerId,
       provisionerScope: 'installation',
       providerKind: 'ec2',
       launchKind: 'demand',
@@ -59,6 +60,7 @@ describe('onRunnerJobClaimed', () => {
     expect(row).toMatchObject({
       runnerLabels: ['linux', 'x64'],
       templateKey: 'standard',
+      provisionerId,
       provisionerScope: 'installation',
       providerKind: 'ec2',
       launchKind: 'demand',

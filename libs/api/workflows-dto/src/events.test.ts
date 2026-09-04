@@ -263,9 +263,9 @@ describe('workflowsJobExecutionTerminatedSchema', () => {
       runnerLabels: ['linux', 'x64'],
       templateKey: 'standard',
       provisionerId: crypto.randomUUID(),
-      provisionerScope: 'installation' as const,
+      provisionerScope: 'installation',
       providerKind: 'ec2',
-      launchKind: 'demand' as const,
+      launchKind: 'demand',
     };
 
     expect(workflowsJobExecutionTerminatedSchema.strict().parse(input)).toEqual(input);
@@ -291,17 +291,31 @@ describe('workflowsJobExecutionTerminatedSchema', () => {
     expect(workflowsJobExecutionTerminatedSchema.strict().parse(input)).toEqual(input);
   });
 
-  it('rejects a provisioner scope or launch kind outside the known set', () => {
+  it('accepts a provisioner scope or launch kind the runners module has not shipped here yet', () => {
+    // Not a closed enum: the runners module owns and validates these values, on its own
+    // release cadence. A value this package doesn't recognize yet must still parse, or a
+    // runners-side addition would dead-letter every terminated event for executions claimed
+    // with it (the dispatcher validates every outbox payload against this schema).
+    const input = {
+      ...validJobExecutionTerminated,
+      provisionerScope: 'region',
+      launchKind: 'scheduled',
+    };
+
+    expect(workflowsJobExecutionTerminatedSchema.parse(input)).toEqual(input);
+  });
+
+  it('rejects an empty provisioner scope or launch kind', () => {
     expect(() =>
       workflowsJobExecutionTerminatedSchema.parse({
         ...validJobExecutionTerminated,
-        provisionerScope: 'region',
+        provisionerScope: '',
       }),
     ).toThrow();
     expect(() =>
       workflowsJobExecutionTerminatedSchema.parse({
         ...validJobExecutionTerminated,
-        launchKind: 'scheduled',
+        launchKind: '',
       }),
     ).toThrow();
   });

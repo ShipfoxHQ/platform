@@ -1,4 +1,8 @@
-import {WORKFLOWS_JOB_EXECUTION_QUEUED} from '@shipfox/api-workflows-dto';
+import {
+  WORKFLOWS_JOB_EXECUTION_QUEUED,
+  WORKFLOWS_JOB_EXECUTION_TERMINATED,
+  workflowsJobExecutionTerminatedSchema,
+} from '@shipfox/api-workflows-dto';
 import {and, eq, sql} from 'drizzle-orm';
 import {
   InterpolationUnresolvableError,
@@ -246,6 +250,98 @@ describe('workflow run job executions', () => {
         launchKind: null,
       }),
     ]);
+  });
+
+  test('carries a null queued_at, started_at, and runner identity in the terminated event for an execution cancelled before it was ever queued', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'cancelled',
+      expectedVersion: execution.version,
+      statusReason: 'run_cancelled',
+    });
+
+    expect(await jobExecutionTerminatedEvents(execution.id)).toEqual([
+      expect.objectContaining({
+        jobExecutionId: execution.id,
+        status: 'cancelled',
+        queuedAt: null,
+        startedAt: null,
+        runnerLabels: null,
+        templateKey: null,
+        provisionerId: null,
+        provisionerScope: null,
+        providerKind: null,
+        launchKind: null,
+      }),
+    ]);
+  });
+
+  test('writes a terminated payload that round-trips through its own strict event schema', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: buildModel({jobs: {build: {steps: [{run: 'echo build'}]}}}),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const [job] = await getJobsByWorkflowRunId(run.id);
+    if (!job) throw new Error('Expected workflow job');
+    const execution = await getFirstJobExecutionByJobId(job.id);
+    if (!execution) throw new Error('Expected job execution');
+
+    await queueJobExecution({jobExecutionId: execution.id});
+    await recordJobExecutionStartedAt({
+      jobExecutionId: execution.id,
+      startedAt: new Date('2026-08-11T08:00:05.000Z'),
+      runnerIdentity: {
+        runnerLabels: ['ubuntu-latest'],
+        templateKey: 'standard',
+        provisionerId: crypto.randomUUID(),
+        provisionerScope: 'installation',
+        providerKind: 'ec2',
+        launchKind: 'demand',
+      },
+    });
+    await updateJobExecutionStatus({
+      jobExecutionId: execution.id,
+      status: 'succeeded',
+      expectedVersion: execution.version,
+    });
+
+    const [event] = await db()
+      .select({payload: workflowsOutbox.payload})
+      .from(workflowsOutbox)
+      .where(
+        and(
+          eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EXECUTION_TERMINATED),
+          sql`${workflowsOutbox.payload}->>'jobExecutionId' = ${execution.id}`,
+        ),
+      );
+    if (!event) throw new Error('Expected a terminated event');
+
+    expect(() => workflowsJobExecutionTerminatedSchema.strict().parse(event.payload)).not.toThrow();
   });
 
   test('carries queued, started, and runner identity in the terminated event after a lease expires', async () => {
