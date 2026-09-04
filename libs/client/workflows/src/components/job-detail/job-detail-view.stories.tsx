@@ -316,9 +316,12 @@ function storySelectedJobDetail(
   jobId: string,
   executionId?: string | undefined,
 ): WorkflowJobDetail | undefined {
-  if (!run.jobs.some((job) => job.id === jobId)) return undefined;
+  const selectedJobId = run.jobs.some((job) => job.id === jobId) ? jobId : run.jobs[0]?.id;
+  if (!selectedJobId) return undefined;
   const detail = storyRunFixtureDto({status: run.status, jobs: run.jobs});
-  return toWorkflowJobDetail(workflowJobDetailResponseDto({detail, jobId, executionId}));
+  return toWorkflowJobDetail(
+    workflowJobDetailResponseDto({detail, jobId: selectedJobId, executionId}),
+  );
 }
 
 function StoryQueryProvider({

@@ -368,22 +368,6 @@ describe('JobNode status indicator', () => {
 
     expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
   });
-
-  test('shows a pending lifecycle as running while a step is active', () => {
-    const node = makeNode({
-      name: 'deploy',
-      status: 'pending',
-      job_executions: [
-        workflowJobExecutionDto({
-          status: 'running',
-        }),
-      ],
-    });
-
-    renderNode(node);
-
-    expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
-  });
 });
 
 describe('JobNode execution count indicator', () => {

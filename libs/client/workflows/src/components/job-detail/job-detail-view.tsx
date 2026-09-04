@@ -141,7 +141,6 @@ export function JobDetailView({
   const selectedJobResources = useSelectedJobDetailPresentation({
     data: query.data,
     selectedDetailUpdatedAt: query.dataUpdatedAt,
-    selectedJobQuery,
     jobId,
   });
   const detailData = normalizeJobDetailData(
@@ -504,15 +503,13 @@ function normalizeJobDetailData(
 function useSelectedJobDetailPresentation({
   data,
   selectedDetailUpdatedAt,
-  selectedJobQuery,
   jobId,
 }: {
   data: JobDetailQuery['data'];
   selectedDetailUpdatedAt: number;
-  selectedJobQuery: boolean;
   jobId: string;
 }) {
-  const selectedJobDetail = selectedJobQuery && data && data.job.id === jobId ? data : undefined;
+  const selectedJobDetail = data && data.job.id === jobId ? data : undefined;
   const selectedDetailExecution = selectedJobDetail?.selectedExecution ?? undefined;
   const [attemptsStepId, setAttemptsStepId] = useState<string | undefined>(undefined);
   const pendingAttemptsStepIdRef = useRef<string | undefined>(undefined);
@@ -533,7 +530,7 @@ function useSelectedJobDetailPresentation({
     polling:
       selectedDetailExecution !== undefined &&
       !isTerminalJobExecutionStatus(selectedDetailExecution.status),
-    enabled: selectedJobQuery && selectedDetailExecution !== undefined,
+    enabled: selectedDetailExecution !== undefined,
   });
   const loadedSteps = useMemo(
     () => flattenWorkflowExecutionStepsPages(stepsQuery.data),
@@ -559,7 +556,7 @@ function useSelectedJobDetailPresentation({
   const attemptsQuery = useWorkflowStepAttemptsInfiniteQuery({
     stepId: attemptsStepId,
     initialPage: attemptsStep?.attempts,
-    enabled: selectedJobQuery && attemptsStepId !== undefined,
+    enabled: attemptsStepId !== undefined,
   });
   const loadedAttempts = useMemo(
     () => flattenWorkflowStepAttemptPages(attemptsQuery.data),

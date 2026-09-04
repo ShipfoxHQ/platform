@@ -428,23 +428,7 @@ describe('WorkflowRunView', () => {
 
   test('renders the captured workflow source in the Source section', async () => {
     const sourceSnapshot = {format: 'yaml' as const, content: 'jobs:\n  build:\n    steps: []'};
-    configureApiClient({
-      fetchImpl: vi.fn((input: RequestInfo | URL) => {
-        const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
-        return Promise.resolve(
-          jsonResponse(
-            path === `/workflows/runs/${RUN_ID}/source`
-              ? {
-                  kind: 'available',
-                  workflow_run_id: RUN_ID,
-                  workflow_run_attempt: 1,
-                  source_snapshot: sourceSnapshot,
-                }
-              : runResourceResponse(path, workflowRunViewDetailDto()),
-          ),
-        );
-      }),
-    });
+    configureRunFetch([], {}, {}, [], undefined, sourceSnapshot);
 
     renderView({tab: 'source'});
 

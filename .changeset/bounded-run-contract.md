@@ -4,4 +4,4 @@
 "@shipfox/client-workflows": major
 ---
 
-Removes the legacy unbounded workflow-run read contract in favor of bounded workflow read models.
+The API now exposes bounded workflow-run overviews, cursor-paginated job executions and step attempts, and dedicated job and step-attempt detail resources. Run-list rows omit heavy trigger payloads, inputs, and source snapshots; the client derives run-list and job-detail status from the API's bounded status fields instead of retaining the client-only `Queued` state.
