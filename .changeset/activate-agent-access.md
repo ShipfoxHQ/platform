@@ -1,7 +1,8 @@
 ---
-"@shipfox/api-agent-access": minor
-"@shipfox/api-auth": minor
-"@shipfox/api-server": minor
+"@shipfox/api-agent-access": major
+"@shipfox/api-agent-access-dto": major
+"@shipfox/api-auth": major
+"@shipfox/api-server": major
 "@shipfox/client-agent": patch
 "@shipfox/client-features": minor
 ---

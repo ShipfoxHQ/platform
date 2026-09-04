@@ -25,6 +25,7 @@ export function parseInput<T>(schema: SafeParseSchema<T>, value: unknown): T | u
   return parsed.success ? parsed.data : undefined;
 }
 
+/** Adds an optional property only when its value is defined for the inter-module JSON guard. */
 export function optionalField<Key extends string, Value>(
   key: Key,
   value: Value | undefined,

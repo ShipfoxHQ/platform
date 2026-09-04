@@ -35,6 +35,8 @@ const EXPECTED_TOOL_NAMES = [
   'list_workflow_step_attempts',
   'get_workflow_run_source',
   'get_workflow_execution_context',
+  'list_execution_trigger_events',
+  'get_execution_trigger_event',
   'get_step_attempt',
   'list_workflow_run_job_explanations',
   'get_run_annotations',
@@ -271,6 +273,14 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
         name: 'get_workflow_execution_context',
         arguments: {job_id: randomUUID(), execution_id: randomUUID()},
       },
+      {
+        name: 'list_execution_trigger_events',
+        arguments: {job_id: randomUUID(), execution_id: randomUUID()},
+      },
+      {
+        name: 'get_execution_trigger_event',
+        arguments: {job_id: randomUUID(), execution_id: randomUUID(), event_ref: 'missing'},
+      },
       {name: 'get_step_attempt', arguments: {step_id: randomUUID(), attempt: 1}},
       {
         name: 'list_workflow_run_job_explanations',
@@ -320,6 +330,22 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
     );
     expect(stillValidProjects.isError).not.toBe(true);
     expect(agentAccessEnvelopeSchema.parse(stillValidProjects.structuredContent).ok).toBe(true);
+
+    let wasRateLimited = false;
+    for (let call = 0; call < 60; call += 1) {
+      const result = await stillValidClient.callTool(
+        {name: 'list_projects', arguments: {}},
+        CallToolResultSchema,
+      );
+      const envelope = agentAccessEnvelopeSchema.parse(result.structuredContent);
+      if (envelope.ok === false && envelope.error?.code === 'rate-limited') {
+        expect(envelope.error.retry_after_seconds).toEqual(expect.any(Number));
+        wasRateLimited = true;
+        break;
+      }
+      expect(envelope.ok).toBe(true);
+    }
+    expect(wasRateLimited).toBe(true);
   } finally {
     await stillValidClient.close();
   }

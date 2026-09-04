@@ -119,7 +119,7 @@ describe('OAuthConsentPage', () => {
       screen.getByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),
     ).toBeVisible();
     expect(
-      screen.queryByText('MCP connections are temporarily unavailable. Try again in a moment.'),
+      screen.queryByText('This access request is temporarily unavailable. Try again in a moment.'),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(

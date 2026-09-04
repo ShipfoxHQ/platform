@@ -13,6 +13,11 @@ import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-
 import type {StepAttemptDetailResponseDto} from '@shipfox/api-workflows-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {logger} from '@shipfox/node-opentelemetry';
+import {
+  type AgentAccessLogSectionUnavailableReason,
+  recordAgentAccessLogSectionUnavailable,
+} from '#metrics/index.js';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {fitAgentAccessResponseToCeiling} from './response.js';
 import {invalidRequest, notFound, optionalField, parseInput} from './tool-utils.js';
@@ -146,14 +151,19 @@ async function readFailedStepLogs(
 async function readFailedStepLog(
   logs: LogsModuleClient,
   input: {stepId: string; attempt: number; tailLines: number},
-): Promise<StepLogTailRead | null> {
+): Promise<FailedStepLogRead> {
   try {
     return await logs.readStepLogTail(input);
   } catch (error) {
     // A compacted stream can disappear between the workflow listing and the log read. Keep the
     // coordinate so one unavailable section does not discard the other readable failures.
     if (isInterModuleKnownError(logsInterModuleContract.methods.readStepLogTail, error)) {
-      return null;
+      recordAgentAccessLogSectionUnavailable(error.code);
+      logger().warn(
+        {stepId: input.stepId, attempt: input.attempt, errorCode: error.code},
+        'Agent-access log section unavailable',
+      );
+      return {unavailableReason: error.code};
     }
     throw error;
   }
@@ -181,28 +191,29 @@ function projectDetailSection(
 
 function projectCoordinateSection(
   coordinate: FailedStepAttemptCoordinate,
-  log: StepLogTailRead | null,
+  logRead: FailedStepLogRead,
   budget: number,
 ): Record<string, unknown> {
-  return projectSection(
-    {
-      workflow_run_id: coordinate.workflow_run_id,
-      workflow_run_attempt: coordinate.workflow_run_attempt,
-      job_id: coordinate.job_id,
-      job_execution_id: coordinate.job_execution_id,
-      step_id: coordinate.step_id,
-      step_attempt_id: coordinate.step_attempt_id,
-      attempt: coordinate.step_attempt,
-    },
-    log,
-    budget,
-  );
+  const coordinates = {
+    workflow_run_id: coordinate.workflow_run_id,
+    workflow_run_attempt: coordinate.workflow_run_attempt,
+    job_id: coordinate.job_id,
+    job_execution_id: coordinate.job_execution_id,
+    step_id: coordinate.step_id,
+    step_attempt_id: coordinate.step_attempt_id,
+    attempt: coordinate.step_attempt,
+  };
+  if (isUnavailableStepLogRead(logRead)) {
+    return projectSection(coordinates, null, budget, logRead.unavailableReason);
+  }
+  return projectSection(coordinates, logRead, budget);
 }
 
 function projectSection(
   coordinates: Record<string, string | number | undefined>,
   log: StepLogTailRead | null,
   budget: number,
+  unavailableReason?: AgentAccessLogSectionUnavailableReason,
 ): Record<string, unknown> {
   const bounded = boundLogContent(log?.content ?? '', budget);
   return {
@@ -212,6 +223,7 @@ function projectSection(
     ...(bounded.truncated
       ? {content_truncated: true, content_total_bytes: bounded.totalBytes}
       : {}),
+    ...(unavailableReason === undefined ? {} : {unavailable_reason: unavailableReason}),
   };
 }
 
@@ -232,6 +244,16 @@ function equalSectionBudget(sectionCount: number): number {
 interface StepLogTailRead {
   content: string;
   totalLines?: number | undefined;
+}
+
+interface UnavailableStepLogRead {
+  unavailableReason: AgentAccessLogSectionUnavailableReason;
+}
+
+type FailedStepLogRead = StepLogTailRead | UnavailableStepLogRead | null;
+
+function isUnavailableStepLogRead(logRead: FailedStepLogRead): logRead is UnavailableStepLogRead {
+  return logRead !== null && 'unavailableReason' in logRead;
 }
 
 interface FailedStepAttemptCoordinate {

@@ -25,7 +25,7 @@ test('reviews consent and disconnects an MCP app', async ({
   request,
 }) => {
   const clientName = 'Agent Access browser E2E Client';
-  const {sessionToken, workspaceId, workspaceSlug} = await createReadyWorkspace({
+  const {workspaceSlug} = await createReadyWorkspace({
     name: 'Agent Access Consent Workspace',
   });
   await agentAccessSettings.goto(workspaceSlug);
@@ -54,6 +54,7 @@ test('reviews consent and disconnects an MCP app', async ({
 
   const codeVerifier = randomBytes(32).toString('base64url');
   const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  const state = `browser-e2e-${randomBytes(8).toString('hex')}`;
   const authorizationUrl = new URL(`${apiOrigin}/oauth/authorize`);
   authorizationUrl.search = new URLSearchParams({
     client_id: clientId,
@@ -63,7 +64,7 @@ test('reviews consent and disconnects an MCP app', async ({
     code_challenge_method: 'S256',
     resource: `${publicOrigin}/mcp`,
     scope: 'read',
-    state: `browser-e2e-${randomBytes(8).toString('hex')}`,
+    state,
   }).toString();
   const authorization = await request.get(authorizationUrl.toString(), {
     failOnStatusCode: false,
@@ -78,15 +79,18 @@ test('reviews consent and disconnects an MCP app', async ({
 
   await page.goto(`/oauth/consent?request_id=${encodeURIComponent(requestId)}`);
   await expect(oauthConsent.heading(clientName)).toBeVisible();
+  await expect(oauthConsent.identityText('External agent client')).toBeVisible();
   await expect(oauthConsent.identityText('registered client')).toBeVisible();
   await expect(oauthConsent.denyButton()).toBeVisible();
   await expect(oauthConsent.allowButton()).toBeVisible();
 
-  const approval = await request.post(`${apiOrigin}/oauth/consents/${requestId}/approve`, {
-    headers: {authorization: `Bearer ${sessionToken}`},
-    data: {workspace_id: workspaceId},
-  });
-  expect(approval.status()).toBe(200);
+  await page.route(`${redirectUri}**`, (route) => route.fulfill({body: 'Agent callback'}));
+  await oauthConsent.allowButton().click();
+  await page.waitForURL((url) => url.origin === 'http://127.0.0.1:43124');
+  const callback = new URL(page.url());
+  expect(callback.pathname).toBe('/oauth/callback');
+  expect(callback.searchParams.get('state')).toBe(state);
+  expect(callback.searchParams.get('code')).toEqual(expect.any(String));
 
   await agentAccessSettings.goto(workspaceSlug);
   await expect(agentAccessSettings.connectedAppRow(clientName)).toBeVisible();

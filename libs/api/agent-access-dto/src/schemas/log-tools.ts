@@ -79,6 +79,7 @@ const logSectionSchema = z
     total_lines: z.number().int().nonnegative().optional(),
     content_truncated: z.literal(true).optional(),
     content_total_bytes: z.number().int().nonnegative().optional(),
+    unavailable_reason: z.literal('compacted-log-unavailable').optional(),
   })
   .strict();
 
@@ -169,6 +170,7 @@ const logSectionJsonSchema = {
     total_lines: {type: 'integer', minimum: 0},
     content_truncated: {const: true},
     content_total_bytes: {type: 'integer', minimum: 0},
+    unavailable_reason: {const: 'compacted-log-unavailable'},
   },
   required: ['step_id', 'attempt', 'content'],
   additionalProperties: false,

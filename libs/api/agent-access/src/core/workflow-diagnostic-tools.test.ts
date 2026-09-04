@@ -6,6 +6,7 @@ import type {
   ListWorkflowRunJobExplanationsResultDto,
 } from '@shipfox/api-agent-access-dto';
 import {
+  AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   AGENT_ACCESS_PAGE_LIMIT_MAX,
   AGENT_ACCESS_RESPONSE_MAX_BYTES,
   AGENT_ACCESS_TEXT_MAX_BYTES,
@@ -58,6 +59,24 @@ function success<T>(response: AgentAccessEnvelopeDto): T {
 }
 
 describe('workflow diagnostic agent-access tools', () => {
+  test('omits an absent cursor from first-page execution trigger event requests', async () => {
+    const mocks = clients();
+    mocks.listExecutionTriggerEvents.mockResolvedValue(null);
+
+    const response = await tool(mocks, 'list_execution_trigger_events').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId},
+    });
+
+    expect(mocks.listExecutionTriggerEvents.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      jobId,
+      executionId,
+      limit: AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
+    });
+    expect(response).toEqual({ok: false, error: {code: 'not-found'}});
+  });
+
   test('preserves closed, open, and schema-less values as structured content', async () => {
     const mocks = clients();
     mocks.getWorkflowJobExecutionContext.mockResolvedValue({

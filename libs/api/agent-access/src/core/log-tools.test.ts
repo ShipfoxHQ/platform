@@ -230,7 +230,11 @@ describe('bounded step-log agent-access tool', () => {
     const result = success(response);
 
     expect(result.sections).toEqual([
-      expect.objectContaining({step_id: unavailable.step_id, content: ''}),
+      expect.objectContaining({
+        step_id: unavailable.step_id,
+        content: '',
+        unavailable_reason: 'compacted-log-unavailable',
+      }),
       expect.objectContaining({step_id: readable.step_id, content: 'readable failed section'}),
     ]);
     expect(getStepLogsResultSchema.safeParse(result).success).toBe(true);

@@ -282,13 +282,17 @@ scopes, grant identity, and client identity.
 - **OAuth access token:** a stateless HMAC token with a distinct audience and a
   15-minute lifetime. Request authentication performs no database read. Grant
   revocation blocks refresh immediately; an issued access token remains valid
-  until it expires.
+  until it expires. This bounded revocation window is accepted to keep MCP
+  request authentication stateless.
+- **Tool-call rate limit:** each API instance applies a process-local fixed
+  window of 60 calls per credential per minute. Rejections increment the
+  bounded `agent_access_tool_calls` metric with outcome `rate-limited`.
 
 The standard `createAuthModule` composition registers the `AUTH_AGENT_ACCESS`
 method and the OAuth and grant-management routes. Applications that compose the
 lower-level Agent Access route factory directly must provide the five core
-producer clients. The optional Logs client enables `get_step_logs` and the
-diagnostic tool surface.
+producer clients, which enable the core and diagnostic tool surfaces. The
+optional Logs client enables only `get_step_logs`.
 
 ## Routes
 
