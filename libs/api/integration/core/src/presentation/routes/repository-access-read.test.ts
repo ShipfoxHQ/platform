@@ -2,6 +2,7 @@ import type {UserContextMembership} from '@shipfox/api-auth-context';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {vi} from '@shipfox/vitest/vi';
 import {upsertIntegrationConnection} from '#db/connections.js';
+import {createRepositoryAuthorizer} from '#index.js';
 import {createTestApp, sourceProvider, useIntegrationRouteTest} from '#test/route-utils.js';
 
 describe('GET /integration-connections/:connectionId/repository-access', () => {
@@ -172,7 +173,10 @@ describe('GET /integration-connections/:connectionId/repository-access', () => {
   });
 
   it('returns a coded unavailable error without Projects wiring', async () => {
-    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})]);
+    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
+      omitProjects: true,
+      repositoryAuthorizer: createRepositoryAuthorizer({enabled: false}),
+    });
     const connection = await createConnection();
 
     const response = await app.inject({

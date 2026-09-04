@@ -82,7 +82,6 @@ describe('e2eEnv', () => {
     assert.equal(env.GITEA_CLONE_BASE_URL, 'http://localhost:55356');
     assert.equal(env.INTEGRATIONS_ENABLE_LINEAR_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_GITHUB_PROVIDER, 'true');
-    assert.equal(env.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_SLACK_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_ENABLE_TEST_VCS_PROVIDER, 'true');
     assert.equal(env.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS, '600');
@@ -114,7 +113,6 @@ describe('e2eEnv', () => {
       LINEAR_MCP_ENDPOINT: 'http://127.0.0.1:16120/mcp',
       GITHUB_API_BASE_URL: 'http://127.0.0.1:16121',
       GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE: 'disabled',
-      INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION: 'false',
       SLACK_API_BASE_URL: 'http://127.0.0.1:16122',
       SHIPFOX_API_URL: 'http://localhost:55351',
       GITEA_BASE_URL: 'http://localhost:55356',
@@ -131,7 +129,6 @@ describe('e2eEnv', () => {
     assert.equal(env.LINEAR_MCP_ENDPOINT, 'http://127.0.0.1:16120/mcp');
     assert.equal(env.GITHUB_API_BASE_URL, 'http://127.0.0.1:16121');
     assert.equal(env.GITHUB_INSTALLATION_TOKEN_FORMAT_OVERRIDE, 'disabled');
-    assert.equal(env.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION, 'false');
     assert.equal(env.SLACK_API_BASE_URL, 'http://127.0.0.1:16122');
     assert.equal(env.INTEGRATIONS_TEST_VCS_CREDENTIAL_TTL_SECONDS, '600');
     assert.equal(env.INTEGRATIONS_TEST_VCS_PORT, '16115');

@@ -1,4 +1,5 @@
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {recordIntegrationCheckoutRepositoryAuthorization} from '#metrics/index.js';
 import type {IntegrationConnection} from './entities/connection.js';
 import {
   IntegrationCheckoutUnsupportedError,
@@ -45,6 +46,8 @@ describe('integration source-control service', () => {
     options: {
       omitCheckoutSpec?: boolean;
       repositoryAuthorizer?: RepositoryAuthorizer;
+      providerRepositoryAuthorization?: 'enforced' | 'unclassified';
+      recordRepositoryAuthorizationMetric?: typeof recordIntegrationCheckoutRepositoryAuthorization;
       getRepositoryAuthorizationMode?: () => 'selected' | 'all';
       connection?: IntegrationConnection;
     } = {},
@@ -88,6 +91,7 @@ describe('integration source-control service', () => {
         {
           provider: 'gitea',
           displayName: 'Gitea',
+          repositoryAuthorization: options.providerRepositoryAuthorization ?? 'enforced',
           adapters: {
             source_control: sourceControl,
           },
@@ -99,6 +103,7 @@ describe('integration source-control service', () => {
         return connectionId === activeConnection.id ? activeConnection : undefined;
       },
       repositoryAuthorizer: options.repositoryAuthorizer,
+      recordRepositoryAuthorizationMetric: options.recordRepositoryAuthorizationMetric,
       getRepositoryAuthorizationMode: options.getRepositoryAuthorizationMode,
     });
   }
@@ -320,6 +325,7 @@ describe('integration source-control service', () => {
       authorized: false,
       reason: 'repository_not_granted',
     } as const);
+    const recordRepositoryAuthorizationMetric = vi.fn();
     const service = createService(
       {createCheckoutSpec},
       {
@@ -327,6 +333,7 @@ describe('integration source-control service', () => {
           enabled: true,
           resolveRepositoryAuthorization,
         },
+        recordRepositoryAuthorizationMetric,
       },
     );
 
@@ -346,6 +353,41 @@ describe('integration source-control service', () => {
       capability: 'checkout',
     });
     expect(createCheckoutSpec).not.toHaveBeenCalled();
+    expect(recordRepositoryAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'gitea',
+      mode: 'selected',
+      decision: 'denied',
+      denial_reason: 'repository_not_granted',
+    });
+  });
+
+  it('does not authorize checkout for an unclassified provider', async () => {
+    const createCheckoutSpec = vi.fn(async () => ({
+      repositoryUrl: repository.cloneUrl,
+      ref: repository.defaultBranch,
+    }));
+    const resolveRepositoryAuthorization = vi.fn();
+    const service = createService(
+      {createCheckoutSpec},
+      {
+        providerRepositoryAuthorization: 'unclassified',
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutSpec({
+        workspaceId,
+        connectionId: connection.id,
+        externalRepositoryId: repository.externalRepositoryId,
+      }),
+    ).resolves.toMatchObject({repositoryUrl: repository.cloneUrl});
+
+    expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
+    expect(createCheckoutSpec).toHaveBeenCalledOnce();
   });
 
   it('uses the persisted connection repository mode by default', async () => {

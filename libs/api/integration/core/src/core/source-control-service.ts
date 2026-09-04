@@ -1,4 +1,11 @@
 import {normalizeCheckoutTarget} from '@shipfox/api-integration-spi';
+import {logger} from '@shipfox/node-opentelemetry';
+import {
+  type IntegrationCheckoutRepositoryAuthorizationDecision,
+  type IntegrationToolRepositoryAccessMode,
+  type IntegrationToolRepositoryDenialReason,
+  recordIntegrationCheckoutRepositoryAuthorization,
+} from '#metrics/index.js';
 import type {IntegrationConnection} from './entities/connection.js';
 import {
   IntegrationCheckoutUnsupportedError,
@@ -107,6 +114,10 @@ export interface CreateIntegrationSourceControlServiceOptions {
     connectionId: string,
   ) => Promise<IntegrationConnection | undefined>;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+  /** Test seam for asserting checkout authorization telemetry. */
+  recordRepositoryAuthorizationMetric?:
+    | typeof recordIntegrationCheckoutRepositoryAuthorization
+    | undefined;
   /** Trusted server-side seam for overriding the persisted per-connection repository mode. */
   getRepositoryAuthorizationMode?:
     | ((
@@ -119,6 +130,7 @@ export function createSourceControlIntegrationService({
   registry,
   getIntegrationConnectionById,
   repositoryAuthorizer,
+  recordRepositoryAuthorizationMetric = recordIntegrationCheckoutRepositoryAuthorization,
   getRepositoryAuthorizationMode = (connection) => connection.repositoryAccessMode,
 }: CreateIntegrationSourceControlServiceOptions): IntegrationSourceControlService {
   async function getConnection(connectionId: string): Promise<IntegrationConnection> {
@@ -228,6 +240,8 @@ export function createSourceControlIntegrationService({
         connection,
         input,
         repositoryAuthorizer,
+        providerRepositoryAuthorization: registry.get(connection.provider).repositoryAuthorization,
+        recordRepositoryAuthorizationMetric,
         getRepositoryAuthorizationMode,
       });
 
@@ -258,6 +272,8 @@ export function createSourceControlIntegrationService({
         connection,
         input,
         repositoryAuthorizer,
+        providerRepositoryAuthorization: registry.get(connection.provider).repositoryAuthorization,
+        recordRepositoryAuthorizationMetric,
         getRepositoryAuthorizationMode,
       });
 
@@ -286,25 +302,80 @@ async function authorizeCheckoutTarget(params: {
   connection: IntegrationConnection;
   input: CheckoutTargetInput & {workspaceId: string};
   repositoryAuthorizer: RepositoryAuthorizer | undefined;
+  providerRepositoryAuthorization: 'enforced' | 'unclassified' | undefined;
+  recordRepositoryAuthorizationMetric: typeof recordIntegrationCheckoutRepositoryAuthorization;
   getRepositoryAuthorizationMode: (
     connection: IntegrationConnection,
   ) => RepositoryAuthorizationMode | Promise<RepositoryAuthorizationMode>;
 }): Promise<CheckoutTarget> {
   const target = checkoutTarget(params.input);
-  if (params.repositoryAuthorizer === undefined) return target;
+  if (
+    params.repositoryAuthorizer === undefined ||
+    params.providerRepositoryAuthorization !== 'enforced'
+  ) {
+    return target;
+  }
+
+  const mode = await params.getRepositoryAuthorizationMode(params.connection);
 
   const authorization = await params.repositoryAuthorizer.resolveRepositoryAuthorization({
     workspaceId: params.input.workspaceId,
     connectionId: params.connection.id,
-    mode: await params.getRepositoryAuthorizationMode(params.connection),
+    mode,
     repository: target,
     capability: 'checkout',
   });
-  if (authorization === undefined) return target;
+  if (authorization === undefined) {
+    recordCheckoutAuthorizationMetric(params.recordRepositoryAuthorizationMetric, {
+      provider: params.connection.provider,
+      mode,
+      decision: 'not-enforced',
+      denial_reason: 'none',
+    });
+    return target;
+  }
   if (!authorization.authorized) {
+    recordCheckoutAuthorizationMetric(params.recordRepositoryAuthorizationMetric, {
+      provider: params.connection.provider,
+      mode,
+      decision: 'denied',
+      denial_reason: authorization.reason,
+    });
+    logger().warn(
+      {
+        workspaceId: params.input.workspaceId,
+        connectionId: params.connection.id,
+        provider: params.connection.provider,
+        repository: target,
+        denialReason: authorization.reason,
+      },
+      'Integration checkout repository authorization denied',
+    );
     throw new IntegrationRepositoryAuthorizationError(authorization.reason);
   }
+  recordCheckoutAuthorizationMetric(params.recordRepositoryAuthorizationMetric, {
+    provider: params.connection.provider,
+    mode,
+    decision: 'allowed',
+    denial_reason: 'none',
+  });
   return checkoutTargetFromAuthorization(authorization);
+}
+
+function recordCheckoutAuthorizationMetric(
+  recordMetric: typeof recordIntegrationCheckoutRepositoryAuthorization,
+  params: {
+    provider: string;
+    mode: IntegrationToolRepositoryAccessMode;
+    decision: IntegrationCheckoutRepositoryAuthorizationDecision;
+    denial_reason: IntegrationToolRepositoryDenialReason;
+  },
+): void {
+  try {
+    recordMetric(params);
+  } catch {
+    // Metrics must not change checkout authorization outcomes.
+  }
 }
 
 function checkoutTargetFromAuthorization(

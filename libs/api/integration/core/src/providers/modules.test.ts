@@ -160,6 +160,7 @@ describe('loadEnabledProviderModules', () => {
     const parts = await loadEnabledProviderModules();
     const githubPart = parts.find((part) => part.provider.provider === 'github');
     if (!githubPart?.e2eRoutes) throw new Error('GitHub E2E routes are not configured');
+    expect(githubPart.provider.repositoryAuthorization).toBe('enforced');
 
     const workspaceId = crypto.randomUUID();
     const installationId = Number.parseInt(crypto.randomUUID().replaceAll('-', '').slice(0, 8), 16);

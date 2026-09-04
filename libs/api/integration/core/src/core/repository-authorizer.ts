@@ -93,7 +93,8 @@ export interface ResolveRepositoryAuthorizationParams extends ResolveRepositoryA
 
 export interface CreateRepositoryAuthorizerOptions {
   projects?: ProjectsModuleClient | undefined;
-  enabled?: boolean | undefined;
+  /** Every composition must explicitly choose whether authorization is enabled. */
+  enabled: boolean;
   now?: (() => number) | undefined;
   maxCacheEntries?: number | undefined;
 }
@@ -154,12 +155,13 @@ export async function resolveRepositoryAuthorization({
 }
 
 /**
- * Creates the integration-owned dark-gated authorizer. A disabled authorizer
- * returns `undefined`, allowing its caller to preserve the existing behavior.
+ * Creates the integration-owned authorizer. The required `enabled` option keeps
+ * the disabled test seam explicit. A disabled authorizer returns `undefined`,
+ * allowing test callers to preserve the pre-enforcement behavior.
  */
 export function createRepositoryAuthorizer({
   projects,
-  enabled = false,
+  enabled,
   now = Date.now,
   maxCacheEntries = DEFAULT_REPOSITORY_AUTHORIZATION_CACHE_SIZE,
 }: CreateRepositoryAuthorizerOptions): RepositoryAuthorizer {

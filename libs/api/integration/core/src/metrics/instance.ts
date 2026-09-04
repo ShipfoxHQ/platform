@@ -120,6 +120,30 @@ export function recordIntegrationAgentToolRepositoryAuthorization(params: {
   recordMetric(() => agentToolRepositoryAuthorizationCount.add(1, params));
 }
 
+export type IntegrationCheckoutRepositoryAuthorizationDecision =
+  | 'allowed'
+  | 'denied'
+  | 'not-enforced';
+
+const integrationCheckoutRepositoryAuthorizationCount = meter.createCounter<{
+  provider: string;
+  mode: IntegrationToolRepositoryAccessMode;
+  decision: IntegrationCheckoutRepositoryAuthorizationDecision;
+  denial_reason: IntegrationToolRepositoryDenialReason;
+}>('integrations_checkout_repository_authorization', {
+  description:
+    'Integration checkout repository authorization decisions by provider, mode, decision, and bounded denial reason',
+});
+
+export function recordIntegrationCheckoutRepositoryAuthorization(params: {
+  provider: string;
+  mode: IntegrationToolRepositoryAccessMode;
+  decision: IntegrationCheckoutRepositoryAuthorizationDecision;
+  denial_reason: IntegrationToolRepositoryDenialReason;
+}): void {
+  recordMetric(() => integrationCheckoutRepositoryAuthorizationCount.add(1, params));
+}
+
 export function normalizeIntegrationAgentToolCallErrorCode(
   value: unknown,
 ): IntegrationAgentToolCallErrorCode {

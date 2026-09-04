@@ -51,6 +51,7 @@ function createClient(
       {
         provider: 'gitea',
         displayName: 'Gitea',
+        repositoryAuthorization: 'enforced',
         adapters: {
           source_control: {
             listRepositories: vi.fn(),

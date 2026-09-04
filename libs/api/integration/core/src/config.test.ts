@@ -11,7 +11,6 @@ describe('integration provider config', () => {
 
     expect(config.INTEGRATIONS_ENABLE_CRON_PROVIDER).toBe(true);
     expect(config.INTEGRATIONS_ENABLE_WEBHOOK_PROVIDER).toBe(true);
-    expect(config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION).toBe(false);
   });
 
   it('disables the Linear provider by default', async () => {
@@ -29,14 +28,5 @@ describe('integration provider config', () => {
     const {config} = await import('#config.js');
 
     expect(config.INTEGRATIONS_ENABLE_CRON_PROVIDER).toBe(false);
-  });
-
-  it('allows enabling repository authorization for a dark-launch environment', async () => {
-    vi.stubEnv('INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION', 'true');
-    vi.resetModules();
-
-    const {config} = await import('#config.js');
-
-    expect(config.INTEGRATIONS_ENABLE_REPOSITORY_AUTHORIZATION).toBe(true);
   });
 });

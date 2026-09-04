@@ -12,6 +12,7 @@ import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {db} from '#db/db.js';
 import {
   createIntegrationsModule,
+  createRepositoryAuthorizer,
   type IntegrationProvider,
   type RepositoryAuthorizer,
 } from '#index.js';
@@ -96,6 +97,8 @@ export interface CreateTestAppOptions {
   memberships?: ReadonlyArray<UserContextMembership> | undefined;
   projects?: ProjectsModuleClient | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+  /** Explicitly omits Projects wiring for tests of unavailable-module errors. */
+  omitProjects?: boolean | undefined;
 }
 
 export async function createTestApp(
@@ -103,10 +106,20 @@ export async function createTestApp(
   options: CreateTestAppOptions = {},
 ): Promise<FastifyInstance> {
   const memberships = options.memberships ?? authenticatedMemberships;
+  const projects = options.projects ?? createDefaultTestProjects();
+  if (options.omitProjects && options.repositoryAuthorizer === undefined) {
+    throw new Error('createTestApp omitProjects requires an explicit repositoryAuthorizer');
+  }
+  const repositoryAuthorizer =
+    options.repositoryAuthorizer ??
+    createRepositoryAuthorizer({
+      enabled: true,
+      projects,
+    });
   const integrationsModule = await createIntegrationsModule({
     providers,
-    projects: options.projects,
-    repositoryAuthorizer: options.repositoryAuthorizer,
+    projects: options.omitProjects ? undefined : projects,
+    repositoryAuthorizer,
   });
   const app = await createApp({
     auth: [createFakeUserAuth(memberships)],
@@ -115,6 +128,41 @@ export async function createTestApp(
   });
   await app.ready();
   return app;
+}
+
+function createDefaultTestProjects(): ProjectsModuleClient {
+  const getProjectBySource: ProjectsModuleClient['getProjectBySource'] = async ({
+    workspaceId,
+    sourceConnectionId,
+    sourceExternalRepositoryId,
+  }) => ({
+    project: {
+      id: crypto.randomUUID(),
+      workspaceId,
+      sourceConnectionId,
+      sourceExternalRepositoryId,
+      name: 'Test project',
+    },
+  });
+  const findProjectBySourceRepositoryName: ProjectsModuleClient['findProjectBySourceRepositoryName'] =
+    async ({workspaceId, sourceConnectionId, sourceRepositoryOwner, sourceRepositoryName}) => ({
+      projects: [
+        {
+          id: crypto.randomUUID(),
+          workspaceId,
+          sourceConnectionId,
+          sourceExternalRepositoryId: `test:${sourceRepositoryOwner}/${sourceRepositoryName}`,
+          sourceRepositoryOwner,
+          sourceRepositoryName,
+          name: 'Test project',
+        },
+      ],
+    });
+
+  return {
+    getProjectBySource,
+    findProjectBySourceRepositoryName,
+  } as unknown as ProjectsModuleClient;
 }
 
 export function useIntegrationRouteTest() {
