@@ -97,6 +97,8 @@ export interface CreateTestAppOptions {
   memberships?: ReadonlyArray<UserContextMembership> | undefined;
   projects?: ProjectsModuleClient | undefined;
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;
+  /** Explicitly omits Projects wiring for tests of unavailable-module errors. */
+  omitProjects?: boolean | undefined;
 }
 
 export async function createTestApp(
@@ -104,15 +106,19 @@ export async function createTestApp(
   options: CreateTestAppOptions = {},
 ): Promise<FastifyInstance> {
   const memberships = options.memberships ?? authenticatedMemberships;
+  const projects = options.projects ?? createDefaultTestProjects();
+  if (options.omitProjects && options.repositoryAuthorizer === undefined) {
+    throw new Error('createTestApp omitProjects requires an explicit repositoryAuthorizer');
+  }
   const repositoryAuthorizer =
     options.repositoryAuthorizer ??
     createRepositoryAuthorizer({
       enabled: true,
-      projects: options.projects ?? createDefaultTestProjects(),
+      projects,
     });
   const integrationsModule = await createIntegrationsModule({
     providers,
-    projects: options.projects,
+    projects: options.omitProjects ? undefined : projects,
     repositoryAuthorizer,
   });
   const app = await createApp({
