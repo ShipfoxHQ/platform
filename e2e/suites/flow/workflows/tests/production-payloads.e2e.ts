@@ -348,7 +348,14 @@ test.describe('production-shaped workflow payloads', () => {
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         description: 'all byte-sized listener deliveries',
         selection: {
-          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+          jobs: [
+            {
+              jobKey: LISTENER_JOB,
+              executionSequences: 'all',
+              includeContext: true,
+              stepKeys: ['acknowledge'],
+            },
+          ],
         },
         matches: (observation) => {
           const job = findListenerJob(observation, LISTENER_JOB);
