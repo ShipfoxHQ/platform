@@ -2198,15 +2198,20 @@ describe('github agent tool catalog', () => {
       {owner: 'shipfox', repo: 'platform', pullNumber: 2, after: 'cursor-1'},
     );
     const query = graphql.mock.calls[0]?.[0];
-    const selectedFields = String(query)
+    const queryText = String(query);
+    const threadFields = queryText
+      .slice(
+        queryText.indexOf('reviewThreads(first: 100, after: $after)'),
+        queryText.indexOf('comments(first: 100)'),
+      )
       .split('\n')
       .map((line) => line.trim());
     expect(query).toContain('isResolved');
     expect(query).toContain('author');
-    expect(query).toContain('path');
-    expect(query).toContain('line');
-    expect(query).toContain('diffSide');
-    expect(query).toContain('startDiffSide');
+    expect(threadFields).toEqual(
+      expect.arrayContaining(['path', 'line', 'diffSide', 'startLine', 'startDiffSide']),
+    );
+    const selectedFields = queryText.split('\n').map((line) => line.trim());
     expect(selectedFields).not.toContain('side');
     expect(selectedFields).not.toContain('startSide');
     expect(result).toEqual({
