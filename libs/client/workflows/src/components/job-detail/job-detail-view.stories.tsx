@@ -986,7 +986,7 @@ function RunCompositionStory() {
           projectSlug={PROJECT_SLUG}
           workflowRunId={run.id}
           jobId={job.id}
-          search={{}}
+          search={{runAttempt: run.runAttempt.attempt}}
         />
       </StoryRouter>
     </StoryQueryProvider>
@@ -1005,7 +1005,7 @@ function FailureCompositionStory() {
           projectSlug={PROJECT_SLUG}
           workflowRunId={run.id}
           jobId={commandJobId}
-          search={{}}
+          search={{runAttempt: run.runAttempt.attempt}}
         />
       </StoryRouter>
     </StoryQueryProvider>
