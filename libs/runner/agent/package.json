@@ -81,7 +81,7 @@
     }
   },
   "scripts": {
-    "build": "shipfox-swc --copy-files",
+    "build": "shipfox-swc --copy-files && chmod +x dist/core/claude-auth-helper.js",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
     "test": "shipfox-vitest-run",
@@ -106,6 +106,7 @@
     "@shipfox/node-opentelemetry": "workspace:*",
     "@shipfox/runner-execution": "workspace:*",
     "@shipfox/runner-protocol": "workspace:*",
+    "@shipfox/runner-workspace": "workspace:*",
     "pi-mcp-adapter": "catalog:",
     "pi-web-access": "catalog:",
     "typebox": "catalog:",
