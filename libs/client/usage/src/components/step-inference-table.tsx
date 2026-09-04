@@ -84,7 +84,7 @@ export function StepInferenceTable({
               costByStepAttempt.add(referenceKey);
               const cost = showCostForRow ? costs.get(referenceKey) : undefined;
               return (
-                <TableRow key={`${row.stepAttemptId}:${row.upstream}:${row.model}`}>
+                <TableRow key={JSON.stringify([row.stepAttemptId, row.upstream, row.model])}>
                   <TableCell>
                     <Text as="span" size="xs" className="block truncate">
                       {stepLabels?.get(row.stepId) ?? shortIdentifier(row.stepId)}
