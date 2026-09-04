@@ -85,7 +85,6 @@ export function useWorkflowRunSelectionQuery(input: WorkflowRunSelectionQueryInp
       !queryEnabled ||
       !attemptMismatch ||
       query.isFetching ||
-      query.isError ||
       (refetchedSelection.current?.requestKey === selectionRequestKey &&
         refetchedSelection.current.runAttempt === input.runAttempt)
     ) {
@@ -97,7 +96,6 @@ export function useWorkflowRunSelectionQuery(input: WorkflowRunSelectionQueryInp
     attemptMismatch,
     input.runAttempt,
     queryEnabled,
-    query.isError,
     query.isFetching,
     query.refetch,
     selectionRequestKey,

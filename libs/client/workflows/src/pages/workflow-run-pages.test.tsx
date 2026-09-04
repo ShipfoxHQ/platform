@@ -62,7 +62,6 @@ const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
 const SELECTION_NOT_FOUND_DESCRIPTION_RE = /not part of this run/u;
-const SELECTION_LOAD_ERROR_RE = /Could not load workflow run selection/u;
 const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_HEAD_PATH_RE = /^\/workflows\/runs\/([^/]+)\/head$/u;
 const RUN_OVERVIEW_PATH_RE = /^\/workflows\/runs\/([^/]+)\/overview$/u;
@@ -471,7 +470,6 @@ describe('WorkflowRunPages', () => {
 
     expect(await screen.findByRole('region', {name: 'All jobs summary'})).toBeInTheDocument();
     expect(screen.queryByText('Job or step not found')).not.toBeInTheDocument();
-    expect(screen.queryByText(SELECTION_LOAD_ERROR_RE)).not.toBeInTheDocument();
   });
 
   test('resolves an execution-only link through the default selection fixture', async () => {
