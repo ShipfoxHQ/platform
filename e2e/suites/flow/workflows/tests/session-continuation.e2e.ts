@@ -1,5 +1,5 @@
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {message, startFakeOpenAiModelProvider} from '@shipfox/e2e-driver-model-provider';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 import {
   createOpenAiCompatibleCustomProvider,
   deleteModelProviderConfig,
@@ -149,6 +149,18 @@ test('resumes one Pi session across jobs and listening event batches', async ({
       token: testCase.token,
       timeoutMs: SESSION_RUN_TERMINAL_TIMEOUT_MS,
       runner: testCase.runner,
+      selection: {
+        jobs: [
+          {jobKey: 'plan', includeDefaultExecution: true, stepKeys: ['draft']},
+          {jobKey: 'implement', includeDefaultExecution: true, stepKeys: ['apply']},
+          {
+            jobKey: LISTENER_JOB,
+            executionSequences: 'all',
+            includeContext: true,
+            stepKeys: ['continue'],
+          },
+        ],
+      },
     });
 
     assertSessionRun({
@@ -189,8 +201,8 @@ test('resumes one Pi session across jobs and listening event batches', async ({
 
 function assertSessionRun(params: {
   firstBatch: Awaited<ReturnType<typeof sendBatchAndAwaitMaterialization>>;
-  terminal: WorkflowRunDetailResponseDto;
-  resolved: WorkflowRunDetailResponseDto;
+  terminal: WorkflowRunObservation;
+  resolved: WorkflowRunObservation;
 }): void {
   const plan = sessionStep(params.terminal, 'plan', 1, 'draft');
   const implement = sessionStep(params.terminal, 'implement', 1, 'apply');
@@ -204,21 +216,20 @@ function assertSessionRun(params: {
   const listen = params.terminal.jobs.find((job) => job.key === LISTENER_JOB);
   expect(listen?.status).toBe('succeeded');
   expect(listen?.listener_status).toBe('resolved');
-  expect(listen?.resolution_reason).toBe('until');
-  expect(listen?.job_executions.map((execution) => execution.sequence)).toEqual([1, 2]);
-  expect(listen?.job_executions.map((execution) => execution.status)).toEqual([
+  expect(listen?.executions.map((execution) => execution.sequence)).toEqual([1, 2]);
+  expect(listen?.executions.map((execution) => execution.status)).toEqual([
     'succeeded',
     'succeeded',
   ]);
   expect(params.firstBatch.deliveryIds).toHaveLength(4);
-  expect(listen?.job_executions[0]?.trigger_events.map((event) => event.delivery_id)).toEqual(
+  expect(listen?.executions[0]?.trigger_events.map((event) => event.delivery_id)).toEqual(
     params.firstBatch.deliveryIds.slice(0, 2),
   );
-  expect(listen?.job_executions[1]?.trigger_events.map((event) => event.delivery_id)).toEqual(
+  expect(listen?.executions[1]?.trigger_events.map((event) => event.delivery_id)).toEqual(
     params.firstBatch.deliveryIds.slice(2),
   );
-  expect(params.resolved.jobs.find((job) => job.key === LISTENER_JOB)?.resolution_reason).toBe(
-    'until',
+  expect(params.resolved.jobs.find((job) => job.key === LISTENER_JOB)?.listener_status).toBe(
+    'resolved',
   );
 
   expect(plan.response?.trim()).toBe(SESSION_RESPONSES[0]);
@@ -244,16 +255,18 @@ function assertSessionRun(params: {
 }
 
 function sessionStep(
-  run: WorkflowRunDetailResponseDto,
+  run: WorkflowRunObservation,
   jobKey: string,
   sequence: number,
   stepKey: string,
 ) {
   const job = run.jobs.find((candidate) => candidate.key === jobKey);
-  if (!job) throw new Error(`Job ${jobKey} missing from run detail`);
-  const execution = job.job_executions.find((candidate) => candidate.sequence === sequence);
-  if (!execution) throw new Error(`Job ${jobKey} execution ${sequence} missing from run detail`);
+  if (!job) throw new Error(`Job ${jobKey} missing from workflow observation`);
+  const execution = job.executions.find((candidate) => candidate.sequence === sequence);
+  if (!execution)
+    throw new Error(`Job ${jobKey} execution ${sequence} missing from workflow observation`);
   const step = execution.steps.find((candidate) => candidate.key === stepKey);
-  if (!step) throw new Error(`Step ${jobKey}.${sequence}.${stepKey} missing from run detail`);
+  if (!step)
+    throw new Error(`Step ${jobKey}.${sequence}.${stepKey} missing from workflow observation`);
   return step;
 }

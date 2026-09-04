@@ -55,10 +55,13 @@ test('resolves an older step identity through the public selection API', async (
       token,
       timeoutMs: 180_000,
       runner: localRunner.runner,
+      selection: {
+        jobs: [{jobKey: 'build', includeDefaultExecution: true, stepKeys: ['selection']}],
+      },
     });
     const oldStepId = firstAttempt.jobs
       .find((job) => job.key === 'build')
-      ?.job_executions[0]?.steps.find((step) => step.key === 'selection')?.id;
+      ?.executions[0]?.steps.find((step) => step.key === 'selection')?.id;
     if (!oldStepId) throw new Error('Expected the first-attempt selection step');
 
     await client.requestJson('post', `/workflows/runs/${encodeURIComponent(runId)}/rerun`, {
@@ -68,7 +71,7 @@ test('resolves an older step identity through the public selection API', async (
     expect(rerun).toMatchObject({
       current_attempt: 2,
       latest_attempt: 2,
-      run_attempt: {attempt: 2},
+      attempt: {attempt: 2},
     });
 
     const selectionQuery = new URLSearchParams({step_id: oldStepId});

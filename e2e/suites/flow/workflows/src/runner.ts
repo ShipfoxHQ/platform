@@ -8,7 +8,10 @@ import {
   startLocalRunner,
   waitForLocalRunnerExit,
 } from '@shipfox/e2e-driver-runner-process';
-import {waitForRunTerminal} from '@shipfox/e2e-observe-workflows';
+import {
+  type WorkflowRunObservationSelection,
+  waitForRunTerminal,
+} from '@shipfox/e2e-observe-workflows';
 import {suiteRunDir} from './suite-context.js';
 
 function isFailedRunnerExit(exit: LocalRunnerExit): boolean {
@@ -58,11 +61,13 @@ export async function waitForRunTerminalOrFailedRunner(params: {
   token: string;
   timeoutMs: number;
   runner: LocalRunnerHandle;
+  selection?: WorkflowRunObservationSelection | undefined;
 }): ReturnType<typeof waitForRunTerminal> {
   const runTerminal = waitForRunTerminal({
     runId: params.runId,
     token: params.token,
     timeoutMs: params.timeoutMs,
+    selection: params.selection,
   });
   const runnerExit = waitForLocalRunnerExit(params.runner);
 

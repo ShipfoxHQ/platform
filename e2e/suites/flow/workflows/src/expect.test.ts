@@ -1,150 +1,143 @@
 import type {LogRecord} from '@shipfox/api-logs-dto';
+import type {StepAttemptSummaryDto} from '@shipfox/api-workflows-dto';
 import type {
-  JobDto,
-  StepAttemptDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
-  WorkflowRunStepDetailDto,
-} from '@shipfox/api-workflows-dto';
+  WorkflowExecutionObservation,
+  WorkflowJobObservation,
+  WorkflowRunObservation,
+  WorkflowStepObservation,
+} from '@shipfox/e2e-observe-workflows';
 import {evaluateExpectations, evaluateLogs, logText, parseExpectation} from './expect.js';
 
 const timestamp = '2026-07-02T08:00:00.000Z';
 
-function makeAttempt(overrides: Partial<StepAttemptDto> = {}): StepAttemptDto {
+function makeAttempt(overrides: Partial<StepAttemptSummaryDto> = {}): StepAttemptSummaryDto {
   return {
     id: '44444444-4444-4444-8444-444444444444',
-    step_id: '55555555-5555-4555-8555-555555555555',
     attempt: 1,
     execution_order: 1,
     status: 'succeeded',
     exit_code: 0,
-    output: null,
-    outputs: null,
-    response: null,
     error: null,
     gate_result: {kind: 'none'},
-    restart_feedback: null,
-    invocations: [],
     started_at: timestamp,
     finished_at: timestamp,
     ...overrides,
   };
 }
 
-function makeStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): WorkflowRunStepDetailDto {
+function makeStep(overrides: Partial<WorkflowStepObservation> = {}): WorkflowStepObservation {
+  const attempts = overrides.attempts ?? [makeAttempt()];
+  const currentAttempt = overrides.current_attempt ?? 1;
+  const current = attempts.find((attempt) => attempt.attempt === currentAttempt) ?? attempts.at(-1);
   return {
     id: '55555555-5555-4555-8555-555555555555',
-    job_execution_id: '66666666-6666-4666-8666-666666666666',
     key: 'greet',
     name: 'Greet',
     source_location: null,
     status: 'succeeded',
     status_reason: null,
     type: 'run',
-    config: {},
-    evaluation_trace: null,
     session: null,
     error: null,
     position: 0,
-    current_attempt: 1,
-    exit_code: 0,
+    current_attempt: currentAttempt,
+    exit_code: current?.exit_code ?? null,
     outputs: null,
     response: null,
-    gate_result: {kind: 'none'},
-    created_at: timestamp,
-    updated_at: timestamp,
-    attempts: [makeAttempt()],
+    gate_result: current?.gate_result ?? null,
+    attempts,
+    attempt_details: [],
     ...overrides,
   };
 }
 
 function makeJobExecution(
-  overrides: Partial<WorkflowRunJobExecutionDetailDto> = {},
-): WorkflowRunJobExecutionDetailDto {
+  overrides: Partial<WorkflowExecutionObservation> = {},
+): WorkflowExecutionObservation {
   return {
     id: '66666666-6666-4666-8666-666666666666',
     job_id: '77777777-7777-4777-8777-777777777777',
     sequence: 1,
     name: 'build',
     status: 'succeeded',
+    display_status: 'succeeded',
     status_reason: null,
+    status_reason_message: null,
     runner: null,
     trigger_events: [],
     outputs: null,
-    evaluation_trace: null,
     queued_at: timestamp,
     started_at: timestamp,
     finished_at: timestamp,
     timed_out_at: null,
-    created_at: timestamp,
     updated_at: timestamp,
     steps: [makeStep()],
+    context: null,
     ...overrides,
   };
 }
 
-function makeJob(overrides: Partial<WorkflowRunJobDetailDto> = {}): WorkflowRunJobDetailDto {
-  const base: JobDto = {
+function makeJob(overrides: Partial<WorkflowJobObservation> = {}): WorkflowJobObservation {
+  const base: WorkflowJobObservation = {
     id: '77777777-7777-4777-8777-777777777777',
-    run_attempt_id: '88888888-8888-4888-8888-888888888888',
     key: 'build',
     name: null,
     mode: 'one_shot',
     status: 'succeeded',
     status_reason: null,
-    success: null,
-    runner: null,
-    evaluation_trace: null,
     carried_over: false,
-    listening: null,
     listener_status: 'inactive',
-    resolution_reason: null,
-    outputs: null,
-    dependencies: [],
     position: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
+    execution_count: 1,
+    execution_status_counts: {
+      pending: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 0,
+      cancelled: 0,
+    },
+    default_execution: null,
+    executions: [makeJobExecution()],
   };
-  return {...base, job_executions: [makeJobExecution()], ...overrides};
+  return {
+    ...base,
+    ...overrides,
+  };
 }
 
-function makeDetail(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
-  return {
+function makeDetail(overrides: Partial<WorkflowRunObservation> = {}): WorkflowRunObservation {
+  const attempt = {
+    id: '88888888-8888-4888-8888-888888888888',
+    workflow_run_id: '33333333-3333-4333-8333-333333333333',
+    attempt: 1,
+    status: 'succeeded' as const,
+    created_at: timestamp,
+    started_at: timestamp,
+    finished_at: timestamp,
+    rerun_mode: null,
+  };
+  const run = {
     id: '33333333-3333-4333-8333-333333333333',
     project_id: '11111111-1111-4111-8111-111111111111',
     definition_id: '22222222-2222-4222-8222-222222222222',
     number: 1,
     name: 'Hello world',
     workflow_name: 'Hello world',
-    status: 'succeeded',
-    origin: 'synced',
+    origin: 'synced' as const,
     dev_source: null,
-    current_attempt: 1,
-    latest_attempt: 1,
     trigger_provider: 'gitea',
     trigger_source: 'gitea',
     trigger_event: 'push',
-    trigger_payload: {data: {headCommitSha: 'abc123'}},
     trigger_reference: null,
-    inputs: null,
-    source_snapshot: null,
     created_at: timestamp,
+  };
+  return {
+    ...run,
+    status: 'succeeded',
+    current_attempt: 1,
+    latest_attempt: 1,
     updated_at: timestamp,
-    started_at: timestamp,
-    finished_at: timestamp,
-    run_attempt: {
-      id: '88888888-8888-4888-8888-888888888888',
-      workflow_run_id: '33333333-3333-4333-8333-333333333333',
-      attempt: 1,
-      status: 'succeeded',
-      created_at: timestamp,
-      started_at: timestamp,
-      finished_at: timestamp,
-      rerun_mode: null,
-    },
+    attempt,
     jobs: [makeJob()],
     has_started_job_execution: true,
     ...overrides,
@@ -162,9 +155,7 @@ describe('evaluateExpectations', () => {
 
   test('collects a log requirement with the step id and current attempt', () => {
     const detail = makeDetail({
-      jobs: [
-        makeJob({job_executions: [makeJobExecution({steps: [makeStep({current_attempt: 2})]})]}),
-      ],
+      jobs: [makeJob({executions: [makeJobExecution({steps: [makeStep({current_attempt: 2})]})]})],
     });
 
     const result = evaluateExpectations(
@@ -201,7 +192,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [makeJobExecution({steps: [makeStep({key: null, name: 'Greet'})]})],
+          executions: [makeJobExecution({steps: [makeStep({key: null, name: 'Greet'})]})],
         }),
       ],
     });
@@ -221,7 +212,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [makeJobExecution({steps: [makeStep({type: 'tool'})]})],
+          executions: [makeJobExecution({steps: [makeStep({type: 'tool'})]})],
         }),
       ],
     });
@@ -241,7 +232,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [makeJobExecution({steps: [makeStep({type: 'run'})]})],
+          executions: [makeJobExecution({steps: [makeStep({type: 'run'})]})],
         }),
       ],
     });
@@ -280,7 +271,7 @@ describe('evaluateExpectations', () => {
       jobs: [
         makeJob({
           status: 'failed',
-          job_executions: [
+          executions: [
             makeJobExecution({
               status: 'failed',
               steps: [
@@ -317,7 +308,7 @@ describe('evaluateExpectations', () => {
         makeJob({
           status: 'failed',
           status_reason: 'step_failed',
-          job_executions: [
+          executions: [
             makeJobExecution({
               status: 'failed',
               status_reason: 'step_failed',
@@ -388,7 +379,7 @@ describe('evaluateExpectations', () => {
       jobs: [
         makeJob({
           status_reason: 'condition_false',
-          job_executions: [
+          executions: [
             makeJobExecution({
               status_reason: 'condition_false',
               steps: [
@@ -447,7 +438,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [
+          executions: [
             makeJobExecution({
               steps: [
                 makeStep({
@@ -489,7 +480,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [
+          executions: [
             makeJobExecution({
               steps: [
                 makeStep({
@@ -538,7 +529,7 @@ describe('evaluateExpectations', () => {
       makeDetail({
         jobs: [
           makeJob({
-            job_executions: [
+            executions: [
               makeJobExecution({
                 steps: [makeStep({attempts: []})],
               }),
@@ -618,7 +609,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [
+          executions: [
             makeJobExecution({steps: [makeStep({attempts: [makeAttempt({exit_code: null})]})]}),
           ],
         }),
@@ -642,7 +633,7 @@ describe('evaluateExpectations', () => {
     const detail = makeDetail({
       jobs: [
         makeJob({
-          job_executions: [
+          executions: [
             makeJobExecution({
               sequence: 1,
               steps: [makeStep({status: 'succeeded', attempts: [makeAttempt({exit_code: 0})]})],

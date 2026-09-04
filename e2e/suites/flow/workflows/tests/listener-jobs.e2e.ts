@@ -36,17 +36,28 @@ async function assertUntilResolution(params: {
     token: params.testCase.token,
     timeoutMs: 180_000,
     runner: params.testCase.runner,
+    selection: {
+      jobs: [
+        {
+          jobKey: LISTENER_JOB,
+          executionSequences: 'all',
+          includeContext: true,
+          stepKeys: ['show_event'],
+        },
+        {jobKey: 'deploy', includeDefaultExecution: true, stepKeys: ['after-listener']},
+      ],
+    },
   });
 
   const listen = terminal.jobs.find((job) => job.key === LISTENER_JOB);
   const deploy = terminal.jobs.find((job) => job.key === 'deploy');
   const firstExecution = findListenerExecutionByDeliveryIds({
-    runDetail: terminal,
+    observation: terminal,
     jobKey: LISTENER_JOB,
     deliveryIds: params.firstFire.deliveryIds,
   })?.execution;
   const secondExecution = findListenerExecutionByDeliveryIds({
-    runDetail: terminal,
+    observation: terminal,
     jobKey: LISTENER_JOB,
     deliveryIds: params.secondFire.deliveryIds,
   })?.execution;
@@ -59,35 +70,32 @@ async function assertUntilResolution(params: {
     throw new Error('Expected listener executions to include trigger deliveries');
   }
   const firstLogs = await stepLogText({
-    runDetail: terminal,
+    observation: terminal,
     token: params.testCase.token,
     jobKey: LISTENER_JOB,
     sequence: firstExecution.sequence,
     stepKey: 'show_event',
   });
   const secondLogs = await stepLogText({
-    runDetail: terminal,
+    observation: terminal,
     token: params.testCase.token,
     jobKey: LISTENER_JOB,
     sequence: secondExecution.sequence,
     stepKey: 'show_event',
   });
-  const deployExecution = deploy?.job_executions.at(-1);
+  const deployExecution = deploy?.executions.at(-1);
   if (!deployExecution) throw new Error('Expected deploy execution');
   const deployLogs = await stepLogText({
-    runDetail: terminal,
+    observation: terminal,
     token: params.testCase.token,
     jobKey: 'deploy',
     sequence: deployExecution.sequence,
     stepKey: 'after-listener',
   });
 
-  expect(params.resolved.jobs.find((job) => job.key === LISTENER_JOB)?.resolution_reason).toBe(
-    'until',
-  );
   expect(terminal.status).toBe('succeeded');
   expect(listen?.listener_status).toBe('resolved');
-  expect(listen?.job_executions.length).toBeGreaterThanOrEqual(2);
+  expect(listen?.execution_count).toBeGreaterThanOrEqual(2);
   expect(firstExecution.sequence).not.toBe(secondExecution.sequence);
   expect(deploy?.status).toBe('succeeded');
   expect(params.firstFire.deliveryIds).toContain(firstDeliveryId);
@@ -181,7 +189,7 @@ test.describe('listener jobs', () => {
 
       const first = await sendFire(testCase, runId, 'fire-one', 'first');
       const second = await sendFire(testCase, runId, 'fire-two', 'second');
-      const resolved = await waitForListenerResolution({
+      await waitForListenerResolution({
         token: testCase.token,
         runId,
         jobKey: LISTENER_JOB,
@@ -194,16 +202,17 @@ test.describe('listener jobs', () => {
         token: testCase.token,
         timeoutMs: 180_000,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        },
       });
 
       const listen = terminal.jobs.find((job) => job.key === LISTENER_JOB);
       expect(terminal.status).toBe('succeeded');
-      expect(resolved.jobs.find((job) => job.key === LISTENER_JOB)?.resolution_reason).toBe(
-        'max_executions',
-      );
-      expect(listen?.job_executions.map((execution) => execution.sequence)).toEqual([1, 2]);
-      const firstExecutionDeliveryId = listen?.job_executions[0]?.trigger_events[0]?.delivery_id;
-      const secondExecutionDeliveryId = listen?.job_executions[1]?.trigger_events[0]?.delivery_id;
+      expect(listen?.listener_status).toBe('resolved');
+      expect(listen?.executions.map((execution) => execution.sequence)).toEqual([1, 2]);
+      const firstExecutionDeliveryId = listen?.executions[0]?.trigger_events[0]?.delivery_id;
+      const secondExecutionDeliveryId = listen?.executions[1]?.trigger_events[0]?.delivery_id;
       expect(firstExecutionDeliveryId).toBeDefined();
       expect(secondExecutionDeliveryId).toBeDefined();
       expect(first.deliveryIds).toContain(firstExecutionDeliveryId);
@@ -252,20 +261,30 @@ test.describe('listener jobs', () => {
         token: testCase.token,
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
         runner: testCase.runner,
+        selection: {
+          jobs: [
+            {
+              jobKey: LISTENER_JOB,
+              executionSequences: [1],
+              includeContext: true,
+              stepKeys: ['show-batch'],
+            },
+          ],
+        },
       });
 
       const listen = terminal.jobs.find((job) => job.key === LISTENER_JOB);
       const logs = await stepLogText({
-        runDetail: terminal,
+        observation: terminal,
         token: testCase.token,
         jobKey: LISTENER_JOB,
         sequence: 1,
         stepKey: 'show-batch',
       });
       expect(terminal.status).toBe('succeeded');
-      expect(listen?.resolution_reason).toBe('until');
-      expect(listen?.job_executions).toHaveLength(1);
-      expect(listen?.job_executions[0]?.trigger_events.map((event) => event.delivery_id)).toEqual(
+      expect(listen?.listener_status).toBe('resolved');
+      expect(listen?.executions).toHaveLength(1);
+      expect(listen?.executions[0]?.trigger_events.map((event) => event.delivery_id)).toEqual(
         batch.deliveryIds,
       );
       expect(logs).toContain(`batch_first=${batch.deliveryIds[0]}`);
@@ -317,6 +336,9 @@ test.describe('listener jobs', () => {
         token: testCase.token,
         timeoutMs: 180_000,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: [1], includeContext: true}],
+        },
       });
 
       const listen = terminal.jobs.find((job) => job.key === LISTENER_JOB);
@@ -324,7 +346,7 @@ test.describe('listener jobs', () => {
       expect(resolved.jobs.find((job) => job.key === LISTENER_JOB)?.listener_status).toBe(
         'resolved',
       );
-      expect(listen?.job_executions[0]?.status).toBe('cancelled');
+      expect(listen?.executions[0]?.status).toBe('cancelled');
     } catch (error) {
       await cleanupListenerCase(testCase, runId);
       throw error;

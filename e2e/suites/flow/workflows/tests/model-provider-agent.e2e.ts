@@ -1,7 +1,7 @@
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {createApiClient} from '@shipfox/e2e-core';
 import {message, startFakeOpenAiModelProvider} from '@shipfox/e2e-driver-model-provider';
 import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 import {
   createAnthropicFakeModelProviderConfig,
   createOpenAiCompatibleCustomProvider,
@@ -167,7 +167,7 @@ async function runFakeModelProviderWorkflow(params: {
   scenario: string;
   workflowYaml: string;
   runnerEnv: Record<string, string>;
-}): Promise<WorkflowRunDetailResponseDto> {
+}): Promise<WorkflowRunObservation> {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
   const runnerLabel = `e2e-${params.scenario}-${params.uniqueId}`;
@@ -206,6 +206,9 @@ async function runFakeModelProviderWorkflow(params: {
       token,
       timeoutMs: TERMINAL_TIMEOUT_MS,
       runner: localRunner.runner,
+      selection: {
+        jobs: [{jobKey: 'fix', includeDefaultExecution: true, stepKeys: ['reply']}],
+      },
     });
   } finally {
     await attachLocalRunnerLog(
@@ -222,12 +225,13 @@ async function runFakeModelProviderWorkflow(params: {
   }
 }
 
-function stepResponse(run: WorkflowRunDetailResponseDto, jobKey: string, stepKey: string): string {
+function stepResponse(run: WorkflowRunObservation, jobKey: string, stepKey: string): string {
   const step = run.jobs
     .find((job) => job.key === jobKey)
-    ?.job_executions.flatMap((execution) => execution.steps)
+    ?.executions.flatMap((execution) => execution.steps)
     .find((candidate) => candidate.key === stepKey);
-  if (step === undefined) throw new Error(`Step ${jobKey}.${stepKey} missing from run detail`);
+  if (step === undefined)
+    throw new Error(`Step ${jobKey}.${stepKey} missing from workflow observation`);
   if (step.response === null)
     throw new Error(`Step ${jobKey}.${stepKey} did not record a response`);
   return step.response;

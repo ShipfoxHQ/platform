@@ -64,6 +64,9 @@ export async function runSlackToolsWorkflow(params: {
       token,
       timeoutMs: TERMINAL_TIMEOUT_MS,
       runner: localRunner.runner,
+      selection: {
+        jobs: [{jobKey: 'tools', includeDefaultExecution: true, stepKeys: ['slack']}],
+      },
     });
     if (terminal.status !== 'succeeded') {
       for (const request of collectStepLogAttachmentRequests(terminal)) {

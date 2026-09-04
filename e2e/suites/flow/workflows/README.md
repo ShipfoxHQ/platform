@@ -7,9 +7,10 @@ file is the deep runbook for the workflow flow suite.
 End-to-end tests where each case is a real workflow YAML run through the whole
 platform: a gitea push, the org webhook, definition sync, trigger dispatch, Temporal
 orchestration, a local source runner, step execution, and log capture. The suite
-asserts on the public observation APIs (`/workflows/runs`, `/workflows/runs/:id`, and
-the step logs route). Scenarios with a `gitea` fixture also verify the external Gitea
-state through the driver.
+asserts on the public bounded observation APIs (`/workflows/runs`, run lineage and
+overview, selected job/execution/step/attempt/context resources, and the step logs
+route). Scenarios with a `gitea` fixture also verify the external Gitea state through
+the driver.
 
 ## How a scenario works
 
@@ -37,7 +38,7 @@ against the shared suite arrangement:
 4. triggers a run: a second commit whose head SHA is the correlation key (`trigger:
    push`), or `fire-manual` (`trigger: manual`),
 5. waits for the run to reach a terminal state and evaluates `expect.yaml` against the
-   run detail, fetching step logs only where `logs` expectations exist.
+   bounded workflow observation, fetching step logs only where `logs` expectations exist.
 
 Anything not listed in `expect.yaml` is not asserted. A flow that needs to orchestrate
 from outside (cancellation, listening jobs) ships its own Playwright spec under `tests/`
@@ -160,6 +161,7 @@ Gitea admin/webhook variables live in `@shipfox/e2e-driver-gitea`.
 
 ## Artifacts
 
-On failure a scenario attaches the run detail JSON, the evaluated mismatch diff, and
-the fetched step logs to its Playwright result. Each local runner writes stdout and
-stderr to `.e2e-run/runners/<label>.log`; failing scenarios attach that runner log.
+On failure a scenario attaches the bounded workflow observation JSON, the
+evaluated mismatch diff, and the fetched step logs to its Playwright result.
+Each local runner writes stdout and stderr to `.e2e-run/runners/<label>.log`;
+failing scenarios attach that runner log.

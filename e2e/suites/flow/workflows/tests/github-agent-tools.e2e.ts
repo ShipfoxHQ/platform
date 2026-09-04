@@ -3,6 +3,7 @@ import type {ProjectResponseDto} from '@shipfox/api-projects-dto';
 import {createApiClient} from '@shipfox/e2e-core';
 import {message, startFakeOpenAiModelProvider, toolCall} from '@shipfox/e2e-driver-model-provider';
 import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
+import type {WorkflowRunObservationSelection} from '@shipfox/e2e-observe-workflows';
 import {createAnthropicFakeModelProviderConfig} from '@shipfox/e2e-setup-agent';
 import {createGithubConnection} from '@shipfox/e2e-setup-integrations';
 import {createProject as createE2eProject} from '@shipfox/e2e-setup-projects';
@@ -416,6 +417,15 @@ test('mints a GitHub checkout token for a selected project repository by ID', as
       scenario: 'github-checkout-selected-id',
       workflowYaml: checkoutWorkflow({}),
       project: fixture.project,
+      selection: {
+        jobs: [
+          {
+            jobKey: 'checkout',
+            includeDefaultExecution: true,
+            stepKeys: ['fail-after-checkout'],
+          },
+        ],
+      },
     });
 
     expect(result.terminal.status).toBe('failed');
@@ -453,6 +463,15 @@ test('denies a selected GitHub checkout target outside Shipfox projects', async 
         connection: fixture.connection.slug,
         repository: GITHUB_OUTSIDE_REPOSITORY_NAME,
       }),
+      selection: {
+        jobs: [
+          {
+            jobKey: 'checkout',
+            includeDefaultExecution: true,
+            stepKeys: ['repository'],
+          },
+        ],
+      },
     });
 
     expect(result.terminal.status).toBe('failed');
@@ -481,6 +500,15 @@ test('mints a GitHub checkout token for an all-mode repository name', async ({su
         connection: fixture.connection.slug,
         repository: GITHUB_OUTSIDE_REPOSITORY_NAME,
       }),
+      selection: {
+        jobs: [
+          {
+            jobKey: 'checkout',
+            includeDefaultExecution: true,
+            stepKeys: ['repository'],
+          },
+        ],
+      },
     });
 
     expect(result.terminal.status).toBe('failed');
@@ -575,6 +603,7 @@ async function runGithubWorkflow(params: {
   workflowYaml: string;
   project?: ProjectResponseDto | undefined;
   replacements?: Record<string, string> | undefined;
+  selection?: WorkflowRunObservationSelection | undefined;
 }): Promise<{
   terminal: Awaited<ReturnType<typeof waitForRunTerminalOrFailedRunner>>;
   failureLogs: string;
@@ -629,6 +658,9 @@ async function runGithubWorkflow(params: {
       token,
       timeoutMs: TERMINAL_TIMEOUT_MS,
       runner: localRunner.runner,
+      selection: params.selection ?? {
+        jobs: [{jobKey: 'tools', includeDefaultExecution: true, stepKeys: ['github']}],
+      },
     });
 
     if (terminal.status !== 'succeeded') {
@@ -801,6 +833,9 @@ async function runGithubToolsWorkflow(params: {
       token,
       timeoutMs: TERMINAL_TIMEOUT_MS,
       runner: localRunner.runner,
+      selection: {
+        jobs: [{jobKey: 'tools', includeDefaultExecution: true, stepKeys: ['github']}],
+      },
     });
     if (terminal.status !== 'succeeded') {
       for (const request of collectStepLogAttachmentRequests(terminal)) {

@@ -58,7 +58,7 @@ test('starts a run from a signed Slack mention and calls Slack agent tools', asy
       setAsDefault: true,
     });
 
-    const {terminal, eventId} = await runSlackToolsWorkflow({
+    const {terminal} = await runSlackToolsWorkflow({
       suite,
       attach: (name, options) => testInfo.attach(name, options),
       uniqueId,
@@ -71,7 +71,6 @@ test('starts a run from a signed Slack mention and calls Slack agent tools', asy
     });
 
     expect(terminal.status).toBe('succeeded');
-    expect(terminal.trigger_payload).toMatchObject({deliveryId: eventId});
     expect(terminal.jobs.find((job) => job.key === 'tools')?.status).toBe('succeeded');
     expect(slackApi.endpoint.toString()).toBe(
       new URL(process.env.SLACK_API_BASE_URL ?? 'http://invalid.local').toString(),

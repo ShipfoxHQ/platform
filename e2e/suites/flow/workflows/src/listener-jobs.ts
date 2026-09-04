@@ -1,7 +1,8 @@
 import {createApiClient} from '@shipfox/e2e-core';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
-import type {waitForRunTerminal} from '@shipfox/e2e-observe-workflows';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
+import {observeRun} from '@shipfox/e2e-observe-workflows';
 import {
   type AttachFn,
   attachLocalRunnerLog,
@@ -13,7 +14,7 @@ import {
   batchedListenerExecutionMatches,
   sendWebhookDeliveryUntilObserved,
 } from './listener-helpers.js';
-import {waitForRunDetailMatching} from './polling.js';
+import {waitForRunObservationMatching} from './polling.js';
 import {startSuiteLocalRunner} from './runner.js';
 import type {SuiteContext} from './suite-context.js';
 import {fireManualAndAwaitRun} from './triggers.js';
@@ -45,29 +46,38 @@ export interface ListenerCase {
   workspaceId: string;
 }
 
-async function attachRunDetail(params: {
+async function attachRunObservation(params: {
   attach: AttachFn;
   runId: string | undefined;
   token: string;
 }): Promise<void> {
   if (params.runId === undefined) return;
   try {
-    const client = createApiClient({token: params.token});
-    const runDetail = await client.requestJson<Awaited<ReturnType<typeof waitForRunTerminal>>>(
-      'get',
-      `/workflows/runs/${encodeURIComponent(params.runId)}`,
-    );
-    await params.attach({
-      name: 'run-detail.json',
-      contentType: 'application/json',
-      body: JSON.stringify(runDetail, null, 2),
+    const observation = await observeRun({
+      runId: params.runId,
+      selection: {
+        jobs: [
+          {
+            jobKey: LISTENER_JOB,
+            executionSequences: 'all',
+            includeContext: true,
+            stepAttempts: 'all',
+          },
+        ],
+      },
+      token: params.token,
     });
-    for (const request of collectStepLogAttachmentRequests(runDetail)) {
+    await params.attach({
+      name: 'workflow-observation.json',
+      contentType: 'application/json',
+      body: JSON.stringify(observation, null, 2),
+    });
+    for (const request of collectStepLogAttachmentRequests(observation)) {
       await params.attach(await fetchLogAttachment(request, params.token));
     }
   } catch (error) {
     await params.attach({
-      name: 'run-detail.error.txt',
+      name: 'workflow-observation.error.txt',
       contentType: 'text/plain',
       body: error instanceof Error ? error.message : String(error),
     });
@@ -149,7 +159,7 @@ export async function cleanupListenerCase(
   runId: string | undefined,
 ): Promise<void> {
   if (testCase === undefined) return;
-  await attachRunDetail({attach: testCase.attach, runId, token: testCase.token});
+  await attachRunObservation({attach: testCase.attach, runId, token: testCase.token});
   await attachWebhookTriggerDiagnostics({
     attach: testCase.attach,
     client: testCase.client,
@@ -216,15 +226,15 @@ export async function sendResolve(testCase: ListenerCase, label: string): Promis
 }
 
 export async function stepLogText(params: {
-  runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>;
+  observation: WorkflowRunObservation;
   token: string;
   jobKey: string;
   sequence: number;
   stepKey: string;
 }): Promise<string> {
-  const execution = params.runDetail.jobs
+  const execution = params.observation.jobs
     .find((job) => job.key === params.jobKey)
-    ?.job_executions.find((candidate) => candidate.sequence === params.sequence);
+    ?.executions.find((candidate) => candidate.sequence === params.sequence);
   const step = execution?.steps.find((candidate) => candidate.key === params.stepKey);
   if (!step) throw new Error(`Step ${params.jobKey}.${params.sequence}.${params.stepKey} missing`);
   const logs = await fetchStepLogs({
@@ -243,7 +253,7 @@ export async function sendBatchAndAwaitMaterialization(params: {
   timeoutMs: number;
   eventCount?: number | undefined;
   expectedEventCount?: number | undefined;
-}): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+}): Promise<{deliveryIds: string[]; observation: WorkflowRunObservation}> {
   const eventCount = params.eventCount ?? 2;
   const expectedEventCount = params.expectedEventCount ?? eventCount;
   if (
@@ -274,20 +284,29 @@ export async function sendBatchAndAwaitMaterialization(params: {
     });
   }
 
-  const runDetail = await waitForRunDetailMatching({
+  const observation = await waitForRunObservationMatching({
     token: params.testCase.token,
     runId: params.runId,
     timeoutMs: params.timeoutMs,
     description: `batched listener deliveries ${deliveryIds.join(', ')}`,
+    selection: {
+      jobs: [
+        {
+          jobKey: LISTENER_JOB,
+          executionSequences: [params.sequence],
+          includeContext: true,
+        },
+      ],
+    },
     matches: (candidate) =>
       batchedListenerExecutionMatches({
-        runDetail: candidate,
+        observation: candidate,
         jobKey: LISTENER_JOB,
         sequence: params.sequence,
         deliveryIds: deliveryIds.slice(0, expectedEventCount),
       }),
   });
-  return {deliveryIds, runDetail};
+  return {deliveryIds, observation};
 }
 
 export async function sendBatchPairAndAwaitMaterialization(params: {
@@ -296,7 +315,7 @@ export async function sendBatchPairAndAwaitMaterialization(params: {
   label: string;
   sequence: number;
   timeoutMs: number;
-}): Promise<{deliveryIds: string[]; runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>}> {
+}): Promise<{deliveryIds: string[]; observation: WorkflowRunObservation}> {
   return await sendBatchAndAwaitMaterialization({...params, eventCount: 2});
 }
 

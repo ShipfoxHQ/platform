@@ -4,7 +4,6 @@ import type {
   TriggerEventListResponseDto,
   TriggerEventOutcomeDto,
 } from '@shipfox/api-triggers-dto';
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {createApiClient, pollUntil} from '@shipfox/e2e-core';
 import {
   type CommitFile,
@@ -13,7 +12,12 @@ import {
   createRepo,
 } from '@shipfox/e2e-driver-gitea';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
-import {waitForRunByCommit} from '@shipfox/e2e-observe-workflows';
+import {
+  observeRun,
+  type WorkflowRunObservation,
+  type WorkflowRunObservationSelection,
+  waitForRunByCommit,
+} from '@shipfox/e2e-observe-workflows';
 import {attachLocalRunnerLog} from '#attachments.js';
 import {
   findListenerJob,
@@ -31,7 +35,7 @@ import {
   setupListenerCase,
   stopRunner,
 } from '#listener-jobs.js';
-import {waitForRunDetailMatching} from '#polling.js';
+import {waitForRunObservationMatching} from '#polling.js';
 import {startSuiteLocalRunner, waitForRunTerminalOrFailedRunner} from '#runner.js';
 import type {SuiteContext} from '#suite-context.js';
 import {postWebhookDelivery} from '#webhook.js';
@@ -188,28 +192,30 @@ async function assertNoRunsForProject(params: {
 async function assertListenerRemains(params: {
   token: string;
   runId: string;
+  jobKey: string;
   timeoutMs: number;
   description: string;
-  matches: (runDetail: WorkflowRunDetailResponseDto) => {matched: boolean; diagnostic: string};
-}): Promise<WorkflowRunDetailResponseDto> {
-  const client = createApiClient({token: params.token});
+  selection?: WorkflowRunObservationSelection | undefined;
+  matches: (observation: WorkflowRunObservation) => {matched: boolean; diagnostic: string};
+}): Promise<WorkflowRunObservation> {
   const deadline = Date.now() + params.timeoutMs;
-  let lastResponse: WorkflowRunDetailResponseDto | undefined;
+  let lastObservation: WorkflowRunObservation | undefined;
 
   while (Date.now() <= deadline) {
-    lastResponse = await client.requestJson<WorkflowRunDetailResponseDto>(
-      'get',
-      `/workflows/runs/${encodeURIComponent(params.runId)}`,
-    );
-    const result = params.matches(lastResponse);
+    lastObservation = await observeRun({
+      runId: params.runId,
+      selection: params.selection ?? {jobs: [{jobKey: params.jobKey}]},
+      token: params.token,
+    });
+    const result = params.matches(lastObservation);
     if (!result.matched) {
       throw new Error(`${params.description} changed unexpectedly: ${result.diagnostic}`);
     }
     await delay(250);
   }
 
-  if (!lastResponse) throw new Error(`${params.description} was not observed`);
-  return lastResponse;
+  if (!lastObservation) throw new Error(`${params.description} was not observed`);
+  return lastObservation;
 }
 
 async function pushCommit(params: {
@@ -348,14 +354,15 @@ test.describe('filter scenarios', () => {
       });
       runId = await fireManualRun(testCase);
 
-      await waitForRunDetailMatching({
+      await waitForRunObservationMatching({
         token: testCase.token,
         runId,
         timeoutMs: 90_000,
         description: 'listener filter job to start listening',
-        matches: (runDetail) =>
+        selection: {jobs: [{jobKey: LISTENER_JOB}]},
+        matches: (observation) =>
           listenerStatusMatches({
-            runDetail,
+            observation,
             jobKey: LISTENER_JOB,
             listenerStatus: 'listening',
           }),
@@ -386,11 +393,12 @@ test.describe('filter scenarios', () => {
       await assertListenerRemains({
         token: testCase.token,
         runId,
+        jobKey: LISTENER_JOB,
         timeoutMs: LISTENER_NEGATIVE_ASSERTION_MS,
         description: 'listener execution count after nonmatching on filter',
-        matches: (runDetail) =>
+        matches: (observation) =>
           listenerExecutionCountMatches({
-            runDetail,
+            observation,
             jobKey: LISTENER_JOB,
             count: 0,
           }),
@@ -439,11 +447,12 @@ test.describe('filter scenarios', () => {
       await assertListenerRemains({
         token: testCase.token,
         runId,
+        jobKey: LISTENER_JOB,
         timeoutMs: LISTENER_NEGATIVE_ASSERTION_MS,
         description: 'listener status after nonmatching until filter',
-        matches: (runDetail) =>
+        matches: (observation) =>
           listenerStatusMatches({
-            runDetail,
+            observation,
             jobKey: LISTENER_JOB,
             listenerStatus: 'listening',
           }),
@@ -465,7 +474,7 @@ test.describe('filter scenarios', () => {
           },
         },
       });
-      const resolved = await waitForListenerResolution({
+      await waitForListenerResolution({
         token: testCase.token,
         runId,
         jobKey: LISTENER_JOB,
@@ -479,23 +488,23 @@ test.describe('filter scenarios', () => {
         token: testCase.token,
         timeoutMs: 180_000,
         runner: testCase.runner,
+        selection: {
+          jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        },
       });
       const listen = findListenerJob(terminal, LISTENER_JOB);
 
       expect(
         listenerDeliveryObserved({
-          runDetail: resolved,
+          observation: terminal,
           jobKey: LISTENER_JOB,
           deliveryId: matchingFire.deliveryId,
         }).matched,
       ).toBe(true);
       expect(terminal.status).toBe('succeeded');
       expect(listen?.listener_status).toBe('resolved');
-      expect(listen?.resolution_reason).toBe('until');
-      expect(listen?.job_executions).toHaveLength(1);
-      expect(listen?.job_executions[0]?.trigger_events[0]?.delivery_id).toBe(
-        matchingFire.deliveryId,
-      );
+      expect(listen?.executions).toHaveLength(1);
+      expect(listen?.executions[0]?.trigger_events[0]?.delivery_id).toBe(matchingFire.deliveryId);
     } catch (error) {
       await cleanupListenerCase(testCase, runId);
       throw error;
