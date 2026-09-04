@@ -262,6 +262,7 @@ export interface WebhookDeliverySource {
 
 export interface IntegrationsContext {
   module: ShipfoxModule;
+  getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
   registry: IntegrationProviderRegistry;
   capabilities: {
     sourceControl: IntegrationSourceControlService;
@@ -401,6 +402,7 @@ export async function createIntegrationsContext(
 
   return {
     module,
+    getIntegrationConnectionById: resolveIntegrationConnectionById,
     registry,
     capabilities: {sourceControl, repositoryAuthorizer},
     sourceControl,

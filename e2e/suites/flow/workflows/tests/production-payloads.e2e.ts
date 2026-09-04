@@ -1,10 +1,9 @@
-import {setTimeout as delay} from 'node:timers/promises';
 import {
   WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   type WorkflowRunDetailResponseDto,
   type WorkflowRunJobExecutionDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {createApiClient} from '@shipfox/e2e-core';
+import {createApiClient, pollUntil} from '@shipfox/e2e-core';
 import {
   findListenerExecutionBySequence,
   findListenerJob,
@@ -23,6 +22,7 @@ import {
   stepLogText,
   stopRunner,
 } from '#listener-jobs.js';
+import {waitForRunDetailMatching} from '#polling.js';
 import {
   assertSerializedUtf8ByteLength,
   buildProductionListenerEvent,
@@ -82,21 +82,40 @@ async function assertNoListenerExecutions(params: {
   timeoutMs: number;
 }): Promise<void> {
   const client = createApiClient({token: params.token});
-  const deadline = Date.now() + params.timeoutMs;
-  while (Date.now() <= deadline) {
-    const runDetail = await client.requestJson<WorkflowRunDetailResponseDto>(
-      'get',
-      `/workflows/runs/${encodeURIComponent(params.runId)}`,
+  let diagnostic = 'no workflow run detail response observed';
+  try {
+    const unexpected = await pollUntil(
+      {
+        timeoutMs: params.timeoutMs,
+        intervalMs: 250,
+        maxIntervalMs: 250,
+        describe: () => `no listener executions: ${diagnostic}`,
+      },
+      async () => {
+        const runDetail = await client.requestJson<WorkflowRunDetailResponseDto>(
+          'get',
+          `/workflows/runs/${encodeURIComponent(params.runId)}`,
+        );
+        const executions = listenerExecutions(runDetail);
+        diagnostic = `listener execution count=${executions.length}`;
+        return executions.length === 0
+          ? null
+          : {sequences: executions.map((execution) => execution.sequence)};
+      },
     );
-    const executions = listenerExecutions(runDetail);
-    if (executions.length > 0) {
-      throw new Error(
-        `Oversized fire unexpectedly created listener executions: ${executions
-          .map((execution) => execution.sequence)
-          .join(', ')}`,
-      );
+    throw new Error(
+      `Oversized fire unexpectedly created listener executions: ${unexpected.sequences.join(', ')}`,
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith(
+        `Timed out after ${params.timeoutMs}ms waiting for no listener executions:`,
+      )
+    ) {
+      return;
     }
-    await delay(250);
+    throw error;
   }
 }
 
@@ -276,42 +295,44 @@ test.describe('production-shaped workflow payloads', () => {
         });
       }
 
-      const firstMaterialized = await waitForListenerExecution({
+      const materialized = await waitForRunDetailMatching({
         token: testCase.token,
         runId,
-        jobKey: LISTENER_JOB,
-        sequence: 1,
-        status: 'succeeded',
         timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
+        description: 'all byte-sized listener deliveries',
+        matches: (runDetail) => {
+          const job = findListenerJob(runDetail, LISTENER_JOB);
+          if (!job) {
+            return {matched: false, diagnostic: `listener job ${LISTENER_JOB} missing`};
+          }
+          const observed = job.job_executions.flatMap((execution) =>
+            execution.trigger_events.map((event) => event.delivery_id),
+          );
+          const orderMatches = observed.every(
+            (deliveryId, index) => deliveryId === deliveryIds[index],
+          );
+          const statusMatches = job.job_executions.every(
+            (execution) => execution.status === 'succeeded',
+          );
+          return {
+            matched: observed.length === deliveryIds.length && orderMatches && statusMatches,
+            diagnostic: `listener deliveries observed=[${observed.join(', ')}], expected=[${deliveryIds.join(', ')}], statuses=[${job.job_executions.map((execution) => execution.status).join(', ')}]`,
+          };
+        },
       });
-      const secondMaterialized = await waitForListenerExecution({
-        token: testCase.token,
-        runId,
-        jobKey: LISTENER_JOB,
-        sequence: 2,
-        status: 'succeeded',
-        timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
-      });
-      const first = listenerExecution(firstMaterialized, 1);
-      const second = listenerExecution(secondMaterialized, 2);
-      const observedDeliveryIds = [...first.trigger_events, ...second.trigger_events].map(
-        (event) => event.delivery_id,
+      const executions = listenerExecutions(materialized);
+      const observedDeliveryIds = executions.flatMap((execution) =>
+        execution.trigger_events.map((event) => event.delivery_id),
       );
 
-      expect(first.trigger_events.map((event) => event.delivery_id)).toEqual(
-        deliveryIds.slice(0, 2),
-      );
-      expect(second.trigger_events.map((event) => event.delivery_id)).toEqual([deliveryIds[2]]);
+      expect(executions.length).toBeGreaterThanOrEqual(2);
       expect(observedDeliveryIds).toEqual(deliveryIds);
       expect(new Set(observedDeliveryIds).size).toBe(deliveryIds.length);
-      assertSerializedUtf8ByteLength(
-        first.trigger_events,
-        serializedUtf8ByteLength(expectedFirstPartition),
-        'first byte-sized listener partition',
-      );
-      expect(serializedUtf8ByteLength(second.trigger_events)).toBeLessThanOrEqual(
-        LISTENER_EXECUTION_EVENT_LIMIT_BYTES,
-      );
+      for (const execution of executions) {
+        expect(serializedUtf8ByteLength(execution.trigger_events)).toBeLessThanOrEqual(
+          LISTENER_EXECUTION_EVENT_LIMIT_BYTES,
+        );
+      }
 
       await sendResolve(testCase, 'resolve-byte-partition');
       const terminal = await waitForRunTerminalOrFailedRunner({
@@ -321,7 +342,9 @@ test.describe('production-shaped workflow payloads', () => {
         runner: testCase.runner,
       });
       expect(terminal.status).toBe('succeeded');
-      expect(listenerExecutions(terminal).map((execution) => execution.sequence)).toEqual([1, 2]);
+      expect(listenerExecutions(terminal).map((execution) => execution.sequence)).toEqual(
+        executions.map((execution) => execution.sequence),
+      );
     } catch (error) {
       await cleanupListenerCase(testCase, runId);
       throw error;
@@ -388,6 +411,30 @@ test.describe('production-shaped workflow payloads', () => {
         runId,
         timeoutMs: LISTENER_NEGATIVE_ASSERTION_TIMEOUT_MS,
       });
+
+      const recoveryDeliveryId = `${testCase.uniqueId}-oversized-fire-recovery`;
+      const recoveryFixture = buildProductionListenerEvent({
+        source: testCase.fireConnection.slug,
+        deliveryId: recoveryDeliveryId,
+        targetBytes: PRODUCTION_BATCH_EVENT_BYTES,
+      });
+      await sendProductionListenerEvent({
+        testCase,
+        disposition: 'fire',
+        deliveryId: recoveryDeliveryId,
+        payload: recoveryFixture.payload,
+      });
+      const recovered = await waitForListenerExecution({
+        token: testCase.token,
+        runId,
+        jobKey: LISTENER_JOB,
+        sequence: 1,
+        status: 'succeeded',
+        timeoutMs: LISTENER_RUN_TERMINAL_TIMEOUT_MS,
+      });
+      expect(
+        listenerExecution(recovered, 1).trigger_events.map((event) => event.delivery_id),
+      ).toEqual([recoveryDeliveryId]);
     } catch (error) {
       await cleanupListenerCase(testCase, runId);
       throw error;

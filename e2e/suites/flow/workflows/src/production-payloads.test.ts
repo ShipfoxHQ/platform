@@ -1,4 +1,5 @@
 import {
+  MAX_LISTENER_TRIGGER_EVENTS_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,
   WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
@@ -48,9 +49,9 @@ describe('production-shaped workflow payload fixtures', () => {
 
     expect(
       serializedUtf8ByteLength(fixtures.slice(0, 2).map((fixture) => fixture.expectedEvent)),
-    ).toBeLessThanOrEqual(1_000_000);
+    ).toBeLessThanOrEqual(MAX_LISTENER_TRIGGER_EVENTS_BYTES);
     expect(
       serializedUtf8ByteLength(fixtures.map((fixture) => fixture.expectedEvent)),
-    ).toBeGreaterThan(1_000_000);
+    ).toBeGreaterThan(MAX_LISTENER_TRIGGER_EVENTS_BYTES);
   });
 });

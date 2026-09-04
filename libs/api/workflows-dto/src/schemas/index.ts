@@ -103,6 +103,7 @@ export {
   workflowExecutionTriggerEventsResponseSchema,
 } from './workflow-execution-events.js';
 export {
+  MAX_LISTENER_FIRE_EVENT_BYTES,
   MAX_LISTENER_TRIGGER_EVENTS_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,
   RUNNER_NEXT_STEP_ENVELOPE_ALLOWANCE_BYTES,

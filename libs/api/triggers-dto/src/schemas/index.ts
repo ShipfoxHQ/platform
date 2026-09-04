@@ -5,6 +5,12 @@ export {
   createDevRunResponseSchema,
 } from './dev-runs.js';
 export {
+  type E2eDispatchListenerEventBodyDto,
+  type E2eDispatchListenerEventResponseDto,
+  e2eDispatchListenerEventBodySchema,
+  e2eDispatchListenerEventResponseSchema,
+} from './e2e.js';
+export {
   type FireManualTriggerBodyDto,
   type FireManualTriggerResponseDto,
   fireManualTriggerBodySchema,

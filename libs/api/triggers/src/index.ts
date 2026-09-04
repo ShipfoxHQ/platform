@@ -20,7 +20,7 @@ import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-modul
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
 import {db, migrationsPath, triggersOutbox} from '#db/index.js';
 import {registerTriggersServiceMetrics} from '#metrics/index.js';
-import {createTriggersE2eRoutes} from '#presentation/e2e-routes.js';
+import {createTriggersE2eRoutes, type GetTriggersE2eConnection} from '#presentation/e2e-routes.js';
 import {createTriggerRoutes} from '#presentation/index.js';
 import {createTriggersInterModulePresentation} from '#presentation/inter-module.js';
 import {
@@ -84,18 +84,20 @@ export interface CreateTriggersModuleOptions {
   workflows: WorkflowsModuleClient;
   definitions: DefinitionsInterModuleClient;
   projects: ProjectsModuleClient;
+  getIntegrationConnectionById: GetTriggersE2eConnection;
 }
 
 export function createTriggersModule({
   workflows,
   definitions,
   projects,
+  getIntegrationConnectionById,
 }: CreateTriggersModuleOptions): ShipfoxModule {
   return {
     name: 'triggers',
     database: {db, migrationsPath, databaseNamespace: 'triggers'},
     routes: createTriggerRoutes(workflows, definitions, projects),
-    e2eRoutes: [createTriggersE2eRoutes(workflows)],
+    e2eRoutes: [createTriggersE2eRoutes({workflows, getIntegrationConnectionById})],
     metrics: registerTriggersServiceMetrics,
     interModulePresentations: [createTriggersInterModulePresentation()],
     publishers: [{name: 'triggers', table: triggersOutbox, db}],
