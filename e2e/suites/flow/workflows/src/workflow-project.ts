@@ -28,13 +28,6 @@ export interface WorkflowProjectFile {
  */
 export type DefinitionDelivery = 'vcs' | 'api';
 
-// A job checks out the project repository unless it opts out, so an `api` delivery still
-// needs the repo to hold a commit and therefore a default branch.
-const CHECKOUT_PLACEHOLDER_FILE: WorkflowProjectFile = {
-  path: 'README.md',
-  content: '# Shipfox E2E fixture repository\n',
-};
-
 export interface SeededWorkflowProject {
   project: ProjectResponseDto;
   repo: string;
@@ -101,20 +94,24 @@ export async function seedWorkflowProject(params: {
       ...(giteaIssue === undefined ? {} : {__GITEA_ISSUE_NUMBER__: String(giteaIssue.number)}),
     },
   });
-  await commitFiles({
-    org: params.suite.org,
-    repo: params.repo,
-    message: `seed ${params.name}`,
-    files: [
-      // An `api` delivery deliberately leaves the workflow file out of the repo. A synced
-      // VCS definition at the same path is a second row with the same triggers, so it
-      // subscribes twice and one event starts two runs.
-      params.definitionDelivery === 'api'
-        ? CHECKOUT_PLACEHOLDER_FILE
-        : {path: params.configPath, content: renderedWorkflowYaml},
-      ...(params.extraFiles ?? []).map((file) => ({path: file.path, content: file.content})),
-    ],
-  });
+  const files = [
+    // An `api` delivery deliberately leaves the workflow file out of the repo. A synced
+    // VCS definition at the same path is a second row with the same triggers, so it
+    // subscribes twice and one event starts two runs. `createRepo` already initializes
+    // the repository with a default branch for jobs that check it out.
+    ...(params.definitionDelivery === 'api'
+      ? []
+      : [{path: params.configPath, content: renderedWorkflowYaml}]),
+    ...(params.extraFiles ?? []).map((file) => ({path: file.path, content: file.content})),
+  ];
+  if (files.length > 0) {
+    await commitFiles({
+      org: params.suite.org,
+      repo: params.repo,
+      message: `seed ${params.name}`,
+      files,
+    });
+  }
 
   const project = await createProject({
     workspaceId: params.suite.workspaceId,

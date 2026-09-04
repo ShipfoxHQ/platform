@@ -23,7 +23,7 @@ import {
   postWebhookDelivery,
   type WebhookDiagnosticsRequest,
 } from './webhook.js';
-import {seedAndWaitForDefinition} from './workflow-project.js';
+import {seedProjectWithApiDefinition} from './workflow-project.js';
 
 export const LISTENER_JOB = 'listen';
 const FIRE_SOURCE_PLACEHOLDER = '__FIRE_WEBHOOK_SOURCE__';
@@ -105,7 +105,7 @@ export async function setupListenerCase(params: {
     }),
   ]);
 
-  const {definition} = await seedAndWaitForDefinition({
+  const {definition} = await seedProjectWithApiDefinition({
     suite: params.suite,
     token,
     name: params.testName,
