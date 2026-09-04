@@ -1,3 +1,4 @@
+import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
 import {createWorkflowModelSnapshot} from '@shipfox/api-definitions-dto';
 import {
   MAX_RESOLVED_STEP_CONFIG_BYTES,
@@ -5,12 +6,17 @@ import {
 } from '@shipfox/api-workflows-dto';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
-import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
+import {
+  createInterModuleKnownError,
+  defineInterModulePresentation,
+  isInterModuleKnownError,
+} from '@shipfox/inter-module';
 import {
   decodeNumberIdCursor,
   decodeTimestampIdCursor,
   encodeTimestampIdCursor,
 } from '@shipfox/node-drizzle';
+import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
@@ -253,13 +259,18 @@ describe('Workflows inter-module presentation', () => {
     mocks.listFailedStepAttempts.mockResolvedValue([]);
     mocks.getWorkflowRunAttemptIdForScope.mockResolvedValue(crypto.randomUUID());
     mocks.getWorkflowRunAnnotationOrigins.mockResolvedValue([]);
-    const annotations = {
-      listAnnotationsForRunAttempt: vi.fn().mockResolvedValue({
-        annotations: [],
-        hasMore: false,
-        nextCursor: null,
+    const listAnnotationsForRunAttempt = vi.fn().mockResolvedValue({
+      annotations: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+    const annotations = createFakeInterModuleClients({
+      annotations: defineInterModulePresentation(annotationsInterModuleContract, {
+        replaceOrRemoveAnnotation: () => ({}),
+        listAnnotationsForRunAttempt: (annotationInput) =>
+          listAnnotationsForRunAttempt(annotationInput),
       }),
-    };
+    }).annotations;
     const presentation = createWorkflowsInterModulePresentation({
       agent: {} as never,
       annotations: annotations as never,
@@ -287,6 +298,12 @@ describe('Workflows inter-module presentation', () => {
         context,
       ),
     ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    expect(listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+      workspaceId,
+      workflowRunId,
+      workflowRunAttempt: attempt,
+      limit: 100,
+    });
     await expect(
       presentation.handlers.listFailedStepAttempts(
         {workspaceId, workflowRunId, limit: 10},

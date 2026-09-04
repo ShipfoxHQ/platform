@@ -155,7 +155,7 @@ async function readRunAnnotations({
     workspaceId: run.workspaceId,
     workflowRunId: run.id,
     workflowRunAttempt: attempt,
-    cursor,
+    ...(cursor ? {cursor} : {}),
     limit,
   });
 

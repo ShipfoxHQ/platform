@@ -1,4 +1,4 @@
-import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
+import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
 import type {AgentAccessEnvelopeDto} from '@shipfox/api-agent-access-dto';
 import {agentAccessEnvelopeSchema} from '@shipfox/api-agent-access-dto';
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
@@ -9,8 +9,9 @@ import {
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
-import {createInterModuleKnownError} from '@shipfox/inter-module';
+import {createInterModuleKnownError, defineInterModulePresentation} from '@shipfox/inter-module';
 import {decodeNumberIdCursor, decodeStringIdCursor} from '@shipfox/node-drizzle';
+import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
 import {createAgentAccessTools} from './paged-tools.js';
 import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
@@ -188,7 +189,7 @@ describe('paged agent-access tools', () => {
   test('resolves the latest annotation attempt and marks UTF-8 body truncation', async () => {
     const mocks = clients();
     mocks.workflows.getLatestRunAttempt.mockResolvedValue({attempt: 2});
-    mocks.annotations.listAnnotationsForRunAttempt.mockResolvedValue({
+    mocks.annotationHandlers.listAnnotationsForRunAttempt.mockResolvedValue({
       annotations: [
         {
           id: annotationId,
@@ -217,12 +218,10 @@ describe('paged agent-access tools', () => {
       workspaceId,
       workflowRunId: runId,
     });
-    expect(mocks.annotations.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       workflowRunAttempt: 2,
-      jobExecutionId: undefined,
-      cursor: undefined,
       limit: 50,
     });
     expect(result.annotations[0]).toMatchObject({
@@ -252,7 +251,7 @@ describe('paged agent-access tools', () => {
 
     expect(response).toEqual({ok: false, error: {code: 'invalid-request'}});
     expect(mocks.workflows.getLatestRunAttempt).not.toHaveBeenCalled();
-    expect(mocks.annotations.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
   });
 
   test('maps trigger filters and projects connection metadata', async () => {
@@ -345,7 +344,7 @@ describe('paged agent-access tools', () => {
     });
 
     expect(response).toEqual({ok: false, error: {code: 'not-found'}});
-    expect(mocks.annotations.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).not.toHaveBeenCalled();
   });
 
   test('reduces an oversized annotation page and anchors its cursor to the retained item', async () => {
@@ -363,7 +362,7 @@ describe('paged agent-access tools', () => {
       body: 'x'.repeat(9_000),
       createdAt: isoDate,
     }));
-    mocks.annotations.listAnnotationsForRunAttempt.mockResolvedValue({
+    mocks.annotationHandlers.listAnnotationsForRunAttempt.mockResolvedValue({
       annotations,
       hasMore: false,
       nextCursor: null,
@@ -390,6 +389,14 @@ describe('paged agent-access tools', () => {
 });
 
 function clients() {
+  const listAnnotationsForRunAttempt = vi.fn();
+  const annotations = createFakeInterModuleClients({
+    annotations: defineInterModulePresentation(annotationsInterModuleContract, {
+      replaceOrRemoveAnnotation: () => ({}),
+      listAnnotationsForRunAttempt: (input) => listAnnotationsForRunAttempt(input),
+    }),
+  }).annotations;
+
   return {
     projects: {
       listProjectCatalogByWorkspace: vi.fn(),
@@ -412,11 +419,8 @@ function clients() {
       getLatestRunAttempt: ReturnType<typeof vi.fn>;
       getWorkflowRunOverview: ReturnType<typeof vi.fn>;
     },
-    annotations: {
-      listAnnotationsForRunAttempt: vi.fn(),
-    } as unknown as AnnotationsInterModuleClient & {
-      listAnnotationsForRunAttempt: ReturnType<typeof vi.fn>;
-    },
+    annotations,
+    annotationHandlers: {listAnnotationsForRunAttempt},
     triggers: {
       listTriggerEvents: vi.fn(),
     } as unknown as TriggersInterModuleClient & {
