@@ -1,7 +1,7 @@
 ---
 "@shipfox/api-integration-core": minor
-"@shipfox/api-integration-gitea": patch
-"@shipfox/api-integration-github": patch
+"@shipfox/api-integration-gitea": minor
+"@shipfox/api-integration-github": minor
 "@shipfox/api-integration-spi": minor
 ---
 
