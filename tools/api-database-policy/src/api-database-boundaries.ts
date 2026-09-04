@@ -34,6 +34,7 @@ const sqlTemplateExpression = /\bsql(?:\.raw)?\s*`[^`]*$/su;
 const sqlCallExpression = /\bsql(?:\.raw)?\s*\([^\n]*$/u;
 const sqlKeywordExpression =
   /\b(?:SELECT\s+.+\s+FROM|TRUNCATE\s+(?:TABLE\s+)?[A-Za-z_"']|INSERT\s+INTO|UPDATE\s+[A-Za-z_"']+\s+SET|DELETE\s+FROM|(?:ALTER|DROP|CREATE)\s+(?:TABLE|TYPE|INDEX|VIEW|SEQUENCE|TRIGGER)|LOCK\s+TABLE)\b/iu;
+// Keep these openers aligned with the sqlTemplateExpression and sqlCallExpression acceptance checks.
 const sqlTagOrCallExpression = /\bsql(?:\.raw)?\s*(?:`|\()/u;
 const staticSqlCandidateExpression = new RegExp(
   `(?:${sqlTagOrCallExpression.source}|${sqlKeywordExpression.source})`,

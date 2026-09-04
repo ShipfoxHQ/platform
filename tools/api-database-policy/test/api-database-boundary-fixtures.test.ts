@@ -165,10 +165,17 @@ async function createFixtureRepository(rootDirectory: string): Promise<void> {
   await writeFixture(
     rootDirectory,
     'libs/api/alpha/src/raw-sql.ts',
-    [
-      "import {sql} from 'drizzle-orm';",
-      "export const selected = sql.raw('SELECT * FROM beta_owned');",
-    ].join('\n'),
+    ["export const selected = sql.raw('beta_owned');"].join('\n'),
+  );
+  await writeFixture(
+    rootDirectory,
+    'libs/api/alpha/src/keyword-sql.ts',
+    ["export const selected = 'SELECT * FROM beta_owned';"].join('\n'),
+  );
+  await writeFixture(
+    rootDirectory,
+    'libs/api/alpha/src/template-sql.ts',
+    ['const selected = sql`beta_owned`;'].join('\n'),
   );
   await writeFixture(
     rootDirectory,
@@ -186,7 +193,7 @@ async function createFixtureRepository(rootDirectory: string): Promise<void> {
       "import {sql} from 'drizzle-orm';",
       "export const providerTable = pgTable('local', {});",
       'export const sharedQuery = sql`SELECT * FROM integrations_core_owned`;',
-      "export const sharedRawQuery = sql.raw('SELECT * FROM integrations_core_owned');",
+      "export const sharedRawQuery = sql.raw('integrations_core_owned');",
       'export const registeredQuery = sql`SELECT * FROM $' + '{providerTable}`;',
     ].join('\n'),
   );
@@ -254,14 +261,17 @@ describe('database boundary verifier fixtures', () => {
             finding.rule === 'foreign-key',
         ),
       );
-      assert.ok(
-        findings.some(
-          (finding) =>
-            finding.file === 'libs/api/alpha/src/raw-sql.ts' &&
-            finding.object === 'beta_owned' &&
-            finding.rule === 'foreign-raw-sql',
-        ),
-      );
+      for (const file of ['raw-sql.ts', 'keyword-sql.ts', 'template-sql.ts']) {
+        assert.ok(
+          findings.some(
+            (finding) =>
+              finding.file === `libs/api/alpha/src/${file}` &&
+              finding.object === 'beta_owned' &&
+              finding.rule === 'foreign-raw-sql',
+          ),
+          `fixture did not report foreign raw SQL in ${file}`,
+        );
+      }
       assert.doesNotMatch(
         findings
           .filter((finding) => finding.file.includes('/accepted.ts'))
