@@ -16,11 +16,14 @@ import {toast} from '@shipfox/react-ui/toast';
 import {Text} from '@shipfox/react-ui/typography';
 import {useNavigate} from '@tanstack/react-router';
 import {type ReactNode, useEffect, useMemo, useRef, useState} from 'react';
-import {buildRunAnnotationList, type RunAnnotationSummary} from '#core/run-annotation.js';
 import {
-  type EvaluationTraceEntry,
+  buildRunAnnotationList,
+  type RunAnnotationEntry,
+  type RunAnnotationSummary,
+  type RunJobExplanation,
+} from '#core/run-annotation.js';
+import {
   isWorkflowRunTerminal,
-  type Job,
   type StepSourceLocation,
   type WorkflowRunDetail,
   type WorkflowRunOverview,
@@ -31,6 +34,7 @@ import {
 import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
+import {useRunJobExplanationsQuery} from '#hooks/api/run-job-explanations.js';
 import {toWorkflowRunLineageHeadFromRecord} from '#hooks/api/workflow-run-mapper.js';
 import {
   useWorkflowRunLineageHeadQuery,
@@ -89,7 +93,7 @@ export interface WorkflowRunViewProps {
   activeJob?: WorkflowRunOverviewJob | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   jobContent?: ReactNode | undefined;
-  /** Run-level legacy bridge data, retained only for mixed-deployment run sections. */
+  /** Legacy full-tree bridge, retained only when bounded selection resolution fails. */
   legacyQuery?: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
 }
 
@@ -117,7 +121,8 @@ export function WorkflowRunView({
     {workflowRunId: string; attempt: number} | undefined
   >();
   const explicitAttempt = routeAttempt ?? pinnedWorkflowRunAttempt(pinnedAttempt, workflowRunId);
-  const hasLegacyJobSelection = containsLegacyJobSelection(selection);
+  const hasLegacyJobSelection =
+    activeSection === 'summary' && containsLegacyJobSelection(selection);
 
   useEffect(() => {
     if (routeAttempt !== undefined) setPinnedAttempt(undefined);
@@ -165,7 +170,6 @@ export function WorkflowRunView({
   });
   const legacyBridgeEnabled = shouldLoadLegacyBridge({
     activeJobId,
-    activeSection,
     hasLegacyJobSelection,
     selectionQueryIsError: selectionQuery.isError,
   });
@@ -188,6 +192,12 @@ export function WorkflowRunView({
   );
   const rerunMutation = useRerunWorkflowRunMutation(projectId);
   const annotationsQuery = useRunAnnotationsQuery({
+    workflowRunId,
+    runAttempt: overviewAttempt,
+    enabled: shouldLoadRunAnnotations(activeSection, activeJobId),
+    live: shouldLiveRunAnnotations(activeSection, activeJobId, overviewQuery.data, overviewStatus),
+  });
+  const jobExplanationsQuery = useRunJobExplanationsQuery({
     workflowRunId,
     runAttempt: overviewAttempt,
     enabled: shouldLoadRunAnnotations(activeSection, activeJobId),
@@ -219,6 +229,7 @@ export function WorkflowRunView({
           listRun={listRun}
           legacyQuery={legacyQuery}
           annotations={annotationsQuery}
+          jobExplanations={jobExplanationsQuery}
           annotationSummaryQuery={annotationSummaryQuery}
           rerunMutation={rerunMutation}
           runAttempt={overviewAttempt}
@@ -326,17 +337,15 @@ function workflowRunActionsReady({
 
 function shouldLoadLegacyBridge({
   activeJobId,
-  activeSection,
   hasLegacyJobSelection,
   selectionQueryIsError,
 }: {
   activeJobId: string | undefined;
-  activeSection: RunWorkspaceSection;
   hasLegacyJobSelection: boolean;
   selectionQueryIsError: boolean;
 }): boolean {
   if (activeJobId !== undefined) return false;
-  return activeSection === 'annotations' || (hasLegacyJobSelection && selectionQueryIsError);
+  return hasLegacyJobSelection && selectionQueryIsError;
 }
 
 function shouldLoadAnnotationSummary({
@@ -465,6 +474,7 @@ function RunViewContent({
   listRun,
   legacyQuery,
   annotations,
+  jobExplanations,
   annotationSummaryQuery,
   rerunMutation,
   runAttempt,
@@ -485,6 +495,7 @@ function RunViewContent({
   listRun: ReturnType<typeof useWorkflowRunListItem>;
   legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummaryQuery: ReturnType<typeof useWorkflowRunAnnotationSummaryQuery>;
   rerunMutation: ReturnType<typeof useRerunWorkflowRunMutation>;
   runAttempt: number | undefined;
@@ -503,7 +514,7 @@ function RunViewContent({
   const resolvedSelection =
     legacyRun && selection ? resolveWorkflowRunSelection({run: legacyRun, selection}) : undefined;
   const resolvedJobId = selectionQuery.data?.jobId ?? resolvedSelection?.job?.id;
-  const selectedJobId = containsLegacyJobSelection(selection) ? resolvedJobId : undefined;
+  const selectedJobId = selectedRunJobId({activeSection, selection, resolvedJobId});
   const highlightedLineRange =
     selectionQuery.data?.sourceLocation ?? resolvedSelection?.step?.sourceLocation ?? null;
   const annotationSummary = annotationSummaryQuery.data ?? annotations.summary;
@@ -639,6 +650,7 @@ function RunViewContent({
       shellRun={shellRun}
       legacyQuery={legacyQuery}
       annotations={annotations}
+      jobExplanations={jobExplanations}
       annotationSummary={annotationSummary}
       rerunPending={rerunMutation.isPending}
       activeSection={activeSection}
@@ -659,6 +671,20 @@ function RunViewContent({
   );
 }
 
+function selectedRunJobId({
+  activeSection,
+  selection,
+  resolvedJobId,
+}: {
+  activeSection: RunWorkspaceSection;
+  selection: WorkflowRunsSearch | undefined;
+  resolvedJobId: string | undefined;
+}): string | undefined {
+  if (activeSection === 'annotations') return selection?.jobId;
+  if (containsLegacyJobSelection(selection)) return resolvedJobId;
+  return undefined;
+}
+
 function RunViewLayout({
   workspaceSlug,
   projectSlug,
@@ -669,6 +695,7 @@ function RunViewLayout({
   shellRun,
   legacyQuery,
   annotations,
+  jobExplanations,
   annotationSummary,
   rerunPending,
   activeSection,
@@ -695,6 +722,7 @@ function RunViewLayout({
   shellRun: WorkflowRunShell | undefined;
   legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
   rerunPending: boolean;
   activeSection: RunWorkspaceSection;
@@ -778,10 +806,10 @@ function RunViewLayout({
               overview={overview}
               sourceQuery={sourceQuery}
               shellRun={shellRun}
-              legacyQuery={legacyQuery}
               jobContent={jobContent}
               activeSection={activeSection}
               annotations={annotations}
+              jobExplanations={jobExplanations}
               annotationSummary={annotationSummary}
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
@@ -805,10 +833,10 @@ function RunWorkspaceContent({
   overview,
   sourceQuery,
   shellRun,
-  legacyQuery,
   jobContent,
   activeSection,
   annotations,
+  jobExplanations,
   annotationSummary,
   workspaceSlug,
   projectSlug,
@@ -826,10 +854,10 @@ function RunWorkspaceContent({
   overview: WorkflowRunOverview | undefined;
   sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
   shellRun: WorkflowRunShell | undefined;
-  legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   jobContent: ReactNode | undefined;
   activeSection: RunWorkspaceSection;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -869,15 +897,15 @@ function RunWorkspaceContent({
     );
   }
 
-  const sectionFallback = workspaceSectionFallback({activeSection, legacyQuery, sourceQuery});
+  const sectionFallback = workspaceSectionFallback({activeSection, sourceQuery});
   if (sectionFallback) return sectionFallback;
 
   return (
     <RunSectionContent
       section={activeSection}
       run={overview}
-      legacyRun={legacyQuery?.data}
       annotations={annotations}
+      jobExplanations={jobExplanations}
       annotationSummary={annotationSummary}
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
@@ -895,31 +923,11 @@ function RunWorkspaceContent({
 
 function workspaceSectionFallback({
   activeSection,
-  legacyQuery,
   sourceQuery,
 }: {
   activeSection: RunWorkspaceSection;
-  legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
 }): ReactNode | undefined {
-  if (
-    activeSection === 'annotations' &&
-    (!legacyQuery || legacyQuery.isPending || legacyQuery.data === undefined)
-  ) {
-    if (legacyQuery?.isError) {
-      return (
-        <div className="min-h-0 flex-1 overflow-auto p-panel">
-          <QueryLoadError query={legacyQuery} subject="workflow run details" icon="pulseLine" />
-        </div>
-      );
-    }
-    return (
-      <div className="min-h-0 flex-1 overflow-auto p-panel">
-        <WorkflowRunContentSkeleton />
-      </div>
-    );
-  }
-
   if (activeSection === 'source' && (sourceQuery.isPending || sourceQuery.data === undefined)) {
     if (sourceQuery.isError) {
       return (
@@ -975,8 +983,8 @@ function shouldRedirectLegacyJob({
 function RunSectionContent({
   section,
   run,
-  legacyRun,
   annotations,
+  jobExplanations,
   annotationSummary,
   workspaceSlug,
   projectSlug,
@@ -991,8 +999,8 @@ function RunSectionContent({
 }: {
   section: RunWorkspaceSection;
   run: WorkflowRunOverview;
-  legacyRun: WorkflowRunDetail | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -1039,17 +1047,11 @@ function RunSectionContent({
   }
 
   if (section === 'annotations') {
-    if (!legacyRun) {
-      return (
-        <div className="min-h-0 flex-1 overflow-auto p-panel">
-          <WorkflowRunContentSkeleton />
-        </div>
-      );
-    }
     return (
       <RunAnnotationsSection
-        run={legacyRun}
+        run={run}
         annotations={annotations}
+        jobExplanations={jobExplanations}
         annotationSummary={annotationSummary}
         workspaceSlug={workspaceSlug}
         projectSlug={projectSlug}
@@ -1130,6 +1132,7 @@ function WorkflowSourceStaleError({query}: {query: ReturnType<typeof useWorkflow
 function RunAnnotationsSection({
   run,
   annotations,
+  jobExplanations,
   annotationSummary,
   workspaceSlug,
   projectSlug,
@@ -1138,8 +1141,9 @@ function RunAnnotationsSection({
   onSelectAnnotationJob,
   onClearAnnotationFilters,
 }: {
-  run: WorkflowRunDetail;
+  run: WorkflowRunOverview;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
+  jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -1148,49 +1152,55 @@ function RunAnnotationsSection({
   onSelectAnnotationJob: (jobId: string | undefined) => void;
   onClearAnnotationFilters: () => void;
 }) {
-  const selectedJob = run.jobs.find((job) => job.id === selectedJobId);
   const severity = selection?.severity;
-  const records = annotations.annotations;
+  const annotationEntries = annotations.entries;
+  const explanations = jobExplanations.explanations;
+  const jobs = useMemo(
+    () => annotationJobOptions(run, annotationEntries, explanations),
+    [annotationEntries, explanations, run],
+  );
+  const selectedJob = jobs.find((job) => job.id === selectedJobId);
 
   const entries = useMemo(
     () =>
-      records
+      annotationEntries
         ? buildRunAnnotationList({
-            annotations: records,
-            jobs: run.jobs,
+            entries: annotationEntries,
             severity,
-            jobId: selectedJob?.id,
+            jobId: selectedJobId,
           })
         : undefined,
-    [records, run.jobs, selectedJob?.id, severity],
+    [annotationEntries, selectedJobId, severity],
   );
   const derivedAnnotations = useMemo<readonly DerivedRunAnnotation[] | undefined>(() => {
-    if (!records) return undefined;
-    const jobsWithAnnotations = new Set(records.map((annotation) => annotation.jobId));
-
-    return run.jobs
-      .filter((job) => {
-        const style = job.status === 'failed' ? 'error' : 'warning';
+    if (!explanations) return undefined;
+    return explanations
+      .filter((explanation) => {
+        const style = explanation.status === 'failed' ? 'error' : 'warning';
         return (
-          (!selectedJob || selectedJob.id === job.id) &&
-          !jobsWithAnnotations.has(job.id) &&
-          (job.status === 'failed' || job.status === 'skipped') &&
-          job.jobExecutions.length === 0 &&
+          (!selectedJobId || selectedJobId === explanation.jobId) &&
           matchesDerivedAnnotationFilters(style, selection)
         );
       })
-      .map((job) => ({
-        id: `derived-${job.id}`,
-        style: job.status === 'failed' ? 'error' : 'warning',
-        jobName: job.displayName,
-        body: derivedJobAnnotation(job),
-      }));
-  }, [records, run.jobs, selectedJob, selection]);
-  const hasSynthesizedJobAnnotations = run.jobs.some(
-    (job) =>
-      (job.status === 'failed' || job.status === 'skipped') && job.jobExecutions.length === 0,
-  );
-  const annotationTotal = Math.max(annotationSummary?.total ?? 0, records?.length ?? 0);
+      .map((explanation) => ({
+        id: `derived-${explanation.jobId}`,
+        jobId: explanation.jobId,
+        jobPosition: explanation.jobPosition,
+        style: explanation.status === 'failed' ? ('error' as const) : ('warning' as const),
+        jobName: explanation.jobName,
+        body: derivedJobAnnotation(explanation),
+      }))
+      .sort(
+        (left, right) =>
+          left.jobPosition - right.jobPosition || left.jobId.localeCompare(right.jobId),
+      );
+  }, [explanations, selectedJobId, selection]);
+  const annotationTotal = Math.max(annotationSummary?.total ?? 0, annotationEntries?.length ?? 0);
+  const hasKnownDiagnostics =
+    annotationTotal > 0 ||
+    (explanations?.length ?? 0) > 0 ||
+    annotations.query.hasNextPage ||
+    jobExplanations.query.hasNextPage;
 
   return (
     <section
@@ -1211,7 +1221,7 @@ function RunAnnotationsSection({
               search={selection}
             />
             <AnnotationJobFilter
-              jobs={run.jobs}
+              jobs={jobs}
               selectedJobId={selectedJob?.id}
               onSelect={onSelectAnnotationJob}
             />
@@ -1223,6 +1233,7 @@ function RunAnnotationsSection({
             // list never inherits a "show more" position from different data.
             key={`${run.id}:${run.runAttempt.attempt}:${severity ?? 'all'}:${selectedJob?.id ?? 'all'}`}
             query={annotations.query}
+            jobExplanationsQuery={jobExplanations.query}
             entries={entries}
             derivedAnnotations={derivedAnnotations}
             workspaceSlug={workspaceSlug}
@@ -1230,10 +1241,8 @@ function RunAnnotationsSection({
             workflowRunId={run.id}
             runAttempt={run.runAttempt.attempt}
             // A run with no annotations at all offers no filter to clear, whatever the URL says.
-            filtered={Boolean(
-              (severity || selectedJob) && (annotationTotal > 0 || hasSynthesizedJobAnnotations),
-            )}
-            filteredJobName={selectedJob?.displayName}
+            filtered={Boolean((severity || selectedJobId) && hasKnownDiagnostics)}
+            filteredJobName={selectedJob?.name}
             filteredSeverity={severity}
             onClearFilters={onClearAnnotationFilters}
           />
@@ -1251,12 +1260,12 @@ function matchesDerivedAnnotationFilters(
 }
 
 /** The row is titled by its job, so the body opens with what happened rather than repeating it. */
-function derivedJobAnnotation(job: Job): string {
-  const reason = job.statusReason ? `Reason: \`${job.statusReason}\`` : null;
-  const traceSummary = formatConditionEvaluation(job.evaluationTrace);
+function derivedJobAnnotation(explanation: RunJobExplanation): string {
+  const reason = explanation.statusReason ? `Reason: \`${explanation.statusReason}\`` : null;
+  const traceSummary = formatConditionEvaluation(explanation.evaluationTrace);
   const details = [reason, traceSummary].filter(Boolean).join('\n');
 
-  if (job.status === 'skipped') {
+  if (explanation.status === 'skipped') {
     return [
       'Skipped before an execution was created.',
       '',
@@ -1276,9 +1285,7 @@ function derivedJobAnnotation(job: Job): string {
     .join('\n');
 }
 
-function formatConditionEvaluation(
-  trace: readonly EvaluationTraceEntry[] | null | undefined,
-): string | null {
+function formatConditionEvaluation(trace: RunJobExplanation['evaluationTrace']): string | null {
   if (!trace?.length) return null;
 
   return [
@@ -1296,19 +1303,52 @@ function formatConditionEvaluation(
 
 const ALL_ANNOTATION_JOBS = 'all-jobs';
 
+interface AnnotationJobOption {
+  id: string;
+  name: string;
+  position: number;
+}
+
+function annotationJobOptions(
+  run: WorkflowRunOverview,
+  entries: readonly RunAnnotationEntry[] | undefined,
+  explanations: readonly RunJobExplanation[] | undefined,
+): AnnotationJobOption[] {
+  const options = new Map<string, AnnotationJobOption>();
+  const overviewJobs = run.jobs.kind === 'complete' ? run.jobs.items : run.jobs.firstPage.items;
+  for (const job of overviewJobs) {
+    options.set(job.id, {id: job.id, name: job.displayName, position: job.position});
+  }
+  for (const entry of entries ?? []) {
+    options.set(entry.annotation.jobId, {
+      id: entry.annotation.jobId,
+      name: entry.jobName,
+      position: entry.jobPosition,
+    });
+  }
+  for (const explanation of explanations ?? []) {
+    options.set(explanation.jobId, {
+      id: explanation.jobId,
+      name: explanation.jobName,
+      position: explanation.jobPosition,
+    });
+  }
+
+  return [...options.values()].sort(
+    (left, right) => left.position - right.position || left.id.localeCompare(right.id),
+  );
+}
+
 function AnnotationJobFilter({
   jobs,
   selectedJobId,
   onSelect,
 }: {
-  jobs: Job[];
+  jobs: readonly AnnotationJobOption[];
   selectedJobId: string | undefined;
   onSelect: (jobId: string | undefined) => void;
 }) {
-  const sortedJobs = [...jobs].sort(
-    (left, right) => left.position - right.position || left.id.localeCompare(right.id),
-  );
-  const selectedJobName = jobs.find((job) => job.id === selectedJobId)?.displayName;
+  const selectedJobName = jobs.find((job) => job.id === selectedJobId)?.name;
 
   return (
     <Select
@@ -1327,9 +1367,9 @@ function AnnotationJobFilter({
       </SelectTrigger>
       <SelectContent align="end">
         <SelectItem value={ALL_ANNOTATION_JOBS}>All jobs</SelectItem>
-        {sortedJobs.map((job) => (
+        {jobs.map((job) => (
           <SelectItem key={job.id} value={job.id}>
-            {job.displayName}
+            {job.name}
           </SelectItem>
         ))}
       </SelectContent>

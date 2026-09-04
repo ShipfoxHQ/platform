@@ -443,10 +443,14 @@ function summarizeLoadedJobAnnotations(
   annotations: ReturnType<typeof useRunAnnotationsQuery>,
   jobId: string,
 ): RunAnnotationSummary | undefined {
-  if (!annotations.annotations) return undefined;
-  return summarizeJobAnnotations(annotations.annotations, jobId, {
-    truncated: annotations.summary?.truncated ?? false,
-  });
+  if (!annotations.entries) return undefined;
+  return summarizeJobAnnotations(
+    annotations.entries.map((entry) => entry.annotation),
+    jobId,
+    {
+      truncated: annotations.summary?.truncated ?? false,
+    },
+  );
 }
 
 function resolveAnnotationExecutionId(

@@ -1,3 +1,4 @@
+import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {act, screen, waitFor} from '@testing-library/react';
@@ -485,10 +486,27 @@ function renderJobPath(path = '', jobId = JOB_ID) {
 }
 
 /** Annotations for the job page, which renders their count and never their bodies. */
-const jobAnnotations: {value: unknown[]} = {value: []};
+const jobAnnotations: {value: AnnotationDto[]} = {value: []};
 
 function annotationsResponse() {
-  return {annotations: jobAnnotations.value, has_more: false, next_cursor: null};
+  return {
+    items: jobAnnotations.value.map((annotation) => ({
+      annotation,
+      origin: {
+        job_id: annotation.job_id,
+        job_label: annotation.job_id === JOB_ID ? 'release' : 'sibling',
+        job_position: annotation.job_id === JOB_ID ? 0 : 1,
+        job_execution_id: annotation.job_execution_id,
+        execution_sequence: 2,
+        execution_label: 'execution #2',
+        step_id: annotation.origin_step_id,
+        step_label: 'release',
+        step_attempt_id: ATTEMPT_ID,
+        step_attempt: annotation.origin_step_attempt,
+      },
+    })),
+    next_cursor: null,
+  };
 }
 
 function jobDetailFetch(input: RequestInfo | URL) {

@@ -1,6 +1,8 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {
+  WorkflowRunAnnotationItemDto,
   WorkflowRunDetailResponseDto,
+  WorkflowRunJobExplanationDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunOverviewResponseDto,
 } from '@shipfox/api-workflows-dto';
@@ -30,10 +32,27 @@ const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000b';
 function responseForPath(
   path: string,
   annotations: readonly AnnotationDto[],
+  explanations: readonly WorkflowRunJobExplanationDto[],
   workflowSize: 'complete' | 'large',
 ) {
-  if (path === '/annotations') {
-    return {body: {annotations, has_more: false, next_cursor: null}, status: 200};
+  if (path === `/workflows/runs/${RUN_ID}/annotations`) {
+    return {body: {items: annotations.map(annotationItemDto), next_cursor: null}, status: 200};
+  }
+  if (path === `/workflows/runs/${RUN_ID}/job-explanations`) {
+    return {body: {items: explanations, next_cursor: null}, status: 200};
+  }
+  if (path === '/annotations/summary') {
+    return {
+      body: {
+        total: annotations.length,
+        error: annotations.filter(({style}) => style === 'error').length,
+        warning: annotations.filter(({style}) => style === 'warning').length,
+        info: annotations.filter(({style}) => style === 'info').length,
+        success: annotations.filter(({style}) => style === 'success').length,
+        step_counts: [],
+      },
+      status: 200,
+    };
   }
   if (path === `/workflows/runs/${RUN_ID}/attempts`) {
     return {body: RUN_ATTEMPTS_RESPONSE, status: 200};
@@ -170,7 +189,8 @@ const RUN_OVERVIEW_RESPONSE: WorkflowRunOverviewResponseDto = {
         id: '44444444-4444-4444-8444-00000000000d',
         key: 'notify',
         name: 'notify',
-        status: 'succeeded',
+        status: 'skipped',
+        status_reason: 'condition_rejected',
         position: 2,
         dependencies: ['deploy'],
       }),
@@ -226,6 +246,7 @@ function overviewJobDto(
 
 /** Stable identity: a fresh `[]` per render would retrigger the API-client effect every render. */
 const NO_ANNOTATIONS: AnnotationDto[] = [];
+const NO_JOB_EXPLANATIONS: WorkflowRunJobExplanationDto[] = [];
 
 const RUN_ANNOTATIONS: AnnotationDto[] = [
   annotationDto({
@@ -251,9 +272,23 @@ const RUN_ANNOTATIONS: AnnotationDto[] = [
   }),
 ];
 
+const RUN_JOB_EXPLANATIONS: WorkflowRunJobExplanationDto[] = [
+  {
+    job_id: '44444444-4444-4444-8444-00000000000d',
+    job_label: 'notify',
+    job_position: 2,
+    status: 'skipped',
+    status_reason: 'condition_rejected',
+    evaluation_trace: null,
+  },
+];
+
 const withRunApi: Decorator = (Story, context) => (
   <RunWorkspaceStoryProviders
     annotations={(context.parameters.annotations ?? NO_ANNOTATIONS) as AnnotationDto[]}
+    explanations={
+      (context.parameters.explanations ?? NO_JOB_EXPLANATIONS) as WorkflowRunJobExplanationDto[]
+    }
     workflowSize={context.parameters.workflowSize === 'large' ? 'large' : 'complete'}
   >
     <Story />
@@ -306,7 +341,7 @@ export const WideViewport: Story = {};
  * its rows sit against the run header and the frame gutters.
  */
 export const Annotations: Story = {
-  parameters: {annotations: RUN_ANNOTATIONS},
+  parameters: {annotations: RUN_ANNOTATIONS, explanations: RUN_JOB_EXPLANATIONS},
   args: {tab: 'annotations'},
 };
 
@@ -328,12 +363,32 @@ function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): Annota
   };
 }
 
+function annotationItemDto(annotation: AnnotationDto): WorkflowRunAnnotationItemDto {
+  return {
+    annotation,
+    origin: {
+      job_id: annotation.job_id,
+      job_label: 'build',
+      job_position: 0,
+      job_execution_id: annotation.job_execution_id,
+      execution_sequence: 1,
+      execution_label: null,
+      step_id: annotation.origin_step_id,
+      step_label: 'run smoke checks',
+      step_attempt_id: BUILD_ATTEMPT_ID,
+      step_attempt: annotation.origin_step_attempt,
+    },
+  };
+}
+
 function RunWorkspaceStoryProviders({
   annotations,
+  explanations,
   workflowSize,
   children,
 }: {
   annotations: AnnotationDto[];
+  explanations: WorkflowRunJobExplanationDto[];
   workflowSize: 'complete' | 'large';
   children: ReactNode;
 }) {
@@ -351,7 +406,7 @@ function RunWorkspaceStoryProviders({
         else if (input instanceof URL) url = input.href;
         else url = String(input);
         const path = new URL(url, 'https://api.example.test').pathname;
-        const response = responseForPath(path, annotations, workflowSize);
+        const response = responseForPath(path, annotations, explanations, workflowSize);
         return new Response(JSON.stringify(response.body), {
           status: response.status,
           headers: {'content-type': 'application/json'},
@@ -363,7 +418,7 @@ function RunWorkspaceStoryProviders({
     return () => {
       configureApiClient({baseUrl: '', fetchImpl: undefined});
     };
-  }, [annotations, workflowSize]);
+  }, [annotations, explanations, workflowSize]);
 
   if (!configured) return null;
 

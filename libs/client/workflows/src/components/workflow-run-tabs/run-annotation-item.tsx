@@ -35,19 +35,15 @@ const ANNOTATION_ROW_CLASS =
 const MINTED_CONTEXTS = [
   {
     key: ({originStepId}: MintedContextSource) => `failure:step:${originStepId}`,
-    fallbackTitle: 'Step failure',
   },
   {
     key: ({jobId}: MintedContextSource) => `failure:job:${jobId}`,
-    fallbackTitle: 'Job failure',
   },
   {
     key: ({originStepId}: MintedContextSource) => `agent-tool-capability:${originStepId}`,
-    fallbackTitle: 'Agent tool capability',
   },
   {
     key: ({originStepId}: MintedContextSource) => `renewable-git-capability:${originStepId}`,
-    fallbackTitle: 'Renewable Git capability',
   },
 ] as const;
 
@@ -81,11 +77,8 @@ export function RunAnnotationItem({
 }: RunAnnotationItemProps) {
   const {annotation, origin} = entry;
   const canLink = Boolean(origin && workspaceSlug && projectSlug);
-  // A minted context is never the heading, not even as a last resort: a run that no longer
-  // contains the emitting job resolves no name, and printing the routing key would put a bare
-  // uuid where the row's subject belongs.
   const minted = mintedContext(annotation);
-  const title = minted ? (entry.jobName ?? minted.fallbackTitle) : annotation.context;
+  const title = minted ? entry.jobName : annotation.context;
 
   return (
     <AnnotationRow>

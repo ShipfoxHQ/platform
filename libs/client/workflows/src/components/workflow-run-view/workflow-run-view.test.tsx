@@ -1,5 +1,9 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
+import type {
+  WorkflowRunAnnotationItemDto,
+  WorkflowRunDetailResponseDto,
+  WorkflowRunJobExplanationDto,
+} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -7,6 +11,7 @@ import {
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunDetailDto,
+  workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -24,6 +29,7 @@ const ANNOTATION_ID_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001';
 const ANNOTATION_ID_TWO = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const TASK_NINE_PATTERN = /Task nine/;
 const SHOW_MORE_PATTERN = /Show \d+ more/;
+const CONDITION_REJECTED_PATTERN = /condition_rejected/;
 
 describe('WorkflowRunView', () => {
   beforeEach(() => {
@@ -185,20 +191,60 @@ describe('WorkflowRunView', () => {
   });
 
   test('shows a failed annotations read as an error, never as an empty run', async () => {
+    const detail = workflowRunViewDetailDto();
     configureApiClient({
-      fetchImpl: vi.fn((input: RequestInfo | URL) =>
-        Promise.resolve(
-          requestUrl(input).includes('/annotations')
-            ? jsonResponse({code: 'internal'}, {status: 500})
-            : jsonResponse(workflowRunViewDetailDto()),
-        ),
-      ),
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
+        if (path === `/workflows/runs/${RUN_ID}/annotations`) {
+          return Promise.resolve(jsonResponse({code: 'internal'}, {status: 500}));
+        }
+        return Promise.resolve(jsonResponse(runResourceResponse(path, detail)));
+      }),
     });
 
     renderView({tab: 'annotations'});
 
-    expect(await screen.findByRole('button', {name: 'Retry loading annotations'})).toBeVisible();
+    expect(await screen.findByText('Could not load annotations.')).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Retry'})).toBeVisible();
     expect(screen.queryByText('This run has no annotations to show.')).not.toBeInTheDocument();
+  });
+
+  test('renders server-owned explanations for jobs that never created an execution', async () => {
+    configureRunFetch([], {}, {}, [
+      {
+        job_id: DEPLOY_JOB_ID,
+        job_label: 'deploy',
+        job_position: 1,
+        status: 'skipped',
+        status_reason: 'condition_rejected',
+        evaluation_trace: null,
+      },
+    ]);
+
+    renderView({tab: 'annotations'});
+
+    expect(await screen.findByRole('heading', {level: 3, name: 'deploy'})).toBeInTheDocument();
+    const explanation = (await screen.findByRole('heading', {level: 3, name: 'deploy'})).closest(
+      'li',
+    );
+    expect(explanation).toHaveTextContent('Skipped before an execution was created.');
+    expect(explanation).toHaveTextContent(CONDITION_REJECTED_PATTERN);
+  });
+
+  test('opens annotations without loading the legacy full run tree', async () => {
+    const fetchImpl = configureRunFetch([
+      annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage'}),
+    ]);
+
+    renderView({tab: 'annotations'});
+
+    await screen.findByRole('heading', {level: 3, name: 'coverage'});
+    expect(
+      fetchImpl.mock.calls.some(([input]) => {
+        const url = new URL(requestUrl(input as RequestInfo | URL), 'https://api.example.test');
+        return url.pathname === `/workflows/runs/${RUN_ID}`;
+      }),
+    ).toBe(false);
   });
 
   test('bounds how many annotation bodies render at once', async () => {
@@ -239,7 +285,7 @@ describe('WorkflowRunView', () => {
     configureRunFetch(
       [annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage', style: 'info'})],
       {},
-      {has_more: true, next_cursor: 'next-page'},
+      {next_cursor: 'next-page'},
     );
 
     renderView({tab: 'annotations', selection: {severity: 'error'}});
@@ -287,21 +333,22 @@ describe('WorkflowRunView', () => {
   });
 
   test('renders the captured workflow source in the Source section', async () => {
+    const detail = workflowRunViewDetailDto({
+      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
+    });
     configureApiClient({
       fetchImpl: vi.fn((input: RequestInfo | URL) => {
-        const detail = workflowRunViewDetailDto({
-          source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-        });
+        const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
         return Promise.resolve(
           jsonResponse(
-            requestUrl(input).includes('/source')
+            path === `/workflows/runs/${RUN_ID}/source`
               ? {
                   kind: 'available',
                   workflow_run_id: RUN_ID,
                   workflow_run_attempt: detail.run_attempt.attempt,
                   source_snapshot: detail.source_snapshot,
                 }
-              : detail,
+              : runResourceResponse(path, detail),
           ),
         );
       }),
@@ -350,48 +397,56 @@ function requestUrl(input: RequestInfo | URL): string {
   return input instanceof URL ? input.href : input.url;
 }
 
-/** Routes the run detail and the annotations read, which are two independent fetches. */
+/** Routes the independently loaded run workspace resources. */
 function configureRunFetch(
   annotations: AnnotationDto[] = [],
   runOverrides: Partial<WorkflowRunDetailResponseDto> = {},
-  annotationPageOverrides: Partial<{has_more: boolean; next_cursor: string | null}> = {},
+  annotationPageOverrides: Partial<{next_cursor: string | null}> = {},
+  explanations: WorkflowRunJobExplanationDto[] = [],
 ) {
-  configureApiClient({
-    fetchImpl: vi.fn((input: RequestInfo | URL) => {
-      const url = requestUrl(input);
-      const detail = workflowRunViewDetailDto(runOverrides);
-      if (url.includes('/annotations')) {
-        return Promise.resolve(
-          jsonResponse({
-            annotations,
-            has_more: false,
-            next_cursor: null,
-            ...annotationPageOverrides,
-          }),
-        );
-      }
-      if (url.includes('/source')) {
-        return Promise.resolve(
-          jsonResponse(
-            detail.source_snapshot
-              ? {
-                  kind: 'available',
-                  workflow_run_id: RUN_ID,
-                  workflow_run_attempt: detail.run_attempt.attempt,
-                  source_snapshot: detail.source_snapshot,
-                }
-              : {
-                  kind: 'unavailable',
-                  workflow_run_id: RUN_ID,
-                  workflow_run_attempt: detail.run_attempt.attempt,
-                  reason: detail.origin === 'dev' ? 'temporary_run' : 'pre_snapshot_run',
-                },
-          ),
-        );
-      }
-      return Promise.resolve(jsonResponse(detail));
-    }),
+  const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+    const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
+    const detail = workflowRunViewDetailDto(runOverrides);
+    if (path === `/workflows/runs/${RUN_ID}/annotations`) {
+      return Promise.resolve(
+        jsonResponse({
+          items: annotations.map(annotationItemDto),
+          next_cursor: null,
+          ...annotationPageOverrides,
+        }),
+      );
+    }
+    if (path === `/workflows/runs/${RUN_ID}/job-explanations`) {
+      return Promise.resolve(jsonResponse({items: explanations, next_cursor: null}));
+    }
+    if (path === '/annotations/summary') {
+      return Promise.resolve(jsonResponse(annotationSummaryDto(annotations)));
+    }
+    if (path === `/workflows/runs/${RUN_ID}/source`) {
+      return Promise.resolve(
+        jsonResponse(
+          detail.source_snapshot
+            ? {
+                kind: 'available',
+                workflow_run_id: RUN_ID,
+                workflow_run_attempt: detail.run_attempt.attempt,
+                source_snapshot: detail.source_snapshot,
+              }
+            : {
+                kind: 'unavailable',
+                workflow_run_id: RUN_ID,
+                workflow_run_attempt: detail.run_attempt.attempt,
+                reason: detail.origin === 'dev' ? 'temporary_run' : 'pre_snapshot_run',
+              },
+        ),
+      );
+    }
+    return Promise.resolve(jsonResponse(runResourceResponse(path, detail)));
   });
+  configureApiClient({
+    fetchImpl,
+  });
+  return fetchImpl;
 }
 
 function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): AnnotationDto {
@@ -406,6 +461,54 @@ function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): Annota
     body: 'Body',
     ...overrides,
   };
+}
+
+function annotationItemDto(annotation: AnnotationDto): WorkflowRunAnnotationItemDto {
+  return {
+    annotation,
+    origin: {
+      job_id: annotation.job_id,
+      job_label: 'build',
+      job_position: 0,
+      job_execution_id: annotation.job_execution_id,
+      execution_sequence: 1,
+      execution_label: null,
+      step_id: annotation.origin_step_id,
+      step_label: 'checkout',
+      step_attempt_id: BUILD_ATTEMPT_ID,
+      step_attempt: annotation.origin_step_attempt,
+    },
+  };
+}
+
+function annotationSummaryDto(annotations: readonly AnnotationDto[]) {
+  return {
+    total: annotations.length,
+    error: annotations.filter(({style}) => style === 'error').length,
+    warning: annotations.filter(({style}) => style === 'warning').length,
+    info: annotations.filter(({style}) => style === 'info').length,
+    success: annotations.filter(({style}) => style === 'success').length,
+    step_counts: [],
+  };
+}
+
+function runResourceResponse(path: string, detail: WorkflowRunDetailResponseDto) {
+  if (path === `/workflows/runs/${RUN_ID}/head`) {
+    return {
+      current_attempt: detail.current_attempt,
+      latest_attempt: detail.latest_attempt,
+      current_status: detail.status,
+      updated_at: detail.updated_at,
+    };
+  }
+  if (path === `/workflows/runs/${RUN_ID}/overview`) {
+    return workflowRunOverviewResponseDto(detail);
+  }
+  if (path === `/workflows/runs/${RUN_ID}/job-explanations`) {
+    return {items: [], next_cursor: null};
+  }
+  if (path === '/annotations/summary') return annotationSummaryDto([]);
+  return detail;
 }
 
 function workflowRunViewDetailDto(
@@ -455,7 +558,13 @@ function workflowRunViewDetailDto(
         status: 'running',
         position: 1,
         dependencies: ['build'],
-        steps: [workflowStepDto({name: 'deploy', status: 'running'})],
+        job_executions: [
+          workflowJobExecutionDto({
+            job_id: DEPLOY_JOB_ID,
+            status: 'running',
+            steps: [workflowStepDto({name: 'deploy', status: 'running'})],
+          }),
+        ],
       }),
     ],
     ...overrides,

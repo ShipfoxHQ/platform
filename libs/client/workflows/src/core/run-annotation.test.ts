@@ -1,18 +1,12 @@
 import {
-  workflowJob,
-  workflowJobExecutionDto,
-  workflowStepAttemptDto,
-  workflowStepDto,
-} from '#test/fixtures/workflow-run.js';
-import {
   buildRunAnnotationList,
   highestRunAnnotationSeverity,
+  type RunAnnotationEntry,
   type RunAnnotationRecord,
   type RunAnnotationStyle,
   summarizeJobAnnotations,
   summarizeRunAnnotations,
 } from './run-annotation.js';
-import type {Job} from './workflow-run.js';
 
 const BUILD_JOB_ID = '44444444-4444-4444-8444-00000000000b';
 const TEST_JOB_ID = '44444444-4444-4444-8444-00000000000c';
@@ -96,7 +90,7 @@ describe('buildRunAnnotationList', () => {
       annotation({id: 'e', style: 'info', sequence: 5}),
     ];
 
-    const entries = buildRunAnnotationList({annotations, jobs: jobs()});
+    const entries = buildRunAnnotationList({entries: annotationEntries(annotations)});
 
     expect(entries.map((entry) => entry.annotation.id)).toEqual(['b', 'd', 'e', 'a', 'c']);
   });
@@ -108,7 +102,7 @@ describe('buildRunAnnotationList', () => {
       annotation({id: 'early-job', style: 'error', sequence: 9, jobId: BUILD_JOB_ID}),
     ];
 
-    const entries = buildRunAnnotationList({annotations, jobs: jobs()});
+    const entries = buildRunAnnotationList({entries: annotationEntries(annotations)});
 
     expect(entries.map((entry) => entry.annotation.id)).toEqual(['early-job', 'late-job']);
   });
@@ -131,7 +125,7 @@ describe('buildRunAnnotationList', () => {
       }),
     ];
 
-    const entries = buildRunAnnotationList({annotations, jobs: jobs()});
+    const entries = buildRunAnnotationList({entries: annotationEntries(annotations)});
 
     expect(entries.map((entry) => entry.annotation.id)).toEqual([
       'first-execution',
@@ -139,10 +133,10 @@ describe('buildRunAnnotationList', () => {
     ]);
   });
 
-  test('resolves provenance and an origin the run can route back to', () => {
+  test('preserves server provenance and an origin the run can route back to', () => {
     const annotations = [annotation({id: 'a', style: 'error'})];
 
-    const [entry] = buildRunAnnotationList({annotations, jobs: jobs()});
+    const [entry] = buildRunAnnotationList({entries: annotationEntries(annotations)});
 
     expect(entry?.jobName).toBe('build');
     expect(entry?.stepLabel).toBe('compile');
@@ -167,27 +161,22 @@ describe('buildRunAnnotationList', () => {
       }),
     ];
 
-    const entries = buildRunAnnotationList({annotations, jobs: jobs()});
+    const entries = buildRunAnnotationList({entries: annotationEntries(annotations)});
     const byId = new Map(entries.map((entry) => [entry.annotation.id, entry]));
 
     expect(byId.get('single')?.executionLabel).toBeNull();
     expect(byId.get('multi')?.executionLabel).toBe('execution #2');
   });
 
-  test('keeps an annotation whose step the run attempt no longer holds, without an origin', () => {
-    const annotations = [
-      annotation({
-        id: 'orphan',
-        style: 'error',
-        originStepId: '55555555-5555-4555-8555-0000000000ff',
-      }),
-    ];
-
-    const [entry] = buildRunAnnotationList({annotations, jobs: jobs()});
+  test('keeps an annotation without a routable step-attempt origin', () => {
+    const annotations = [annotation({id: 'orphan', style: 'error'})];
+    const [entry] = buildRunAnnotationList({
+      entries: annotations.map((record) => annotationEntry(record, {origin: null})),
+    });
 
     expect(entry?.annotation.id).toBe('orphan');
     expect(entry?.jobName).toBe('build');
-    expect(entry?.stepLabel).toBeNull();
+    expect(entry?.stepLabel).toBe('compile');
     expect(entry?.origin).toBeNull();
   });
 
@@ -201,7 +190,7 @@ describe('buildRunAnnotationList', () => {
       annotation({id: 'known-job', style: 'error'}),
     ];
 
-    const entries = buildRunAnnotationList({annotations, jobs: jobs()});
+    const entries = buildRunAnnotationList({entries: annotationEntries(annotations)});
 
     expect(entries.map((entry) => entry.annotation.id)).toEqual(['known-job', 'unknown-job']);
   });
@@ -214,12 +203,12 @@ describe('buildRunAnnotationList', () => {
     ];
 
     expect(
-      buildRunAnnotationList({annotations, jobs: jobs(), severity: 'error'}).map(
+      buildRunAnnotationList({entries: annotationEntries(annotations), severity: 'error'}).map(
         (entry) => entry.annotation.id,
       ),
     ).toEqual(['build-error', 'test-error']);
     expect(
-      buildRunAnnotationList({annotations, jobs: jobs(), jobId: BUILD_JOB_ID}).map(
+      buildRunAnnotationList({entries: annotationEntries(annotations), jobId: BUILD_JOB_ID}).map(
         (entry) => entry.annotation.id,
       ),
     ).toEqual(['build-error', 'build-info']);
@@ -228,7 +217,9 @@ describe('buildRunAnnotationList', () => {
   test('never selects an unstyled annotation with a severity filter', () => {
     const annotations = [annotation({id: 'plain', style: 'default'})];
 
-    expect(buildRunAnnotationList({annotations, jobs: jobs(), severity: 'info'})).toEqual([]);
+    expect(
+      buildRunAnnotationList({entries: annotationEntries(annotations), severity: 'info'}),
+    ).toEqual([]);
   });
 });
 
@@ -247,69 +238,31 @@ function annotation(
   };
 }
 
-function jobs(): Job[] {
-  return [
-    workflowJob({
-      id: BUILD_JOB_ID,
-      key: 'build',
-      name: 'build',
-      position: 0,
-      job_executions: [
-        workflowJobExecutionDto({
-          id: BUILD_EXECUTION_ID,
-          job_id: BUILD_JOB_ID,
-          sequence: 1,
-          steps: [
-            workflowStepDto({
-              id: BUILD_STEP_ID,
-              job_execution_id: BUILD_EXECUTION_ID,
-              name: 'compile',
-              attempts: [
-                workflowStepAttemptDto({
-                  id: BUILD_ATTEMPT_ID,
-                  step_id: BUILD_STEP_ID,
-                  attempt: 1,
-                  status: 'succeeded',
-                }),
-              ],
-            }),
-          ],
-        }),
-      ],
-    }),
-    workflowJob({
-      id: TEST_JOB_ID,
-      key: 'test',
-      name: 'test',
-      position: 1,
-      job_executions: [
-        workflowJobExecutionDto({
-          id: TEST_EXECUTION_ONE_ID,
-          job_id: TEST_JOB_ID,
-          sequence: 1,
-          steps: [
-            workflowStepDto({
-              id: TEST_STEP_ID,
-              job_execution_id: TEST_EXECUTION_ONE_ID,
-              name: 'run tests',
-              attempts: [],
-            }),
-          ],
-        }),
-        workflowJobExecutionDto({
-          id: TEST_EXECUTION_TWO_ID,
-          job_id: TEST_JOB_ID,
-          sequence: 2,
-          steps: [
-            workflowStepDto({
-              id: TEST_STEP_ID,
-              job_execution_id: TEST_EXECUTION_TWO_ID,
-              name: 'run tests',
-              attempts: [],
-            }),
-          ],
-        }),
-      ],
-    }),
-  ];
+function annotationEntry(
+  record: RunAnnotationRecord,
+  overrides: Partial<RunAnnotationEntry> = {},
+): RunAnnotationEntry {
+  const testJob = record.jobId === TEST_JOB_ID;
+  const secondExecution = record.jobExecutionId === TEST_EXECUTION_TWO_ID;
+  const jobPosition = record.jobId === BUILD_JOB_ID ? 0 : Number.MAX_SAFE_INTEGER;
+  return {
+    annotation: record,
+    jobName: testJob ? 'test' : 'build',
+    jobPosition: testJob ? 1 : jobPosition,
+    executionSequence: secondExecution ? 2 : 1,
+    executionLabel: testJob ? `execution #${secondExecution ? 2 : 1}` : null,
+    stepLabel: testJob ? 'run tests' : 'compile',
+    attemptLabel: 'attempt 1',
+    origin: {
+      jobId: record.jobId,
+      jobExecutionId: record.jobExecutionId,
+      stepId: record.originStepId,
+      stepAttemptId: BUILD_ATTEMPT_ID,
+    },
+    ...overrides,
+  };
+}
+
+function annotationEntries(records: RunAnnotationRecord[]): RunAnnotationEntry[] {
+  return records.map((record) => annotationEntry(record));
 }

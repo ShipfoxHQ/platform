@@ -2,16 +2,10 @@ import {act, screen, within} from '@testing-library/react';
 import {useState} from 'react';
 import {
   buildRunAnnotationList,
+  type RunAnnotationEntry,
   type RunAnnotationRecord,
   type RunAnnotationStyle,
 } from '#core/run-annotation.js';
-import type {Job} from '#core/workflow-run.js';
-import {
-  workflowJob,
-  workflowJobExecutionDto,
-  workflowStepAttemptDto,
-  workflowStepDto,
-} from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {
   type DerivedRunAnnotation,
@@ -85,15 +79,13 @@ describe('RunAnnotationList', () => {
     ).toBeInTheDocument();
   });
 
-  test('names a minted context whose job the run no longer resolves', async () => {
-    // A job missing from the run snapshot resolves no name and no step link, so the routing key
-    // would otherwise be the only text on the row.
+  test('uses the server-provided job name even when the overview does not contain the job', async () => {
     renderList([
       annotation({id: 'a1', context: `failure:step:${BUILD_STEP_ID}`, jobId: MISSING_JOB_ID}),
     ]);
 
     expect(
-      await screen.findByRole('heading', {level: 3, name: 'Step failure'}),
+      await screen.findByRole('heading', {level: 3, name: 'archived job'}),
     ).toBeInTheDocument();
     expect(screen.queryByText(`failure:step:${BUILD_STEP_ID}`)).not.toBeInTheDocument();
   });
@@ -138,7 +130,7 @@ describe('RunAnnotationList', () => {
     renderList(entries, {derivedAnnotations: [derived({id: 'd1', jobName: 'deploy production'})]});
 
     expect(await screen.findByRole('button', {name: SHOW_MORE_PATTERN})).toHaveTextContent(
-      'Show 1 more of 27',
+      'Show 2 more of 27',
     );
   });
 
@@ -159,6 +151,16 @@ describe('RunAnnotationList', () => {
     await screen.findByRole('heading', {level: 3, name: 'smoke check'});
     expect(screen.queryByRole('link', {name: OPEN_STEP_PATTERN})).not.toBeInTheDocument();
   });
+
+  test('keeps loaded annotations visible when job explanations fail', async () => {
+    renderList([annotation({id: 'a1', context: 'smoke check'})], {
+      jobExplanationsQuery: listQuery({isError: true, error: new Error('Unavailable')}),
+    });
+
+    expect(await screen.findByRole('heading', {level: 3, name: 'smoke check'})).toBeInTheDocument();
+    expect(screen.getByText('Could not load job explanations.')).toBeInTheDocument();
+    expect(screen.queryByText('This run has no annotations to show.')).not.toBeInTheDocument();
+  });
 });
 
 function renderList(
@@ -166,12 +168,16 @@ function renderList(
   {
     derivedAnnotations,
     query = listQuery(),
+    jobExplanationsQuery = listQuery(),
   }: {
     derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
     query?: RunAnnotationListQuery;
+    jobExplanationsQuery?: RunAnnotationListQuery;
   } = {},
 ) {
-  return renderWithRouter(renderListElement(annotations, {derivedAnnotations, query}));
+  return renderWithRouter(
+    renderListElement(annotations, {derivedAnnotations, query, jobExplanationsQuery}),
+  );
 }
 
 function renderListElement(
@@ -179,15 +185,18 @@ function renderListElement(
   {
     derivedAnnotations,
     query = listQuery(),
+    jobExplanationsQuery = listQuery(),
   }: {
     derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
     query?: RunAnnotationListQuery;
+    jobExplanationsQuery?: RunAnnotationListQuery;
   } = {},
 ) {
   return (
     <RunAnnotationList
       query={query}
-      entries={buildRunAnnotationList({annotations, jobs})}
+      jobExplanationsQuery={jobExplanationsQuery}
+      entries={buildRunAnnotationList({entries: annotations.map(annotationEntry)})}
       derivedAnnotations={derivedAnnotations}
       workspaceSlug="acme"
       projectSlug="platform"
@@ -229,6 +238,8 @@ function annotation(overrides: Partial<RunAnnotationRecord> & {id: string}): Run
 
 function derived(overrides: Partial<DerivedRunAnnotation> & {id: string}): DerivedRunAnnotation {
   return {
+    jobId: '44444444-4444-4444-8444-00000000000d',
+    jobPosition: 1,
     style: 'warning',
     jobName: 'deploy production',
     body: 'Skipped before an execution was created.',
@@ -236,26 +247,23 @@ function derived(overrides: Partial<DerivedRunAnnotation> & {id: string}): Deriv
   };
 }
 
-const jobs: Job[] = [
-  workflowJob({
-    id: BUILD_JOB_ID,
-    key: 'build',
-    name: 'build',
-    position: 0,
-    job_executions: [
-      workflowJobExecutionDto({
-        id: BUILD_EXECUTION_ID,
-        job_id: BUILD_JOB_ID,
-        steps: [
-          workflowStepDto({
-            id: BUILD_STEP_ID,
-            name: 'run smoke checks',
-            attempts: [
-              workflowStepAttemptDto({id: BUILD_ATTEMPT_ID, step_id: BUILD_STEP_ID, attempt: 1}),
-            ],
-          }),
-        ],
-      }),
-    ],
-  }),
-];
+function annotationEntry(annotation: RunAnnotationRecord): RunAnnotationEntry {
+  const missingJob = annotation.jobId === MISSING_JOB_ID;
+  return {
+    annotation,
+    jobName: missingJob ? 'archived job' : 'build',
+    jobPosition: missingJob ? 1 : 0,
+    executionSequence: 1,
+    executionLabel: null,
+    stepLabel: 'run smoke checks',
+    attemptLabel: 'attempt 1',
+    origin: missingJob
+      ? null
+      : {
+          jobId: annotation.jobId,
+          jobExecutionId: annotation.jobExecutionId,
+          stepId: annotation.originStepId,
+          stepAttemptId: BUILD_ATTEMPT_ID,
+        },
+  };
+}
