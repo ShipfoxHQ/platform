@@ -54,7 +54,7 @@ export const recordedJobExecutionUsageSchema = jobExecutionUsageSchema
   .strict();
 export type RecordedJobExecutionUsageDto = z.infer<typeof recordedJobExecutionUsageSchema>;
 
-export const inferenceSegmentInputSchema = z
+const inferenceSegmentInputObjectSchema = z
   .object({
     segmentKey: nonEmptyStringSchema.max(512),
     source: z.literal('gateway'),
@@ -79,11 +79,16 @@ export const inferenceSegmentInputSchema = z
     reasoningTokens: usageCountSchema,
   })
   .strict();
+
+export const inferenceSegmentInputSchema =
+  inferenceSegmentInputObjectSchema.superRefine(validateInferenceWindow);
 export type InferenceSegmentInputDto = z.infer<typeof inferenceSegmentInputSchema>;
 
-export const inferenceSegmentUsageSchema = inferenceSegmentInputSchema
+const inferenceSegmentUsageObjectSchema = inferenceSegmentInputObjectSchema
   .extend({id: idSchema, recordedAt: dateTimeSchema})
   .strict();
+export const inferenceSegmentUsageSchema =
+  inferenceSegmentUsageObjectSchema.superRefine(validateInferenceWindow);
 export type InferenceSegmentUsageDto = z.infer<typeof inferenceSegmentUsageSchema>;
 
 export const jobExecutionUsageHttpSchema = z
@@ -122,7 +127,7 @@ export const jobExecutionUsageHttpSchema = z
   .strict();
 export type JobExecutionUsageHttpDto = z.infer<typeof jobExecutionUsageHttpSchema>;
 
-export const inferenceSegmentUsageHttpSchema = z
+const inferenceSegmentUsageHttpObjectSchema = z
   .object({
     id: idSchema,
     segment_key: nonEmptyStringSchema,
@@ -149,6 +154,9 @@ export const inferenceSegmentUsageHttpSchema = z
     recorded_at: dateTimeSchema,
   })
   .strict();
+export const inferenceSegmentUsageHttpSchema = inferenceSegmentUsageHttpObjectSchema.superRefine(
+  validateInferenceHttpWindow,
+);
 export type InferenceSegmentUsageHttpDto = z.infer<typeof inferenceSegmentUsageHttpSchema>;
 
 export const runUsageResponseSchema = z
@@ -170,3 +178,44 @@ export type JobExecutionUsageResponseDto = z.infer<typeof jobExecutionUsageRespo
 // Descriptive aliases keep the route names discoverable without creating a second schema.
 export const usageRunResponseSchema = runUsageResponseSchema;
 export const usageJobExecutionResponseSchema = jobExecutionUsageResponseSchema;
+
+const MAX_INFERENCE_SEGMENT_WINDOW_MS = 60 * 60 * 1_000;
+
+function validateInferenceWindow(
+  value: {windowStart: string; windowEnd: string},
+  context: z.RefinementCtx,
+): void {
+  validateWindow(value.windowStart, value.windowEnd, ['windowEnd'], context);
+}
+
+function validateInferenceHttpWindow(
+  value: {window_start: string; window_end: string},
+  context: z.RefinementCtx,
+): void {
+  validateWindow(value.window_start, value.window_end, ['window_end'], context);
+}
+
+function validateWindow(
+  windowStart: string,
+  windowEnd: string,
+  path: string[],
+  context: z.RefinementCtx,
+): void {
+  const start = Date.parse(windowStart);
+  const end = Date.parse(windowEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+  if (end < start) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: 'windowEnd must be at or after windowStart',
+    });
+  }
+  if (end - start > MAX_INFERENCE_SEGMENT_WINDOW_MS) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message: 'Inference segment windows cannot exceed one hour',
+    });
+  }
+}

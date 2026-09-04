@@ -96,4 +96,28 @@ describe('Usage event contracts', () => {
       usageInferenceSegmentRecordedEventSchema.parse({...validSegment, version: 1, extra: true}),
     ).toThrow();
   });
+
+  it('rejects invalid inference windows and unsafe counters', () => {
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        windowEnd: '2026-09-04T09:59:00.000Z',
+        version: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        windowEnd: '2026-09-04T11:01:00.000Z',
+        version: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        inputTokens: Number.MAX_SAFE_INTEGER + 1,
+        version: 1,
+      }),
+    ).toThrow();
+  });
 });
