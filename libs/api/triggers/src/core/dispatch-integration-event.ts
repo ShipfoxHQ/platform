@@ -5,6 +5,7 @@ import {
   subscriptionTriggeredCount,
 } from '#metrics/instance.js';
 import {evaluateTriggerFilter, readConfigInputs} from './config.js';
+import type {TriggerEventOrigin} from './entities/received-event.js';
 import {TriggerReferenceResolutionError} from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
 import {routeEventToJobListeners} from './route-event-to-job-listeners.js';
@@ -17,6 +18,8 @@ import {
 export interface DispatchIntegrationEventParams {
   workflows: WorkflowsModuleClient;
   eventRef: string;
+  /** History origin; ordinary integration deliveries use the default. */
+  origin?: TriggerEventOrigin | undefined;
   workspaceId: string;
   provider: string;
   source: string;
@@ -49,7 +52,7 @@ export async function dispatchIntegrationEvent(
 
   const history = await beginTriggerHistory({
     eventRef: params.eventRef,
-    origin: 'integration',
+    origin: params.origin ?? 'integration',
     workspaceId: params.workspaceId,
     provider: params.provider,
     source: params.source,

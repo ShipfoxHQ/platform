@@ -98,6 +98,7 @@ describe('triggers E2E routes', () => {
     expect(mocks.dispatchIntegrationEvent).toHaveBeenCalledWith({
       workflows,
       eventRef: result.event_ref,
+      origin: 'dev',
       workspaceId: body.workspace_id,
       provider: 'webhook',
       source: body.source,

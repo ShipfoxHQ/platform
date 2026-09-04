@@ -9,6 +9,7 @@ import {waitForRunByDeliveryId} from '@shipfox/e2e-observe-workflows';
 import {type AttachFn, boundedDiagnosticValue, logAttachmentName} from './attachments.js';
 
 const WEBHOOK_RECEIVED_EVENT = 'received';
+const MAX_TRIGGER_EVENT_PAGES = 100;
 
 export interface WebhookDiagnosticsRequest {
   deliveryIds: string[];
@@ -99,7 +100,7 @@ export async function waitForTriggerEvent(params: {
     async () => {
       let cursor: string | null = null;
       let page = 0;
-      while (true) {
+      while (page < MAX_TRIGGER_EVENT_PAGES) {
         const search = new URLSearchParams({
           workspace_id: params.workspaceId,
           source: params.source,
@@ -126,6 +127,7 @@ export async function waitForTriggerEvent(params: {
         if (events.next_cursor === null) return null;
         cursor = events.next_cursor;
       }
+      return null;
     },
   );
 }
