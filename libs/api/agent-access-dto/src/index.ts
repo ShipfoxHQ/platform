@@ -30,6 +30,19 @@ export {
   agentAccessOutputSchema,
 } from './schemas/envelope.js';
 export {
+  AGENT_ACCESS_LOG_ATTEMPT_MAX,
+  AGENT_ACCESS_LOG_CONTENT_MAX_BYTES,
+  AGENT_ACCESS_LOG_SECTION_MAX_ITEMS,
+  AGENT_ACCESS_LOG_TAIL_LINES_DEFAULT,
+  AGENT_ACCESS_LOG_TAIL_LINES_MAX,
+  type GetStepLogsInputDto,
+  type GetStepLogsResultDto,
+  getStepLogsInputJsonSchema,
+  getStepLogsInputSchema,
+  getStepLogsResultJsonSchema,
+  getStepLogsResultSchema,
+} from './schemas/log-tools.js';
+export {
   AGENT_ACCESS_ANNOTATION_BODY_MAX_BYTES,
   AGENT_ACCESS_CONNECTION_NAME_MAX_BYTES,
   AGENT_ACCESS_DEFAULT_PAGE_LIMIT,
