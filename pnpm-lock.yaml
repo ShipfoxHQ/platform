@@ -1562,6 +1562,12 @@ importers:
 
   e2e/suites/api/auth:
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.29.0(zod@4.4.3)
+      '@shipfox/api-agent-access-dto':
+        specifier: workspace:*
+        version: link:../../../../libs/api/agent-access-dto
       '@shipfox/api-auth-dto':
         specifier: workspace:*
         version: link:../../../../libs/api/auth-dto
@@ -1586,6 +1592,9 @@ importers:
       '@shipfox/e2e-setup-auth':
         specifier: workspace:*
         version: link:../../../setup/auth
+      '@shipfox/e2e-setup-projects':
+        specifier: workspace:*
+        version: link:../../../setup/projects
       '@shipfox/e2e-setup-workspaces':
         specifier: workspace:*
         version: link:../../../setup/workspaces
@@ -4311,6 +4320,9 @@ importers:
       '@shipfox/api-agent-dto':
         specifier: workspace:*
         version: link:../agent-dto
+      '@shipfox/api-agent-access':
+        specifier: workspace:*
+        version: link:../agent-access
       '@shipfox/api-auth':
         specifier: workspace:*
         version: link:../auth
@@ -4368,6 +4380,9 @@ importers:
       '@shipfox/api-usage-dto':
         specifier: workspace:*
         version: link:../usage-dto
+      '@shipfox/api-triggers-dto':
+        specifier: workspace:*
+        version: link:../triggers-dto
       '@shipfox/api-workflows':
         specifier: workspace:*
         version: link:../workflows

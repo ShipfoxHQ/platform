@@ -6,7 +6,7 @@ import {
 
 export type CreateAgentAccessModuleOptions = CreateAgentAccessRoutesOptions;
 
-/** Creates the opt-in agent-access module; composition intentionally owns activation. */
+/** Creates the agent-access module; default composition supplies producer clients. */
 export function createAgentAccessModule(
   options: CreateAgentAccessModuleOptions = {},
 ): ShipfoxModule {

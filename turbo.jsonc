@@ -11,6 +11,7 @@
     "OBJECT_STORAGE_*",
     "E2E_*",
     "API_URL",
+    "API_PUBLIC_URL",
     "CLIENT_URL",
     "ARGOS_TOKEN",
     "SHIPFOX_VITEST_MAX_WORKERS",

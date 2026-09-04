@@ -14,6 +14,7 @@ import {createEnvironmentSignupPolicy} from '#core/signup-policy.js';
 import {db} from '#db/db.js';
 import {migrationsPath} from '#db/migrations.js';
 import {authOutbox} from '#db/schema/outbox.js';
+import {createAgentAccessAuthMethod} from '#presentation/auth/agent-access-auth.js';
 import {createJwtAuthMethod} from '#presentation/auth/jwt-auth.js';
 import {createLeaseTokenAuthMethod} from '#presentation/auth/lease-token-auth.js';
 import {createRunnerSessionAuthMethod} from '#presentation/auth/runner-session-auth.js';
@@ -24,7 +25,9 @@ import {
   administrationRoutes,
   createAdministrationUserRoutes,
 } from '#presentation/routes/administration.js';
+import {createAgentAccessManagementRoutes} from '#presentation/routes/agent-access.js';
 import {buildAuthRoutes} from '#presentation/routes/index.js';
+import {createOAuthAuthorizationRoutes, createOAuthRoutes} from '#presentation/routes/oauth.js';
 import {onPasswordResetSendRequested} from '#presentation/subscribers/index.js';
 import {createAuthMaintenanceActivities} from '#temporal/activities/index.js';
 import {AUTH_AGENT_ACCESS_MAINTENANCE_TASK_QUEUE} from '#temporal/constants.js';
@@ -246,13 +249,24 @@ export function createAuthModule({
   return {
     name: 'auth',
     database: {db, migrationsPath, databaseNamespace: 'auth'},
-    auth: [createJwtAuthMethod(), createLeaseTokenAuthMethod(), createRunnerSessionAuthMethod()],
+    auth: [
+      createJwtAuthMethod(),
+      createLeaseTokenAuthMethod(),
+      createRunnerSessionAuthMethod(),
+      createAgentAccessAuthMethod(),
+    ],
     loginMethods: passwordLoginMethods(config.AUTH_PASSWORD_ENABLED),
     routes: [
       buildAuthRoutes(config.AUTH_PASSWORD_ENABLED, workspaces, signupPolicy),
       administrationBootstrapRoutes,
       administrationRoutes,
       ...createAdministrationUserRoutes(workspaces),
+      createOAuthRoutes({apiPublicUrl: config.API_PUBLIC_URL}),
+      createOAuthAuthorizationRoutes({
+        apiPublicUrl: config.API_PUBLIC_URL,
+        workspaces,
+      }),
+      createAgentAccessManagementRoutes(),
     ],
     e2eRoutes: [createAuthE2eRoutes(workspaces)],
     publishers: [{name: 'auth', table: authOutbox, db, eventSchemas: authPublisherEventSchemas}],

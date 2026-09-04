@@ -103,11 +103,13 @@ function createGetWorkflowRunSourceTool(workflows: WorkflowsModuleClient): Agent
       const input = parseInput(getWorkflowRunSourceInputSchema, rawInput);
       if (!input) return invalidRequest();
 
-      const source = await workflows.getWorkflowRunSource({
-        workspaceId: context.workspaceId,
-        workflowRunId: input.run_id,
-        attempt: input.attempt,
-      });
+      const source = await workflows.getWorkflowRunSource(
+        omitUndefined({
+          workspaceId: context.workspaceId,
+          workflowRunId: input.run_id,
+          attempt: input.attempt,
+        }),
+      );
       if (source === null) return notFound();
 
       return fitAgentAccessResponseToCeiling(

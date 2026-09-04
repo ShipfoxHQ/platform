@@ -3,6 +3,7 @@ import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {AUTH_AGENT_ACCESS, requireAgentAccessContext} from '@shipfox/api-auth-context';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
@@ -19,9 +20,12 @@ import {
 } from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import {AGENT_ACCESS_MCP_PATH, AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH} from '#constants.js';
+import {createAgentAccessDiagnosticTools} from '#core/diagnostic-tools.js';
+import {createAgentAccessLogTools} from '#core/log-tools.js';
 import {createAgentAccessTools} from '#core/paged-tools.js';
 import {type AgentAccessRateLimiter, createAgentAccessRateLimiter} from '#core/rate-limiter.js';
 import {type AgentAccessTool, createAgentAccessFixtureTool} from '#core/tools.js';
+import {createAgentAccessWorkflowDiagnosticTools} from '#core/workflow-diagnostic-tools.js';
 import {recordAgentAccessAuthFailure} from '#metrics/index.js';
 import {type AgentAccessToolCallRecorder, createAgentAccessToolCallRecorder} from './audit.js';
 import {buildAgentAccessMcpServer} from './mcp-server.js';
@@ -40,6 +44,7 @@ export interface CreateAgentAccessRoutesOptions {
   workflows?: WorkflowsModuleClient | undefined;
   annotations?: AnnotationsInterModuleClient | undefined;
   triggers?: TriggersInterModuleClient | undefined;
+  logs?: LogsModuleClient | undefined;
 }
 
 export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions = {}): RouteGroup {
@@ -121,13 +126,14 @@ export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions 
 function toolsFromProducerClients(
   options: CreateAgentAccessRoutesOptions,
 ): readonly AgentAccessTool[] {
-  const {projects, definitions, workflows, annotations, triggers} = options;
+  const {projects, definitions, workflows, annotations, triggers, logs} = options;
   if (
     projects === undefined &&
     definitions === undefined &&
     workflows === undefined &&
     annotations === undefined &&
-    triggers === undefined
+    triggers === undefined &&
+    logs === undefined
   ) {
     return [createAgentAccessFixtureTool()];
   }
@@ -136,11 +142,17 @@ function toolsFromProducerClients(
     definitions === undefined ||
     workflows === undefined ||
     annotations === undefined ||
-    triggers === undefined
+    triggers === undefined ||
+    logs === undefined
   ) {
     throw new Error('Agent-access producer clients must be configured together');
   }
-  return createAgentAccessTools({projects, definitions, workflows, annotations, triggers});
+  return [
+    ...createAgentAccessTools({projects, definitions, workflows, annotations, triggers}),
+    ...createAgentAccessDiagnosticTools({triggers}),
+    ...createAgentAccessWorkflowDiagnosticTools(workflows),
+    ...createAgentAccessLogTools({logs, workflows}),
+  ];
 }
 
 function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {

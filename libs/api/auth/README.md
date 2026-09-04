@@ -68,6 +68,7 @@ Required environment:
 | `AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS` | none | Comma-separated email domains allowed to create accounts, such as `shipfox.io,acme.com`. |
 | `AUTH_SIGNUP_ALLOWED_EMAILS` | none | Comma-separated exact email addresses allowed to create accounts. |
 | `AUTH_SIGNUP_NOT_ALLOWED_MESSAGE` | none | Markdown message returned when the signup gate blocks an account. Accepts at most 500 characters. Defaults to "This Shipfox deployment does not accept new accounts right now." |
+| `API_PUBLIC_URL` | `http://localhost:16101` | Public API origin used by Agent Access OAuth metadata and redirect flows. HTTPS is required outside localhost. |
 | `CLIENT_BASE_URL` | `http://localhost:5173` | Base URL used in email verification and password reset links. |
 | `ADMIN_BOOTSTRAP_TOKEN` | none | Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap. |
 
@@ -280,9 +281,9 @@ scopes, grant identity, and client identity.
   revocation blocks refresh immediately; an issued access token remains valid
   until it expires.
 
-The management route factories are opt-in. `createAuthModule` does not register
-them or the `AUTH_AGENT_ACCESS` method until the application activates the full
-agent-access surface.
+The standard `createAuthModule` composition registers the `AUTH_AGENT_ACCESS`
+method and the OAuth and grant-management routes. Applications that compose the
+lower-level factories directly must provide the complete agent-resource surface.
 
 ## Routes
 
@@ -372,14 +373,15 @@ Suspension preserves the user record and rejects the final active administrator 
 
 ### Agent access OAuth
 
-`createOAuthAuthorizationRoutes` is an explicit opt-in factory for the OAuth authorization,
-consent, authorization-code, and refresh-token routes. `createAuthModule().routes` does not
-compose these routes until an application provides its consent UI and agent-resource boundary.
+`createOAuthAuthorizationRoutes` remains available as a lower-level factory for the OAuth
+authorization, consent, authorization-code, and refresh-token routes. The standard
+`createAuthModule().routes` composition registers these routes alongside the metadata and
+dynamic-client routes.
 
 Consent approval creates a durable agent grant from a pre-commit workspace-membership snapshot;
 every authorization-code and refresh exchange revalidates membership before issuing tokens. The
-package also exports an opt-in management factory for OAuth grant lifecycle operations. These
-routes use `AUTH_USER` and remain unregistered by `createAuthModule().routes`.
+package also exports the grant lifecycle factory used by the standard module composition. These
+routes use `AUTH_USER`.
 
 | Method | Path | Auth | Result |
 | --- | --- | --- | --- |

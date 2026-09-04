@@ -19,6 +19,8 @@
     "type": "shipfox-tsc-check"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@shipfox/api-agent-access-dto": "workspace:*",
     "@shipfox/api-auth-dto": "workspace:*",
     "@shipfox/api-server": "workspace:*",
     "@shipfox/biome": "workspace:*",
@@ -27,6 +29,7 @@
     "@shipfox/e2e-harness": "workspace:*",
     "@shipfox/e2e-kit": "workspace:*",
     "@shipfox/e2e-setup-auth": "workspace:*",
+    "@shipfox/e2e-setup-projects": "workspace:*",
     "@shipfox/e2e-setup-workspaces": "workspace:*",
     "@shipfox/playwright": "workspace:*",
     "@shipfox/ts-config": "workspace:*",

@@ -92,11 +92,35 @@ export class CustomModelProviderScreen {
   }
 }
 
+export class AgentAccessSettingsScreen {
+  constructor(private readonly page: Page) {}
+
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/settings/agent-access`);
+  }
+
+  heading(): Locator {
+    return this.page.getByRole('heading', {name: 'Agent access', exact: true});
+  }
+
+  authorizedAppsHeading(): Locator {
+    return this.page.getByRole('heading', {name: 'Authorized apps', exact: true});
+  }
+
+  emptyState(): Locator {
+    return this.page.getByText('No authorized apps', {exact: true});
+  }
+}
+
 export interface AgentScreenFixtures {
+  agentAccessSettings: AgentAccessSettingsScreen;
   customModelProviders: CustomModelProviderScreen;
 }
 
 export const agentScreens = {
+  agentAccessSettings: async ({page}: {page: Page}, use: FixtureUse<AgentAccessSettingsScreen>) => {
+    await use(new AgentAccessSettingsScreen(page));
+  },
   customModelProviders: async (
     {page}: {page: Page},
     use: FixtureUse<CustomModelProviderScreen>,
