@@ -500,7 +500,11 @@ export function createWorkflowsInterModulePresentation(params: {
       if (!page) return null;
 
       return {
-        items: page.items.map(toWorkflowExecutionTriggerEventSummaryDto),
+        items: page.items.map((item) => ({
+          ...toWorkflowExecutionTriggerEventSummaryDto(item),
+          // Keep the persistence cursor producer-owned and out of Agent Access results.
+          cursor: encodeTimestampIdCursor({createdAt: item.receivedAt, id: item.id}),
+        })),
         nextCursor: page.nextCursor ? encodeTimestampIdCursor(page.nextCursor) : null,
         ...(page.total === undefined ? {} : {total: page.total}),
       };

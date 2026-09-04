@@ -42,6 +42,12 @@ export function decodeTimestampCursor(
   return cursor ? {createdAt: cursor.createdAt.toISOString(), id: cursor.id} : undefined;
 }
 
+export function validateTimestampCursor(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const cursor = decodeTimestampCursor(value);
+  return cursor !== undefined && UUID_RE.test(cursor.id) ? value : undefined;
+}
+
 export function decodeStringCursor(
   value: string | undefined,
 ): {value: string; id: string} | undefined {

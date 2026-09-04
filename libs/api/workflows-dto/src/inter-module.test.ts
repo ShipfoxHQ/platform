@@ -208,6 +208,7 @@ describe('workflowsInterModuleContract', () => {
             received_at: '2026-08-31T12:00:00.000Z',
             stored_payload_bytes: 32,
             normalized_event_bytes: 128,
+            cursor: 'producer-cursor',
           },
         ],
         nextCursor: null,
