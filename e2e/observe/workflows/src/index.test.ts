@@ -628,7 +628,7 @@ describe('waitForRunTerminal', () => {
       ],
       [
         `/workflows/runs/jobs/${jobId}/executions?limit=25`,
-        response({items: [executionSummary()], next_cursor: null, total: 1}),
+        response({items: [executionSummary()], next_cursor: 'executions-1', total: 26}),
       ],
     ]);
 

@@ -744,12 +744,13 @@ async function readExecutionSummaries(options: {
   jobId: string;
   sequences: readonly number[] | 'all';
   selection: WorkflowJobObservationSelection;
+  preloadedExecutions?: readonly WorkflowExecutionObservation[] | undefined;
   excludedExecutionId?: string | undefined;
   signal: AbortSignal | undefined;
   tracker: ResourceTracker;
 }): Promise<WorkflowExecutionObservation[]> {
   const wanted = options.sequences === 'all' ? undefined : new Set(options.sequences);
-  const observations: WorkflowExecutionObservation[] = [];
+  const observations = [...(options.preloadedExecutions ?? [])];
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
 
@@ -778,7 +779,7 @@ async function readExecutionSummaries(options: {
     );
     observations.push(...pageObservations);
 
-    if (hasMatchingExecution(pageObservations, options.selection.executionMatches)) break;
+    if (hasMatchingExecution(observations, options.selection.executionMatches)) break;
     if (hasAllRequestedExecutions(observations, wanted)) break;
     cursor = page.next_cursor;
     if (cursor === null) break;
@@ -805,6 +806,7 @@ async function readJobObservation(options: {
         selection.stepAttempts !== undefined));
   const executions: WorkflowExecutionObservation[] = [];
   let defaultExecutionId: string | undefined;
+  let defaultExecution: WorkflowExecutionObservation | undefined;
 
   if (needsDefault) {
     const detail = await readJobDetail({
@@ -815,17 +817,16 @@ async function readJobObservation(options: {
     });
     if (detail.selected_execution !== null) {
       defaultExecutionId = detail.selected_execution.id;
-      executions.push(
-        await readExecutionObservation({
-          client: options.client,
-          jobId: options.job.id,
-          execution: detail.selected_execution,
-          jobDetail: detail.selected_execution,
-          selection,
-          signal: options.signal,
-          tracker: options.tracker,
-        }),
-      );
+      defaultExecution = await readExecutionObservation({
+        client: options.client,
+        jobId: options.job.id,
+        execution: detail.selected_execution,
+        jobDetail: detail.selected_execution,
+        selection,
+        signal: options.signal,
+        tracker: options.tracker,
+      });
+      executions.push(defaultExecution);
     }
   }
 
@@ -836,6 +837,7 @@ async function readJobObservation(options: {
         jobId: options.job.id,
         sequences: selection.executionSequences,
         selection,
+        preloadedExecutions: defaultExecution === undefined ? undefined : [defaultExecution],
         excludedExecutionId: defaultExecutionId,
         signal: options.signal,
         tracker: options.tracker,
