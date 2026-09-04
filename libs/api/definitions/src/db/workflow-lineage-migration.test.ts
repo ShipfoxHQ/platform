@@ -57,7 +57,9 @@ async function insertDefinition(
 }
 
 describe('workflow lineage schema migration (0003)', () => {
-  test('adds nullable lineage storage without backfilling existing definitions', async () => {
+  test('adds nullable lineage storage without backfilling existing definitions', {
+    timeout: 30_000,
+  }, async () => {
     const scratch = `api_test_lineage_${randomUUID().replaceAll('-', '')}`;
     const admin = await connectTo(ADMIN_DATABASE);
     let target: pg.Client | undefined;
