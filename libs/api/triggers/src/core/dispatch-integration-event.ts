@@ -92,7 +92,9 @@ export async function dispatchIntegrationEvent(
       receivedAt: params.receivedAt,
     });
   } catch (error) {
-    await history.processingFailed(dispatch.triggerEngagedCount, {
+    const listenerEngagedCount =
+      error instanceof TriggerReferenceResolutionError ? error.engagedCount : 0;
+    await history.processingFailed(dispatch.triggerEngagedCount + listenerEngagedCount, {
       version: 1,
       code:
         error instanceof TriggerReferenceResolutionError

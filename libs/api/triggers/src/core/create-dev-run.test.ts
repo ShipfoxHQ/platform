@@ -614,6 +614,10 @@ describe('createDevRun', () => {
       trigger_kind: 'replay',
       outcome: 'errored',
     });
+    expect(diagnosticCount.add).toHaveBeenCalledWith(1, {
+      scope: 'decision',
+      code: 'expression-evaluation-failed',
+    });
 
     const events = await devEventsForWorkspace(params.workspaceId);
     expect(events).toHaveLength(1);

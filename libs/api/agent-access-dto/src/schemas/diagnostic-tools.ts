@@ -30,6 +30,7 @@ const triggerOriginSchema = z.enum(['integration', 'manual', 'cron', 'dev']);
 const triggerOutcomeSchema = z.enum(['received', 'routed', 'discarded', 'failed', 'errored']);
 const triggerDecisionOutcomeSchema = z.enum([
   'triggered',
+  'filtered',
   'filter-error',
   'dispatch-error',
   'rejected',
@@ -142,7 +143,7 @@ const triggerDecisionJsonSchema = {
     subscription_kind: {type: 'string', enum: ['trigger', 'listener', 'dev']},
     outcome: {
       type: 'string',
-      enum: ['triggered', 'filter-error', 'dispatch-error', 'rejected'],
+      enum: ['triggered', 'filtered', 'filter-error', 'dispatch-error', 'rejected'],
     },
     reason: nullable(text),
     workflow_definition_id: nullable(uuid),

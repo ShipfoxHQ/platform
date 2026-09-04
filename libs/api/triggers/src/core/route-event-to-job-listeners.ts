@@ -67,7 +67,9 @@ export async function routeEventToJobListeners(
   const fireDeliveryNeeded = [...effectiveMatchByJobId.values()].some(
     (subscription) => listenerDisposition(subscription) === 'fire',
   );
-  const triggerReference = fireDeliveryNeeded ? await resolveTriggerReference(params) : null;
+  const triggerReference = fireDeliveryNeeded
+    ? await resolveTriggerReference(params, filterErrorCount)
+    : null;
 
   const delivery = await deliverEventToMatchedListeners(
     params,
@@ -89,7 +91,10 @@ export async function routeEventToJobListeners(
   };
 }
 
-async function resolveTriggerReference(params: RouteEventToJobListenersParams) {
+async function resolveTriggerReference(
+  params: RouteEventToJobListenersParams,
+  engagedCount: number,
+) {
   try {
     return await params.workflows.resolveWorkflowRunTriggerReference({
       workspaceId: params.workspaceId,
@@ -103,7 +108,7 @@ async function resolveTriggerReference(params: RouteEventToJobListenersParams) {
       },
     });
   } catch (error) {
-    throw new TriggerReferenceResolutionError(error);
+    throw new TriggerReferenceResolutionError(error, engagedCount);
   }
 }
 

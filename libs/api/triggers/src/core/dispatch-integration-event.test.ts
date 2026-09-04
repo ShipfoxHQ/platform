@@ -835,6 +835,15 @@ describe('dispatchIntegrationEvent', () => {
   test('records an event-level diagnostic when listener context cannot be prepared', async () => {
     const workspaceId = crypto.randomUUID();
     const eventRef = crypto.randomUUID();
+    const filterErrorSubscription = await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+      config: {
+        filter: 'jobs.build.outputs.pr_number == 42',
+        filter_snapshot: {},
+      },
+    });
     await jobListenerSubscriptionFactory.create({
       workspaceId,
       source: 'github',
@@ -849,10 +858,18 @@ describe('dispatchIntegrationEvent', () => {
     );
 
     const event = await receivedEvent(eventRef);
+    if (!event) throw new Error('received event not found');
     expect(event).toMatchObject({
       outcome: 'failed',
+      matchedCount: 1,
       processingDiagnostic: {version: 1, code: 'trigger-reference-resolution-failed'},
     });
+    expect(await decisionsForEvent(event.id)).toEqual([
+      expect.objectContaining({
+        subscriptionId: filterErrorSubscription.id,
+        decision: 'filter-error',
+      }),
+    ]);
   });
 
   test('records a listener dispatch-error decision when listener delivery throws', async () => {

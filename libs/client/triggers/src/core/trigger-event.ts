@@ -66,7 +66,13 @@ export type TriggerEventDecisionDiagnostic =
   | {version: 1; code: 'invalid-job-runner-labels'; labels: string[]}
   | {
       version: 1;
-      code: 'source-snapshot-too-large' | 'diagnostic-too-large';
+      code: 'source-snapshot-too-large';
+      limitBytes: number;
+      measuredBytes: number;
+    }
+  | {
+      version: 1;
+      code: 'diagnostic-too-large';
       field?: string | undefined;
       limitBytes: number;
       measuredBytes: number;

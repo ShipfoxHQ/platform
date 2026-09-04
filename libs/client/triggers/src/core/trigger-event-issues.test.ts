@@ -144,6 +144,37 @@ describe('getTriggerEventIssueCallout', () => {
     });
   });
 
+  test('keeps listener failures separate so each listener name remains visible', () => {
+    const diagnostic = {
+      version: 1,
+      code: 'expression-missing-path',
+      path: 'jobs.build.outputs.url',
+    } as const;
+    const callout = getTriggerEventIssueCallout(
+      event({
+        decisions: [
+          decision({
+            id: 'listener-one',
+            subscriptionKind: 'listener',
+            subscriptionName: 'Notify Slack',
+            diagnostic,
+          }),
+          decision({
+            id: 'listener-two',
+            subscriptionKind: 'listener',
+            subscriptionName: 'Publish status',
+            diagnostic,
+          }),
+        ],
+      }),
+    );
+
+    expect(callout?.issues).toMatchObject([
+      {id: 'listener-one', targetName: 'Notify Slack', affectedCount: 1},
+      {id: 'listener-two', targetName: 'Publish status', affectedCount: 1},
+    ]);
+  });
+
   test('does not render an unknown legacy reason', () => {
     const callout = getTriggerEventIssueCallout(
       event({

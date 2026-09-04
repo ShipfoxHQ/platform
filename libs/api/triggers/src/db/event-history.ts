@@ -446,13 +446,17 @@ export interface UpsertDevFilteredDecisionParams {
 export async function upsertDevFilteredDecision(
   params: UpsertDevFilteredDecisionParams,
 ): Promise<void> {
-  await upsertDevDecision(params, {
-    decision: 'filtered',
-    runId: null,
-    runName: null,
-    reason: null,
-    diagnostic: null,
-  });
+  await upsertDevDecision(
+    params,
+    {
+      decision: 'filtered',
+      runId: null,
+      runName: null,
+      reason: null,
+      diagnostic: null,
+    },
+    {preserveTriggered: true},
+  );
 }
 
 async function upsertDevDecision(

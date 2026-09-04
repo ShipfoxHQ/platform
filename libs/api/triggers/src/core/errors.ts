@@ -142,8 +142,11 @@ export class DevRunTriggerFilteredError extends Error {
 }
 
 export class TriggerReferenceResolutionError extends Error {
-  constructor(cause: unknown) {
+  readonly engagedCount: number;
+
+  constructor(cause: unknown, engagedCount: number) {
     super('Workflow run trigger reference could not be resolved', {cause});
     this.name = 'TriggerReferenceResolutionError';
+    this.engagedCount = engagedCount;
   }
 }

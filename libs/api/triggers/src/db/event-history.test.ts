@@ -11,6 +11,7 @@ import {
   markReceivedEventRouted,
   upsertDevDispatchErrorDecision,
   upsertDevFilterErrorDecision,
+  upsertDevFilteredDecision,
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
@@ -325,6 +326,7 @@ describe('dev decision inserts', () => {
       runId: run.id,
       runName: run.name,
       reason: null,
+      diagnostic: null,
     });
   });
 
@@ -352,6 +354,7 @@ describe('dev decision inserts', () => {
       runId: null,
       runName: null,
       reason: 'filter is false',
+      diagnostic: filterDiagnostic,
     });
   });
 
@@ -379,6 +382,7 @@ describe('dev decision inserts', () => {
       runId: null,
       runName: null,
       reason: 'workspace suspended',
+      diagnostic: dispatchDiagnostic,
     });
   });
 
@@ -436,6 +440,35 @@ describe('dev decision inserts', () => {
       runId: run.id,
       runName: run.name,
       reason: null,
+      diagnostic: null,
+    });
+  });
+
+  it('does not downgrade a dev triggered decision on a filtered replay', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+    const run = {id: crypto.randomUUID(), name: 'Dev run'};
+
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run,
+    });
+    await upsertDevFilteredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      decision: 'triggered',
+      runId: run.id,
+      runName: run.name,
+      reason: null,
+      diagnostic: null,
     });
   });
 });
@@ -572,6 +605,7 @@ describe('decision upserts', () => {
       matcherOrdinal: 2,
       decision: 'triggered',
       reason: null,
+      diagnostic: null,
     });
   });
 
@@ -601,6 +635,7 @@ describe('decision upserts', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 
   it('never downgrades an existing listener triggered decision to dispatch-error', async () => {
@@ -619,6 +654,7 @@ describe('decision upserts', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 
   it('records a listener filter-error decision', async () => {
@@ -637,6 +673,7 @@ describe('decision upserts', () => {
     expect(rows[0]?.subscriptionKind).toBe('listener');
     expect(rows[0]?.decision).toBe('filter-error');
     expect(rows[0]?.reason).toBe('Listener filter evaluation failed');
+    expect(rows[0]?.diagnostic).toEqual(filterDiagnostic);
   });
 
   it('records a stable listener delivery rejection decision', async () => {
@@ -685,5 +722,6 @@ describe('decision upserts', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 });

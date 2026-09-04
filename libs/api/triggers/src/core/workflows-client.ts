@@ -80,15 +80,20 @@ function knownStartDiagnostic(
         ...(envKey ? {envKey} : {}),
       };
     }
-    case 'invalid-job-runner-labels':
+    case 'invalid-job-runner-labels': {
+      const labels = error.details.labels
+        .map((label) => label.slice(0, 64))
+        .filter((label) => label.length > 0)
+        .slice(0, 10);
+      if (labels.length === 0) {
+        return {version: 1, code: 'unexpected-workflow-start-failure'};
+      }
       return {
         version: 1,
         code: error.code,
-        labels: error.details.labels
-          .map((label) => label.slice(0, 64))
-          .filter((label) => label.length > 0)
-          .slice(0, 10),
+        labels,
       };
+    }
     case 'source-snapshot-too-large':
       return {
         version: 1,

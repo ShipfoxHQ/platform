@@ -143,7 +143,10 @@ function diagnosticIssue(
           text(` is not available in the ${filterName}. ${filterFailureConsequence(decision)}`),
         ],
         {
-          groupKey: `${filterTarget}:${diagnostic.code}:${diagnostic.path}`,
+          groupKey:
+            decision.subscriptionKind === 'listener'
+              ? `${filterTarget}:${decision.id}:${diagnostic.code}:${diagnostic.path}`
+              : `${filterTarget}:${diagnostic.code}:${diagnostic.path}`,
           groupedDescription: [
             code(diagnostic.path),
             text(

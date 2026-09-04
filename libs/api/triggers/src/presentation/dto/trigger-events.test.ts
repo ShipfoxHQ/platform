@@ -56,6 +56,13 @@ describe('trigger-events mappers', () => {
         details: {payload: 'secret'},
       }).success,
     ).toBe(false);
+    expect(
+      triggerDecisionDiagnosticDtoSchema.safeParse({
+        version: 1,
+        code: 'invalid-job-runner-labels',
+        labels: [],
+      }).success,
+    ).toBe(false);
   });
 
   test('toTriggerEventListItemDto maps null fields, formats ISO dates, and omits payload', () => {

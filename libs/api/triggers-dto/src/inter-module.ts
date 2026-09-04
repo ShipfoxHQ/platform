@@ -70,7 +70,7 @@ export const triggerDecisionDiagnosticSchema = z.discriminatedUnion('code', [
   z.strictObject({
     version: diagnosticVersionSchema,
     code: z.literal('invalid-job-runner-labels'),
-    labels: z.array(z.string().min(1).max(64)).max(10),
+    labels: z.array(z.string().min(1).max(64)).min(1).max(10),
   }),
   z.strictObject({
     version: diagnosticVersionSchema,

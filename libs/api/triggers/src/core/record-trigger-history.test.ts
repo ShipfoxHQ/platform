@@ -10,6 +10,22 @@ const upsertDevTriggeredDecision = vi.fn();
 const upsertDevFilteredDecision = vi.fn();
 const upsertDevFilterErrorDecision = vi.fn();
 const upsertDevDispatchErrorDecision = vi.fn();
+const upsertDispatchErrorDecision = vi.fn();
+const upsertFilterErrorDecision = vi.fn();
+const upsertListenerDeliveryRejectedDecision = vi.fn();
+const upsertListenerDispatchErrorDecision = vi.fn();
+const upsertListenerFilterErrorDecision = vi.fn();
+const diagnosticCount = vi.hoisted(() => ({add: vi.fn()}));
+const eventOutcomeCount = vi.hoisted(() => ({add: vi.fn()}));
+const eventReceivedCount = vi.hoisted(() => ({add: vi.fn()}));
+const subscriptionTriggeredCount = vi.hoisted(() => ({add: vi.fn()}));
+
+vi.mock('#metrics/instance.js', () => ({
+  diagnosticCount,
+  eventOutcomeCount,
+  eventReceivedCount,
+  subscriptionTriggeredCount,
+}));
 
 vi.mock('#db/event-history.js', () => ({
   insertReceivedEvent: (...args: unknown[]) => insertReceivedEvent(...args),
@@ -22,12 +38,15 @@ vi.mock('#db/event-history.js', () => ({
   upsertDevFilteredDecision: (...args: unknown[]) => upsertDevFilteredDecision(...args),
   upsertDevFilterErrorDecision: (...args: unknown[]) => upsertDevFilterErrorDecision(...args),
   upsertDevDispatchErrorDecision: (...args: unknown[]) => upsertDevDispatchErrorDecision(...args),
-  upsertDispatchErrorDecision: vi.fn(),
-  upsertFilterErrorDecision: vi.fn(),
-  upsertListenerDeliveryRejectedDecision: vi.fn(),
+  upsertDispatchErrorDecision: (...args: unknown[]) => upsertDispatchErrorDecision(...args),
+  upsertFilterErrorDecision: (...args: unknown[]) => upsertFilterErrorDecision(...args),
+  upsertListenerDeliveryRejectedDecision: (...args: unknown[]) =>
+    upsertListenerDeliveryRejectedDecision(...args),
   upsertListenerTriggeredDecision: vi.fn(),
-  upsertListenerDispatchErrorDecision: vi.fn(),
-  upsertListenerFilterErrorDecision: vi.fn(),
+  upsertListenerDispatchErrorDecision: (...args: unknown[]) =>
+    upsertListenerDispatchErrorDecision(...args),
+  upsertListenerFilterErrorDecision: (...args: unknown[]) =>
+    upsertListenerFilterErrorDecision(...args),
 }));
 
 // Import after mocks so the code under test sees the spies.
@@ -53,6 +72,7 @@ describe('trigger history is best-effort and never blocks triggering', () => {
   beforeEach(() => {
     runWorkflow.mockReset();
     insertReceivedEvent.mockReset();
+    diagnosticCount.add.mockReset();
     insertReceivedEvent.mockRejectedValue(new Error('history db down'));
   });
 
@@ -119,7 +139,20 @@ describe('trigger history is best-effort and never blocks triggering', () => {
     await expect(recorder.discarded()).resolves.toBeUndefined();
     await expect(recorder.routed(1)).resolves.toBeUndefined();
     await expect(recorder.failed(1)).resolves.toBeUndefined();
+    await expect(
+      recorder.processingFailed(1, {version: 1, code: 'event-processing-failed'}),
+    ).resolves.toBeUndefined();
     await expect(recorder.allErrored(1)).resolves.toBeUndefined();
+
+    expect(diagnosticCount.add).toHaveBeenCalledTimes(8);
+    expect(diagnosticCount.add).toHaveBeenCalledWith(1, {
+      scope: 'decision',
+      code: 'expression-evaluation-failed',
+    });
+    expect(diagnosticCount.add).toHaveBeenCalledWith(1, {
+      scope: 'event',
+      code: 'event-processing-failed',
+    });
   });
 
   test('fireManualSubscription still returns the run when history recording fails', async () => {
@@ -148,6 +181,11 @@ describe('a per-write failure after a successful insert is swallowed', () => {
     insertReceivedEvent.mockReset();
     markReceivedEventRouted.mockReset();
     upsertTriggeredDecision.mockReset();
+    upsertDispatchErrorDecision.mockReset();
+    upsertFilterErrorDecision.mockReset();
+    upsertListenerDeliveryRejectedDecision.mockReset();
+    upsertListenerDispatchErrorDecision.mockReset();
+    upsertListenerFilterErrorDecision.mockReset();
     insertReceivedEvent.mockResolvedValue(crypto.randomUUID());
     markReceivedEventRouted.mockRejectedValue(new Error('route write failed'));
     upsertTriggeredDecision.mockRejectedValue(new Error('decision write failed'));
@@ -179,6 +217,55 @@ describe('a per-write failure after a successful insert is swallowed', () => {
     // missing-id no-op), so the assertions exercise the swallow path they claim to.
     expect(upsertTriggeredDecision).toHaveBeenCalledTimes(1);
     expect(markReceivedEventRouted).toHaveBeenCalledTimes(1);
+  });
+
+  test('forwards validated diagnostics to trigger and listener decision writers', async () => {
+    const recorder = await beginTriggerHistory({
+      eventRef: crypto.randomUUID(),
+      origin: 'integration',
+      workspaceId: crypto.randomUUID(),
+      provider: 'github',
+      source: 'github',
+      event: 'push',
+      replayOfEventId: null,
+      deliveryId: null,
+      connectionId: null,
+      connectionName: null,
+      payload: null,
+      receivedAt: new Date(),
+    });
+    const subscription = triggerSubscriptionFactory.build();
+    const listenerSubscription = jobListenerSubscriptionFactory.build();
+
+    await recorder.filterErrored(subscription, 'bad filter', filterDiagnostic);
+    await recorder.dispatchErrored(subscription, 'boom', dispatchDiagnostic);
+    await recorder.listenerFilterErrored(listenerSubscription, 'bad filter', filterDiagnostic);
+    await recorder.listenerDispatchErrored(
+      listenerSubscription,
+      'boom',
+      listenerDispatchDiagnostic,
+    );
+    await recorder.listenerDeliveryRejected(
+      listenerSubscription,
+      'payload-too-large',
+      listenerRejectionDiagnostic,
+    );
+
+    expect(upsertFilterErrorDecision).toHaveBeenCalledWith(
+      expect.objectContaining({diagnostic: filterDiagnostic}),
+    );
+    expect(upsertDispatchErrorDecision).toHaveBeenCalledWith(
+      expect.objectContaining({diagnostic: dispatchDiagnostic}),
+    );
+    expect(upsertListenerFilterErrorDecision).toHaveBeenCalledWith(
+      expect.objectContaining({diagnostic: filterDiagnostic}),
+    );
+    expect(upsertListenerDispatchErrorDecision).toHaveBeenCalledWith(
+      expect.objectContaining({diagnostic: listenerDispatchDiagnostic}),
+    );
+    expect(upsertListenerDeliveryRejectedDecision).toHaveBeenCalledWith(
+      expect.objectContaining({diagnostic: listenerRejectionDiagnostic}),
+    );
   });
 });
 

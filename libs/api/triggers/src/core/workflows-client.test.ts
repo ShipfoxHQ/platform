@@ -209,6 +209,15 @@ describe('WorkflowsModuleClient consumer parity', () => {
       code: 'invalid-job-runner-labels',
       labels: ['linux', 'gpu'],
     });
+    const emptyLabelsError = createInterModuleKnownError(
+      workflowsInterModuleContract.methods.startRunFromTrigger,
+      'invalid-job-runner-labels',
+      {labels: ['']},
+    );
+    expect(startRunDiagnostic(emptyLabelsError)).toEqual({
+      version: 1,
+      code: 'unexpected-workflow-start-failure',
+    });
     const admissionError = createInterModuleKnownError(
       workflowsInterModuleContract.methods.startRunFromTrigger,
       'admission-denied',

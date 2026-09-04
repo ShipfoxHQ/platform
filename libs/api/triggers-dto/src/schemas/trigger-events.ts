@@ -90,7 +90,7 @@ export const triggerDecisionDiagnosticDtoSchema = z.discriminatedUnion('code', [
   z.strictObject({
     version: diagnosticVersionSchema,
     code: z.literal('invalid-job-runner-labels'),
-    labels: z.array(z.string().min(1).max(64)).max(10),
+    labels: z.array(z.string().min(1).max(64)).min(1).max(10),
   }),
   z.strictObject({
     version: diagnosticVersionSchema,
@@ -145,7 +145,8 @@ export type TriggerEventProcessingDiagnosticDto = z.infer<
 >;
 
 /**
- * List rows omit payload because webhook bodies can be large/untrusted.
+ * List rows omit payload and processing diagnostics. Webhook bodies can be
+ * large or untrusted, and diagnostics belong to the event detail view.
  * The full payload lives only on the detail response.
  */
 export const triggerEventListItemDtoSchema = z.object({

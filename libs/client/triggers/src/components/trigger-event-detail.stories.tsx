@@ -163,6 +163,7 @@ const failedFilterEventDto: TriggerEventDetailResponseDto = {
     {
       ...routedDecision,
       id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      received_event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       subscription_name: 'on_pr_opened',
       decision: 'filter-error',
       run_id: null,
@@ -187,10 +188,14 @@ const groupedErrorsEventDto: TriggerEventDetailResponseDto = {
   delivery_id: 'delivery-182',
   matched_count: 2,
   decisions: [
-    failedFilterDecision,
+    {
+      ...failedFilterDecision,
+      received_event_id: '12121212-1212-4212-8212-121212121212',
+    },
     {
       ...failedFilterDecision,
       id: '13131313-1313-4313-8313-131313131313',
+      received_event_id: '12121212-1212-4212-8212-121212121212',
       subscription_id: '14141414-1414-4414-8414-141414141414',
       subscription_name: 'deploy_preview',
     },
@@ -204,7 +209,10 @@ const partialFailureEventDto: TriggerEventDetailResponseDto = {
   delivery_id: 'delivery-183',
   outcome: 'routed',
   matched_count: 2,
-  decisions: [routedDecision, failedFilterDecision],
+  decisions: [
+    {...routedDecision, received_event_id: '15151515-1515-4515-8515-151515151515'},
+    {...failedFilterDecision, received_event_id: '15151515-1515-4515-8515-151515151515'},
+  ],
 };
 
 const unavailableDetailsEventDto: TriggerEventDetailResponseDto = {
@@ -216,6 +224,7 @@ const unavailableDetailsEventDto: TriggerEventDetailResponseDto = {
     {
       ...failedFilterDecision,
       id: '17171717-1717-4717-8717-171717171717',
+      received_event_id: '16161616-1616-4616-8616-161616161616',
       decision: 'dispatch-error',
       reason: 'internal host db.private.example failed',
       diagnostic: undefined,

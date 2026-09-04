@@ -153,6 +153,61 @@ export async function beginTriggerHistory(
     await safe(params.eventRef, label, () => write(receivedEventId), subscriptionId);
   };
 
+  const recordDecisionDiagnostic = (
+    label: string,
+    diagnostic: TriggerDecisionDiagnostic,
+    write: (receivedEventId: string, diagnostic: TriggerDecisionDiagnostic) => Promise<unknown>,
+    subscriptionId?: string,
+  ): Promise<void> =>
+    recordDiagnostic(
+      label,
+      diagnostic,
+      (value) => validateDecisionDiagnostic(value),
+      (code) => diagnosticCount.add(1, {scope: 'decision', code}),
+      write,
+      subscriptionId,
+    );
+
+  const recordProcessingDiagnostic = (
+    label: string,
+    diagnostic: TriggerEventProcessingDiagnostic,
+    write: (
+      receivedEventId: string,
+      diagnostic: TriggerEventProcessingDiagnostic,
+    ) => Promise<unknown>,
+  ): Promise<void> =>
+    recordDiagnostic(
+      label,
+      diagnostic,
+      (value) => validateProcessingDiagnostic(value),
+      (code) => diagnosticCount.add(1, {scope: 'event', code}),
+      write,
+    );
+
+  async function recordDiagnostic<
+    T extends TriggerDecisionDiagnostic | TriggerEventProcessingDiagnostic,
+  >(
+    label: string,
+    diagnostic: T,
+    validate: (diagnostic: T) => T,
+    count: (code: T['code']) => void,
+    write: (receivedEventId: string, diagnostic: T) => Promise<unknown>,
+    subscriptionId?: string,
+  ): Promise<void> {
+    const checkedDiagnostic = await safe(
+      params.eventRef,
+      `${label}-diagnostic`,
+      () => {
+        const checked = validate(diagnostic);
+        count(checked.code);
+        return Promise.resolve(checked);
+      },
+      subscriptionId,
+    );
+    if (checkedDiagnostic === undefined) return;
+    await record(label, (id) => write(id, checkedDiagnostic), subscriptionId);
+  }
+
   return {
     triggered: (subscription, run) =>
       record(
@@ -169,46 +224,48 @@ export async function beginTriggerHistory(
         upsertDevFilteredDecision({receivedEventId: id, triggerKey, workflowDefinitionId}),
       ),
     devFilterErrored: (triggerKey, workflowDefinitionId, reason, diagnostic) =>
-      record('dev-filter-error-decision', (id) =>
+      recordDecisionDiagnostic('dev-filter-error-decision', diagnostic, (id, checkedDiagnostic) =>
         upsertDevFilterErrorDecision({
           receivedEventId: id,
           triggerKey,
           workflowDefinitionId,
           reason,
-          diagnostic: validateDecisionDiagnostic(diagnostic),
+          diagnostic: checkedDiagnostic,
         }),
       ),
     devDispatchErrored: (triggerKey, workflowDefinitionId, reason, diagnostic) =>
-      record('dev-dispatch-error-decision', (id) =>
+      recordDecisionDiagnostic('dev-dispatch-error-decision', diagnostic, (id, checkedDiagnostic) =>
         upsertDevDispatchErrorDecision({
           receivedEventId: id,
           triggerKey,
           workflowDefinitionId,
           reason,
-          diagnostic: validateDecisionDiagnostic(diagnostic),
+          diagnostic: checkedDiagnostic,
         }),
       ),
     filterErrored: (subscription, reason, diagnostic) =>
-      record(
+      recordDecisionDiagnostic(
         'filter-error-decision',
-        (id) =>
+        diagnostic,
+        (id, checkedDiagnostic) =>
           upsertFilterErrorDecision({
             receivedEventId: id,
             subscription,
             reason,
-            diagnostic: validateDecisionDiagnostic(diagnostic),
+            diagnostic: checkedDiagnostic,
           }),
         subscription.id,
       ),
     dispatchErrored: (subscription, reason, diagnostic) =>
-      record(
+      recordDecisionDiagnostic(
         'dispatch-error-decision',
-        (id) =>
+        diagnostic,
+        (id, checkedDiagnostic) =>
           upsertDispatchErrorDecision({
             receivedEventId: id,
             subscription,
             reason,
-            diagnostic: validateDecisionDiagnostic(diagnostic),
+            diagnostic: checkedDiagnostic,
           }),
         subscription.id,
       ),
@@ -219,38 +276,41 @@ export async function beginTriggerHistory(
         subscription.id,
       ),
     listenerFilterErrored: (subscription, reason, diagnostic) =>
-      record(
+      recordDecisionDiagnostic(
         'listener-filter-error-decision',
-        (id) =>
+        diagnostic,
+        (id, checkedDiagnostic) =>
           upsertListenerFilterErrorDecision({
             receivedEventId: id,
             subscription,
             reason,
-            diagnostic: validateDecisionDiagnostic(diagnostic),
+            diagnostic: checkedDiagnostic,
           }),
         subscription.id,
       ),
     listenerDispatchErrored: (subscription, reason, diagnostic) =>
-      record(
+      recordDecisionDiagnostic(
         'listener-dispatch-error-decision',
-        (id) =>
+        diagnostic,
+        (id, checkedDiagnostic) =>
           upsertListenerDispatchErrorDecision({
             receivedEventId: id,
             subscription,
             reason,
-            diagnostic: validateDecisionDiagnostic(diagnostic),
+            diagnostic: checkedDiagnostic,
           }),
         subscription.id,
       ),
     listenerDeliveryRejected: (subscription, reason, diagnostic) =>
-      record(
+      recordDecisionDiagnostic(
         'listener-rejected-decision',
-        (id) =>
+        diagnostic,
+        (id, checkedDiagnostic) =>
           upsertListenerDeliveryRejectedDecision({
             receivedEventId: id,
             subscription,
             reason,
-            diagnostic: validateDecisionDiagnostic(diagnostic),
+            diagnostic: checkedDiagnostic,
           }),
         subscription.id,
       ),
@@ -260,8 +320,8 @@ export async function beginTriggerHistory(
     failed: (matchedCount) =>
       record('fail-event', (id) => markReceivedEventFailed(id, matchedCount)),
     processingFailed: (matchedCount, diagnostic) =>
-      record('fail-event-processing', (id) =>
-        markReceivedEventFailed(id, matchedCount, validateProcessingDiagnostic(diagnostic)),
+      recordProcessingDiagnostic('fail-event-processing', diagnostic, (id, checkedDiagnostic) =>
+        markReceivedEventFailed(id, matchedCount, checkedDiagnostic),
       ),
     allErrored: (matchedCount) =>
       record('all-errored-event', (id) => markReceivedEventErrored(id, matchedCount)),
@@ -272,7 +332,6 @@ function validateDecisionDiagnostic(
   diagnostic: TriggerDecisionDiagnostic,
 ): TriggerDecisionDiagnostic {
   triggerDecisionDiagnosticSchema.parse(diagnostic);
-  diagnosticCount.add(1, {scope: 'decision', code: diagnostic.code});
   return diagnostic;
 }
 
@@ -280,7 +339,6 @@ function validateProcessingDiagnostic(
   diagnostic: TriggerEventProcessingDiagnostic,
 ): TriggerEventProcessingDiagnostic {
   triggerEventProcessingDiagnosticSchema.parse(diagnostic);
-  diagnosticCount.add(1, {scope: 'event', code: diagnostic.code});
   return diagnostic;
 }
 
