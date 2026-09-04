@@ -158,7 +158,10 @@ export class ConnectionDetailsScreen {
         response.request().method() === 'PUT' &&
         new URL(response.url()).pathname.endsWith('/repository-access'),
     );
-    await Promise.all([saveResponse, this.saveButton().click()]);
+    const [response] = await Promise.all([saveResponse, this.saveButton().click()]);
+    if (!response.ok()) {
+      throw new Error(`Saving repository access mode failed with status ${response.status()}`);
+    }
     await this.toast.expectVisible('Access mode saved.');
   }
 

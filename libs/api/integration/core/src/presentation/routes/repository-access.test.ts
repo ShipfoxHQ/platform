@@ -48,7 +48,7 @@ describe('repository access mutation routes', () => {
     });
   });
 
-  it('restores selected repository access after granting all access', async () => {
+  it('restores selected access with audited changes and cache invalidation', async () => {
     const invalidateRepositoryAuthorizationCache = vi.fn();
     const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
       repositoryAuthorizer: {
@@ -168,29 +168,6 @@ describe('repository access mutation routes', () => {
     expect((await getIntegrationConnectionById(connection.id))?.repositoryAccessMode).toBe(
       'selected',
     );
-  });
-
-  it('invalidates the authorization cache after a committed mode change', async () => {
-    const invalidateRepositoryAuthorizationCache = vi.fn();
-    const app = await createTestApp([sourceProvider({repositoryAuthorization: 'enforced'})], {
-      repositoryAuthorizer: {
-        enabled: false,
-        resolveRepositoryAuthorization: () => Promise.resolve(undefined),
-        invalidateRepositoryAuthorizationCache,
-      },
-    });
-    const connection = await createConnection();
-
-    const response = await app.inject({
-      method: 'PUT',
-      url: `/integration-connections/${connection.id}/repository-access`,
-      headers: {authorization: 'Bearer user'},
-      payload: {mode: 'all'},
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(invalidateRepositoryAuthorizationCache).toHaveBeenCalledOnce();
-    expect(invalidateRepositoryAuthorizationCache).toHaveBeenCalledWith(connection.id);
   });
 
   async function createConnection() {
