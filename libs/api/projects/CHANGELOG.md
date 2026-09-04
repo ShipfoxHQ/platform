@@ -1,5 +1,13 @@
 # @shipfox/api-projects
 
+## 21.2.0
+
+### Patch Changes
+
+- Updated dependencies [0745878]
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-temporal@0.5.0
+
 ## 21.0.0
 
 ### Patch Changes

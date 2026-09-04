@@ -1,5 +1,12 @@
 # @shipfox/expression
 
+## 2.7.0
+
+### Minor Changes
+
+- 351569e: Exposes the current workflow run attempt as `run.attempt` in expressions and reruns. Deploy compatible workers before adopting this field in persisted expressions because older builds omit it and cause those expressions to fail closed.
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+
 ## 2.6.1
 
 ### Patch Changes

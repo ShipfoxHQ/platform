@@ -1,5 +1,27 @@
 # @shipfox/client-workflows
 
+## 35.0.0
+
+### Major Changes
+
+- 35fd29b: Resolves workflow-run deep links through bounded selection data and rewrites them to canonical resource URLs while changing the public selection query-key contract.
+
+### Minor Changes
+
+- 7fda354: Loads enriched run annotations and no-execution job explanations from the required bounded workflow APIs.
+
+### Patch Changes
+
+- Updated dependencies [1f2c634]
+- Updated dependencies [12cc22e]
+- Updated dependencies [8407bd1]
+- Updated dependencies [41e1cfc]
+  - @shipfox/api-workflows-dto@21.2.0
+  - @shipfox/api-triggers-dto@21.2.0
+  - @shipfox/client-triggers@35.0.0
+  - @shipfox/api-definitions-dto@21.2.0
+  - @shipfox/client-projects@35.0.0
+
 ## 34.0.0
 
 ### Minor Changes

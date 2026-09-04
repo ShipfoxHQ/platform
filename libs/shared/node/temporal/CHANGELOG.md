@@ -1,5 +1,11 @@
 # @shipfox/node-temporal
 
+## 0.5.0
+
+### Minor Changes
+
+- 0745878: Adds state-aware Temporal worker shutdown requests and avoids duplicate requests after a worker has already stopped running.
+
 ## 0.4.6
 
 ### Patch Changes

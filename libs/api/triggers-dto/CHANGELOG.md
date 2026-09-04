@@ -1,5 +1,15 @@
 # @shipfox/api-triggers-dto
 
+## 21.2.0
+
+### Minor Changes
+
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+
+### Patch Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+
 ## 21.0.0
 
 ### Minor Changes

@@ -1,5 +1,30 @@
 # @shipfox/api-workflows
 
+## 21.2.0
+
+### Minor Changes
+
+- 1f2c634: Adds bounded workflow execution trigger-event list and detail reads with stable
+  pagination and size-limited payload previews. Existing execution context reads
+  continue to support historical executions.
+- 12cc22e: Adds bounded Agent Access tools for workflow execution trigger-event diagnostics.
+
+### Patch Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+- 351569e: Exposes the current workflow run attempt as `run.attempt` in expressions and reruns. Deploy compatible workers before adopting this field in persisted expressions because older builds omit it and cause those expressions to fail closed.
+- Updated dependencies [0745878]
+- Updated dependencies [1f2c634]
+- Updated dependencies [12cc22e]
+- Updated dependencies [8407bd1]
+- Updated dependencies [351569e]
+- Updated dependencies [41e1cfc]
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-temporal@0.5.0
+  - @shipfox/api-workflows-dto@21.2.0
+  - @shipfox/expression@2.7.0
+  - @shipfox/api-definitions-dto@21.2.0
+
 ## 21.1.0
 
 ### Minor Changes

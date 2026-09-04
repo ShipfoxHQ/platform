@@ -1,5 +1,19 @@
 # @shipfox/client-triggers
 
+## 35.0.0
+
+### Minor Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+
+### Patch Changes
+
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+- Updated dependencies [8407bd1]
+- Updated dependencies [41e1cfc]
+  - @shipfox/api-triggers-dto@21.2.0
+  - @shipfox/client-projects@35.0.0
+
 ## 34.0.0
 
 ### Patch Changes

@@ -1,5 +1,39 @@
 # @shipfox/api-server
 
+## 21.2.0
+
+### Patch Changes
+
+- 1ba23be: Add the Usage context with durable job execution and inference segment records.
+- Updated dependencies [0427672]
+- Updated dependencies [1ba23be]
+- Updated dependencies [0745878]
+- Updated dependencies [1f2c634]
+- Updated dependencies [5e123f1]
+- Updated dependencies [12cc22e]
+- Updated dependencies [8407bd1]
+- Updated dependencies [351569e]
+- Updated dependencies [41e1cfc]
+  - @shipfox/api-integration-core@21.2.0
+  - @shipfox/api-usage@21.2.0
+  - @shipfox/api-usage-dto@21.2.0
+  - @shipfox/node-module@1.0.10
+  - @shipfox/api-workflows@21.2.0
+  - @shipfox/api-workflows-dto@21.2.0
+  - @shipfox/api-triggers@21.2.0
+  - @shipfox/api-definitions@21.2.0
+  - @shipfox/api-agent@21.2.0
+  - @shipfox/annotations@21.2.0
+  - @shipfox/api-auth@21.2.0
+  - @shipfox/api-dispatcher@21.2.0
+  - @shipfox/api-email-challenges@1.1.15
+  - @shipfox/api-logs@21.2.0
+  - @shipfox/api-projects@21.2.0
+  - @shipfox/api-runners@21.2.0
+  - @shipfox/api-secrets@21.2.0
+  - @shipfox/api-workspaces@21.2.0
+  - @shipfox/api-definitions-dto@21.2.0
+
 ## 21.1.0
 
 ### Patch Changes

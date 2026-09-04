@@ -1,5 +1,16 @@
 # @shipfox/api-agent-access-dto
 
+## 21.2.0
+
+### Minor Changes
+
+- 12cc22e: Adds bounded Agent Access tools for workflow execution trigger-event diagnostics.
+
+### Patch Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+
 ## 21.1.0
 
 ### Minor Changes

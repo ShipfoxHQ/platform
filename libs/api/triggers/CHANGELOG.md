@@ -1,5 +1,27 @@
 # @shipfox/api-triggers
 
+## 21.2.0
+
+### Minor Changes
+
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+
+### Patch Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+- Updated dependencies [0745878]
+- Updated dependencies [1f2c634]
+- Updated dependencies [12cc22e]
+- Updated dependencies [8407bd1]
+- Updated dependencies [351569e]
+- Updated dependencies [41e1cfc]
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-temporal@0.5.0
+  - @shipfox/api-workflows-dto@21.2.0
+  - @shipfox/api-triggers-dto@21.2.0
+  - @shipfox/expression@2.7.0
+  - @shipfox/api-definitions-dto@21.2.0
+
 ## 21.1.0
 
 ### Patch Changes

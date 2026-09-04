@@ -1,5 +1,12 @@
 # @shipfox/annotations
 
+## 21.2.0
+
+### Patch Changes
+
+- Updated dependencies [0745878]
+  - @shipfox/node-module@1.0.10
+
 ## 20.4.0
 
 ### Patch Changes
