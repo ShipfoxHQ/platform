@@ -488,20 +488,7 @@ async function stopModuleWorkers(options: {
   workers: StartedModuleWorker[];
   connection: NativeConnection;
 }): Promise<void> {
-  const errors: unknown[] = [];
-  for (const {worker, taskQueue} of options.workers) {
-    try {
-      worker.shutdown();
-    } catch (error) {
-      logger().error({err: error, taskQueue}, 'Failed to shut down module worker');
-      reportError(error, {
-        boundary: 'module.worker',
-        operation: 'shutdown',
-        tags: {taskQueue},
-      });
-      errors.push(error);
-    }
-  }
+  const errors = options.workers.flatMap(requestModuleWorkerShutdown);
 
   const results = await Promise.allSettled(
     options.workers.map(({runPromise}) => runPromise ?? Promise.resolve()),
@@ -538,6 +525,27 @@ async function stopModuleWorkers(options: {
     }
   }
   throwLifecycleErrors(errors, 'Failed to stop module workers');
+}
+
+function requestModuleWorkerShutdown({worker, taskQueue}: StartedModuleWorker): unknown[] {
+  try {
+    if (workerIsStoppingOrStopped(worker)) return [];
+    worker.shutdown();
+    return [];
+  } catch (error) {
+    logger().error({err: error, taskQueue}, 'Failed to shut down module worker');
+    reportError(error, {
+      boundary: 'module.worker',
+      operation: 'shutdown',
+      tags: {taskQueue},
+    });
+    return [error];
+  }
+}
+
+function workerIsStoppingOrStopped(worker: Worker): boolean {
+  const state = worker.getState();
+  return state === 'STOPPING' || state === 'DRAINING' || state === 'DRAINED' || state === 'STOPPED';
 }
 
 function throwLifecycleErrors(errors: unknown[], message: string): void {

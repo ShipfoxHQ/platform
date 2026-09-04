@@ -506,6 +506,7 @@ function moduleWorker(overrides: Partial<ModuleWorker> = {}): ModuleWorker {
 
 function temporalWorker(runResult: Promise<void> = new Promise(() => undefined)) {
   return {
+    getState: vi.fn().mockReturnValue('RUNNING'),
     run: vi.fn(() => runResult),
     shutdown: vi.fn(),
   };
@@ -735,6 +736,33 @@ describe('startModuleWorkers', () => {
       {err: failure, taskQueue: 'runtime-queue'},
       'Worker stopped unexpectedly',
     );
+  });
+
+  it('waits for a draining worker without shutting it down again', async () => {
+    const shutdownFailure = new Error('Not running. Current state: DRAINING');
+    const connection = {close: vi.fn().mockResolvedValue(undefined)};
+    let resolveRun: () => void = () => undefined;
+    const runPromise = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    const worker = temporalWorker(runPromise);
+    worker.getState.mockReturnValue('DRAINING');
+    worker.shutdown.mockImplementation(() => {
+      throw shutdownFailure;
+    });
+    mocks.createTemporalWorkerConnection.mockResolvedValue(connection);
+    mocks.createTemporalWorker.mockResolvedValueOnce(worker);
+    const handle = await startModuleWorkers({workers: [moduleWorker()]});
+
+    const stop = handle.stop();
+    await flushMicrotasks();
+
+    expect(connection.close).not.toHaveBeenCalled();
+    resolveRun();
+    await expect(stop).resolves.toBeUndefined();
+    expect(worker.shutdown).not.toHaveBeenCalled();
+    expect(connection.close).toHaveBeenCalledOnce();
+    expect(mocks.closeTemporalClient).toHaveBeenCalledOnce();
   });
 
   it('stops every worker, logs deliberate-stop failures, and closes Temporal resources in order', async () => {
