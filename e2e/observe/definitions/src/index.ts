@@ -1,6 +1,10 @@
 import type {DefinitionDto, DefinitionListResponseDto} from '@shipfox/api-definitions-dto';
 import {type ApiFetch, createApiClient, pollUntil} from '@shipfox/e2e-core';
 
+// No budget here is really safe: the server holds a sync in `syncing` for as long as its
+// Temporal workflow is recovering, and provider activities retry 5 times with 5s/10s/20s/40s
+// backoff. Callers that do not test the sync itself should seed definitions over the API
+// instead of waiting on one.
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_INITIAL_DELAY_MS = 250;
 const DEFAULT_MAX_DELAY_MS = 4_000;
@@ -71,6 +75,10 @@ function formatObserved(response: DefinitionListResponseDto | null, selector: De
     ? [
         `syncStatus=${response.sync.status}`,
         `syncRef=${response.sync.ref ?? 'null'}`,
+        // A stuck sync and a sync that only just restarted both read `syncing`; the
+        // timestamps say which one a timeout actually observed.
+        `syncStartedAt=${response.sync.started_at ?? 'null'}`,
+        `syncLastSyncAt=${response.sync.last_sync_at}`,
         `syncErrorCode=${response.sync.last_error_code ?? 'null'}`,
         `syncErrorMessage=${response.sync.last_error_message ?? 'null'}`,
       ].join(' ')
