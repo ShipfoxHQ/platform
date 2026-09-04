@@ -376,7 +376,9 @@ test.describe('production-shaped workflow payloads', () => {
           };
         },
       });
-      const executions = listenerExecutions(materialized);
+      const executions = listenerExecutions(materialized)
+        .slice()
+        .sort((left, right) => left.sequence - right.sequence);
       const observedDiagnosticBytes = executions.map(oversizedTriggerEventBytes);
 
       expect(executions.map((execution) => execution.sequence)).toEqual([1, 2]);

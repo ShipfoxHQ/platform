@@ -56,9 +56,10 @@ describe('production-shaped workflow payload fixtures', () => {
     ).toBeGreaterThan(MAX_LISTENER_TRIGGER_EVENTS_BYTES);
   });
 
-  test('logs bounded delivery identity for oversized listener executions', () => {
+  test('logs bounded delivery identity for batched listener executions', () => {
     const workflow = productionPayloadListenerWorkflow({batchMaxSize: 3});
 
+    expect(workflow).toContain(`        max_size: 3\n`);
     expect(workflow).toContain(
       `DELIVERY_IDS: '\${{ execution.events.map(event, event.delivery_id).join(",") }}'`,
     );
