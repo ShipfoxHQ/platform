@@ -16,7 +16,7 @@ describe('signup gate configuration', () => {
   });
 
   test('requires the public API URL', async () => {
-    vi.stubEnv('API_PUBLIC_URL', undefined);
+    vi.stubEnv('API_PUBLIC_URL', '');
     vi.resetModules();
 
     await expect(import('#config.js')).rejects.toThrow('process.exit unexpectedly called with "1"');

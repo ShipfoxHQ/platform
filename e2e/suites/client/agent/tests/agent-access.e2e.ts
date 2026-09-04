@@ -78,7 +78,7 @@ test('reviews consent and revokes an authorized Agent access app', async ({
 
   await page.goto(`/oauth/consent?request_id=${encodeURIComponent(requestId)}`);
   await expect(oauthConsent.heading(clientName)).toBeVisible();
-  await expect(oauthConsent.clientIdentity('registered client')).toBeVisible();
+  await expect(oauthConsent.identityText('registered client')).toBeVisible();
   await expect(oauthConsent.denyButton()).toBeVisible();
   await expect(oauthConsent.allowButton()).toBeVisible();
 

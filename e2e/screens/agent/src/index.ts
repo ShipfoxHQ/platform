@@ -135,8 +135,8 @@ export class OAuthConsentScreen {
     });
   }
 
-  clientIdentity(origin: string): Locator {
-    return this.page.getByText(origin, {exact: true});
+  identityText(text: string): Locator {
+    return this.page.getByText(text, {exact: true});
   }
 
   denyButton(): Locator {

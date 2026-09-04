@@ -393,6 +393,11 @@ routes use `AUTH_USER`.
 | `GET` | `/agent-access/grants` | session bearer | Lists the caller's active grants. |
 | `DELETE` | `/agent-access/grants/:id` | session bearer | Idempotently revokes a caller-owned grant. |
 
+Revoking a grant immediately blocks refresh. An access token already issued for
+that grant remains accepted by the stateless MCP boundary until its configured
+`exp` time; with the recommended 15-minute access-token lifetime, revocation
+stops renewal but does not invalidate an already-issued token immediately.
+
 Management identifiers are caller-owned. Another user's identifier and an unknown identifier
 both return `404`.
 Authorization-code replay returns `invalid_grant` and

@@ -148,14 +148,12 @@ function toolsFromProducerClients(
       'Agent-access core producer clients must be configured together: projects, definitions, workflows, annotations, and triggers',
     );
   }
-  const tools = createAgentAccessTools({projects, definitions, workflows, annotations, triggers});
-  if (logs === undefined) return tools;
-  return [
-    ...tools,
+  const tools = [
+    ...createAgentAccessTools({projects, definitions, workflows, annotations, triggers}),
     ...createAgentAccessDiagnosticTools({triggers}),
     ...createAgentAccessWorkflowDiagnosticTools(workflows),
-    ...createAgentAccessLogTools({logs, workflows}),
   ];
+  return logs === undefined ? tools : [...tools, ...createAgentAccessLogTools({logs, workflows})];
 }
 
 function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {
