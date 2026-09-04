@@ -402,7 +402,10 @@ test.describe('production-shaped workflow payloads', () => {
           expect.objectContaining({
             subscription_kind: 'listener',
             decision: 'rejected',
-            reason: 'payload-too-large',
+            diagnostic: expect.objectContaining({
+              code: 'listener-event-payload-too-large',
+              limit_bytes: LISTENER_FIRE_EVENT_LIMIT_BYTES,
+            }),
           }),
         ]),
       );
