@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {describe, test} from 'node:test';
+import {parse as parseYaml} from 'yaml';
 
 import {
   assertApplicationReleasePackages,
@@ -7,6 +11,7 @@ import {
   entryPointSupportsRuntimeImport,
   entryPointSupportsTypeResolution,
   listPublicPackageEntryPoints,
+  renderFixtureWorkspaceConfig,
   validatePublicationState,
 } from '../dist/package-closure.js';
 
@@ -204,5 +209,51 @@ describe('publication closure', () => {
 
     assert.deepEqual(runtimeEntryPoints, ['@shipfox/example']);
     assert.deepEqual(typeEntryPoints, ['@shipfox/example', '@shipfox/example/types']);
+  });
+});
+
+describe('fixture workspace config', () => {
+  function withRepository(workspaceYaml, callback) {
+    const repositoryRoot = mkdtempSync(join(tmpdir(), 'shipfox-fixture-workspace-'));
+    try {
+      writeFileSync(join(repositoryRoot, 'pnpm-workspace.yaml'), workspaceYaml);
+      return callback(repositoryRoot);
+    } finally {
+      rmSync(repositoryRoot, {recursive: true, force: true});
+    }
+  }
+
+  test('carries the repository release-age policy next to the packed overrides', () => {
+    const rendered = withRepository(
+      [
+        'packages:',
+        '  - libs/*',
+        'minimumReleaseAge: 2880',
+        'minimumReleaseAgeExclude:',
+        '  - "next@16.3.0"',
+        'nodeLinker: isolated',
+        '',
+      ].join('\n'),
+      (repositoryRoot) =>
+        renderFixtureWorkspaceConfig({
+          repositoryRoot,
+          overrides: {'@shipfox/runtime': 'file:/tmp/runtime.tgz'},
+        }),
+    );
+
+    assert.deepEqual(parseYaml(rendered), {
+      packages: ['.'],
+      overrides: {'@shipfox/runtime': 'file:/tmp/runtime.tgz'},
+      minimumReleaseAge: 2880,
+      minimumReleaseAgeExclude: ['next@16.3.0'],
+    });
+  });
+
+  test('omits the policy when the repository does not declare one', () => {
+    const rendered = withRepository('packages:\n  - libs/*\n', (repositoryRoot) =>
+      renderFixtureWorkspaceConfig({repositoryRoot, overrides: {}}),
+    );
+
+    assert.deepEqual(parseYaml(rendered), {packages: ['.'], overrides: {}});
   });
 });

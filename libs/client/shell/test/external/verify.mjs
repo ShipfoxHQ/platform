@@ -22,6 +22,7 @@ import {
   listPublicPackageEntryPoints,
   readPublicationClosureConfig,
   readWorkspacePackages,
+  renderFixtureWorkspaceConfig,
   validatePublicationState,
 } from '@shipfox/application-release/dist/package-closure.js';
 import {productionizeManifest} from '@shipfox/tool-utils';
@@ -213,9 +214,7 @@ async function configureFixture(root, consumerPackages, packageSpecs) {
     writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`),
     writeFile(
       join(root, 'pnpm-workspace.yaml'),
-      `packages:\n  - .\noverrides:\n${Object.entries(packageSpecs)
-        .map(([name, specifier]) => `  ${JSON.stringify(name)}: ${JSON.stringify(specifier)}`)
-        .join('\n')}\n`,
+      renderFixtureWorkspaceConfig({repositoryRoot, overrides: packageSpecs}),
     ),
   ]);
 }
