@@ -9,6 +9,7 @@ import {
   PRODUCTION_BATCH_EVENT_BYTES,
   PRODUCTION_NORMALIZED_TRIGGER_EVENTS_BYTES,
   PRODUCTION_RESOLVED_CONFIG_BYTES,
+  productionPayloadListenerWorkflow,
   serializedUtf8ByteLength,
 } from './production-payloads.js';
 
@@ -53,5 +54,14 @@ describe('production-shaped workflow payload fixtures', () => {
     expect(
       serializedUtf8ByteLength(fixtures.map((fixture) => fixture.expectedEvent)),
     ).toBeGreaterThan(MAX_LISTENER_TRIGGER_EVENTS_BYTES);
+  });
+
+  test('logs bounded delivery identity for oversized listener executions', () => {
+    const workflow = productionPayloadListenerWorkflow({batchMaxSize: 3});
+
+    expect(workflow).toContain(
+      `DELIVERY_IDS: '\${{ execution.events.map(event, event.delivery_id).join(",") }}'`,
+    );
+    expect(workflow).toContain('echo "production_delivery_ids=$DELIVERY_IDS"');
   });
 });

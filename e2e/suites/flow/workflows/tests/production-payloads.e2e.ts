@@ -44,6 +44,7 @@ import {expect, test} from './fixtures.js';
 const LISTENER_FLOW_OBSERVATION_TIMEOUT_MS = 60_000;
 const LISTENER_RUN_TERMINAL_TIMEOUT_MS = 180_000;
 const LISTENER_NEGATIVE_ASSERTION_TIMEOUT_MS = 2_000;
+const PRODUCTION_DELIVERY_IDS_LOG_PREFIX = 'production_delivery_ids=';
 
 function attachTestArtifact(testInfo: {
   attach: (name: string, options: {body: string; contentType: string}) => Promise<void>;
@@ -371,7 +372,7 @@ test.describe('production-shaped workflow payloads', () => {
       const executions = listenerExecutions(materialized);
       const observedDiagnosticBytes = executions.map(oversizedTriggerEventBytes);
 
-      expect(executions.length).toBeGreaterThanOrEqual(2);
+      expect(executions.map((execution) => execution.sequence)).toEqual([1, 2]);
       expect(observedDiagnosticBytes.every((bytes): bytes is number => bytes !== null)).toBe(true);
       expect(
         observedDiagnosticBytes.reduce<number>((total, bytes) => total + (bytes ?? 0), 0),
@@ -387,6 +388,34 @@ test.describe('production-shaped workflow payloads', () => {
           ]),
         );
       }
+
+      const observedDeliveryIds = (
+        await Promise.all(
+          executions.map(async (execution) => {
+            const logs = await stepLogText({
+              observation: materialized,
+              token: listenerCase.token,
+              jobKey: LISTENER_JOB,
+              sequence: execution.sequence,
+              stepKey: 'acknowledge',
+            });
+            const deliveryLine = logs
+              .split('\n')
+              .map((line) => line.trim())
+              .find((line) => line.startsWith(PRODUCTION_DELIVERY_IDS_LOG_PREFIX));
+            if (!deliveryLine) {
+              throw new Error(
+                `Listener execution ${execution.sequence} did not log production delivery IDs`,
+              );
+            }
+            return deliveryLine
+              .slice(PRODUCTION_DELIVERY_IDS_LOG_PREFIX.length)
+              .split(',')
+              .filter(Boolean);
+          }),
+        )
+      ).flat();
+      expect(observedDeliveryIds).toEqual(deliveryIds);
 
       await sendResolve(testCase, 'resolve-byte-partition');
       const terminal = await waitForRunTerminalOrFailedRunner({

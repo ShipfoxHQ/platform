@@ -195,6 +195,10 @@ jobs:
           event: received
 ${batch}    steps:
       - key: acknowledge
-        run: echo "production_payload_received"
+        env:
+          DELIVERY_IDS: '\${{ execution.events.map(event, event.delivery_id).join(",") }}'
+        run: |
+          echo "production_payload_received"
+          echo "production_delivery_ids=$DELIVERY_IDS"
 `;
 }
