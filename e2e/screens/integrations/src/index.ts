@@ -116,7 +116,11 @@ export class ProviderInstallScreen {
 }
 
 export class ConnectionDetailsScreen {
-  constructor(private readonly page: Page) {}
+  private readonly toast: Toast;
+
+  constructor(private readonly page: Page) {
+    this.toast = new Toast(page);
+  }
 
   async goto(workspaceSlug: string, connectionSlug: string): Promise<void> {
     await this.page.goto(
@@ -146,6 +150,19 @@ export class ConnectionDetailsScreen {
 
   saveButton(): Locator {
     return this.page.getByRole('button', {name: 'Save changes'});
+  }
+
+  async saveMode(): Promise<void> {
+    const saveResponse = this.page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PUT' &&
+        new URL(response.url()).pathname.endsWith('/repository-access'),
+    );
+    const [response] = await Promise.all([saveResponse, this.saveButton().click()]);
+    if (!response.ok()) {
+      throw new Error(`Saving repository access mode failed with status ${response.status()}`);
+    }
+    await this.toast.expectVisible('Access mode saved.');
   }
 
   providerNotice(): Locator {
