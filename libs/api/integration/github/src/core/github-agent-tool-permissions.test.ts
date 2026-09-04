@@ -49,6 +49,15 @@ const graphqlRequirements: Record<string, GithubAppEndpointPermission> = {
 /** Search is gated only by the metadata grant every installation token carries. */
 const metadataOnlyRoutes = new Set(['GET /search/issues']);
 
+/**
+ * Requirements GitHub applies per media type, which the per-route table cannot express.
+ * The pull request diff media type reads file contents and was observed to return 403
+ * to a token holding only pull requests read.
+ */
+const operationRequirements: Record<string, GithubAppEndpointPermission[]> = {
+  'pull_request_read.get_diff': [{permission: 'contents', access: 'read'}],
+};
+
 interface CatalogOperation {
   key: string;
   toolId: GithubAgentToolId;
@@ -135,6 +144,12 @@ describe('github agent tool permissions', () => {
   const snapshot = githubAppEndpointPermissions();
 
   it.each(catalogOperations())('declares a permission GitHub requires for $key', (operation) => {
+    for (const requirement of operationRequirements[operation.key] ?? []) {
+      expect(
+        declaredScopeSatisfies(operation.requiredScope, [requirement]),
+        `${operation.key} declares ${formatScope(operation.requiredScope)} but its media type needs ${formatScope([requirement])}`,
+      ).toBe(true);
+    }
     for (const route of operationRoutes(operation)) {
       const required = requiredPermissions(operation, route, snapshot);
       if (required === undefined) continue;

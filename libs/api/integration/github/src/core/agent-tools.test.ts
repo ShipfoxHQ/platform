@@ -84,6 +84,7 @@ const expectedCatalogRows = [
     sensitive: false,
     requiredScope: [
       {permission: 'pull_requests', access: 'read'},
+      {permission: 'contents', access: 'read'},
       {permission: 'statuses', access: 'read'},
       {permission: 'checks', access: 'read'},
     ],
@@ -1380,6 +1381,84 @@ describe('github agent tool catalog', () => {
     ).resolves.toMatchObject({structuredContent: {total_count: 1}});
 
     expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {checks: 'read'});
+  });
+
+  it('requests contents read alongside pull requests read for pull request diffs', async () => {
+    const request = vi.fn(() => Promise.resolve({data: 'diff --git a/file b/file'}));
+    const getInstallationAccessToken = vi.fn(() =>
+      Promise.resolve({
+        token: 'installation-token',
+        expiresAt: new Date(),
+        permissions: {contents: 'read' as const, pull_requests: 'read' as const},
+      }),
+    );
+    const pullRequestRead = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_read',
+    );
+    const diffMethod = pullRequestRead?.methods?.find((method) => method.id === 'get_diff');
+    if (!pullRequestRead || !diffMethod) throw new Error('Missing diff catalog entry');
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {getInstallationAccessToken},
+      createClient: vi.fn(() => ({request})),
+    });
+
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [{...pullRequestRead, methods: [diffMethod]}],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'pull_request_read',
+        arguments: {method: 'get_diff', owner: 'shipfox', repo: 'platform', pull_number: 1},
+      }),
+    ).resolves.toMatchObject({structuredContent: {result: 'diff --git a/file b/file'}});
+
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
+      contents: 'read',
+      pull_requests: 'read',
+    });
+  });
+
+  it('denies a pull request diff when the token lacks contents read', async () => {
+    const request = vi.fn();
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {pull_requests: 'read' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pullRequestReadTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'pull_request_read',
+      arguments: {method: 'get_diff', owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: pull_request_read requires pull_requests: read, contents: read',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
   });
 
   it('requests commit statuses read for combined status reads', async () => {
@@ -2936,6 +3015,167 @@ describe('github agent tool catalog', () => {
     });
   });
 
+  it.each([
+    {
+      label: 'create with a submission event',
+      callArguments: {method: 'create', event: 'COMMENT', body: 'Summary.'},
+      message:
+        'Parameter event is not accepted by create, which opens a pending review; submit it with submit_pending',
+    },
+    {
+      label: 'submit_pending without an event',
+      callArguments: {method: 'submit_pending', body: 'Summary.'},
+      message: 'Parameter event is required for submit_pending',
+    },
+    {
+      label: 'submit_pending with a comment event and no body',
+      callArguments: {method: 'submit_pending', event: 'REQUEST_CHANGES'},
+      message: 'Parameter body is required for submit_pending unless event is APPROVE',
+    },
+    {
+      label: 'delete_pending with review fields',
+      callArguments: {method: 'delete_pending', body: 'Summary.'},
+      message: 'Parameters body, event, and commit_id are not accepted by delete_pending',
+    },
+  ])('rejects $label before touching GitHub', async ({callArguments, message}) => {
+    const request = vi.fn();
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      {owner: 'shipfox', repo: 'platform', pull_number: 2, ...callArguments},
+      request,
+    );
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: message}],
+      structuredContent: {code: 'invalid-request'},
+    });
+  });
+
+  it('lets submit_pending approve without a body', async () => {
+    const request = vi.fn(() => Promise.resolve({data: []}));
+
+    const result = await callGithubToolWithRequest(
+      'pull_request_review_write',
+      {
+        method: 'submit_pending',
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        event: 'APPROVE',
+      },
+      request,
+    );
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({isError: true, structuredContent: {code: 'provider-rejected'}});
+  });
+
+  it.each([
+    {
+      label: 'a LINE comment without a line',
+      callArguments: {subject_type: 'LINE', side: 'RIGHT'},
+      message: 'Parameters line and side are required for a LINE comment',
+    },
+    {
+      label: 'a default-subject comment without a side',
+      callArguments: {line: 13},
+      message: 'Parameters line and side are required for a LINE comment',
+    },
+    {
+      label: 'a FILE comment with position fields',
+      callArguments: {subject_type: 'FILE', line: 13, side: 'RIGHT'},
+      message:
+        'Parameters line, side, start_line, and start_side are not accepted when subject_type is FILE',
+    },
+    {
+      label: 'a range without start_side',
+      callArguments: {subject_type: 'LINE', line: 13, side: 'RIGHT', start_line: 10},
+      message: 'Parameters start_line and start_side must be provided together',
+    },
+    {
+      label: 'a range that starts after its end',
+      callArguments: {
+        subject_type: 'LINE',
+        line: 13,
+        side: 'RIGHT',
+        start_line: 15,
+        start_side: 'RIGHT',
+      },
+      message: 'Parameter start_line must be lower than line for a multi-line comment',
+    },
+  ])('rejects $label before looking up the pending review', async ({callArguments, message}) => {
+    const request = vi.fn();
+    const graphql = vi.fn();
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_comment_to_pending_review',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        path: 'src/agent-tools.ts',
+        body: 'Comment.',
+        ...callArguments,
+      },
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(graphql).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [{type: 'text', text: message}],
+      structuredContent: {code: 'invalid-request'},
+    });
+  });
+
+  it('reports a null review thread as a provider rejection instead of success', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      data: [{id: 41, node_id: 'review-latest', state: 'PENDING', user: githubAppReviewUser}],
+    });
+    const graphql = vi.fn().mockResolvedValueOnce({addPullRequestReviewThread: {thread: null}});
+    const provider = createAgentToolsProvider({request, graphql});
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pendingReviewTool()],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'add_comment_to_pending_review',
+      arguments: {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 2,
+        path: 'src/agent-tools.ts',
+        body: 'Malformed range.',
+        subject_type: 'LINE',
+        line: 13,
+        side: 'RIGHT',
+      },
+    });
+
+    expect(graphql).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub did not create the review thread. Check that path, line, side, and any start_line range describe a line in the pull request diff.',
+        },
+      ],
+      structuredContent: {code: 'provider-rejected'},
+    });
+  });
+
   it('returns an explicit error when there is no pending review for the caller', async () => {
     const request = vi.fn().mockResolvedValueOnce({
       data: [
@@ -2963,6 +3203,8 @@ describe('github agent tool catalog', () => {
         pull_number: 2,
         path: 'src/agent-tools.ts',
         body: 'Please handle this error.',
+        line: 42,
+        side: 'RIGHT',
       },
     });
 
@@ -3670,6 +3912,8 @@ describe('github agent tool catalog', () => {
           pull_number: 2,
           path: 'src/agent-tools.ts',
           body: 'Please handle this error.',
+          line: 42,
+          side: 'RIGHT',
         },
       }),
     ).rejects.toMatchObject({
@@ -3709,6 +3953,8 @@ describe('github agent tool catalog', () => {
         pull_number: 2,
         path: 'src/agent-tools.ts',
         body: 'Please handle this error.',
+        line: 42,
+        side: 'RIGHT',
       },
     });
 
@@ -3736,6 +3982,8 @@ describe('github agent tool catalog', () => {
           pull_number: 2,
           path: 'src/agent-tools.ts',
           body: 'Please handle this error.',
+          line: 42,
+          side: 'RIGHT',
         },
       }),
     ).rejects.toMatchObject({
@@ -4012,10 +4260,11 @@ describe('github agent tool catalog', () => {
     'delete_pending',
   ] as const)('%s reports when no pending review exists', async (method) => {
     const request = vi.fn(() => Promise.resolve({data: []}));
+    const submission = method === 'submit_pending' ? {event: 'COMMENT', body: 'Summary.'} : {};
 
     const result = await callGithubToolWithRequest(
       'pull_request_review_write',
-      {method, owner: 'shipfox', repo: 'platform', pull_number: 2},
+      {method, owner: 'shipfox', repo: 'platform', pull_number: 2, ...submission},
       request,
     );
 

@@ -20,6 +20,7 @@ const {
     constructor(
       message: string,
       public readonly status: number,
+      public readonly response?: {headers: Record<string, string>} | undefined,
     ) {
       super(message);
       this.name = 'HttpError';
@@ -237,6 +238,31 @@ describe('mapGithubError', () => {
       reason: 'provider-rejected',
       message: `GitHub rejected request with HTTP ${status}`,
       status,
+    });
+  });
+
+  it('names the grants GitHub would have accepted on a permission denial', async () => {
+    const error = new RequestErrorMock('Resource not accessible by integration', 403, {
+      headers: {'x-accepted-github-permissions': 'contents=read'},
+    });
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'access-denied',
+      status: 403,
+      message: 'Resource not accessible by integration (GitHub accepts permissions: contents=read)',
+    });
+  });
+
+  it('keeps the provider message when a denial carries no accepted-permissions header', async () => {
+    const error = new RequestErrorMock('Resource not accessible by integration', 403);
+
+    const result = mapGithubError(() => Promise.reject(error));
+
+    await expect(result).rejects.toMatchObject({
+      reason: 'access-denied',
+      message: 'Resource not accessible by integration',
     });
   });
 

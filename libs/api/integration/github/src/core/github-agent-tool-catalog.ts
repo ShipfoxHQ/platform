@@ -77,6 +77,10 @@ const scopes = {
     {permission: 'pull_requests', access: 'write'},
   ],
   pullRequestsRead: [{permission: 'pull_requests', access: 'read'}],
+  pullRequestDiffRead: [
+    {permission: 'pull_requests', access: 'read'},
+    {permission: 'contents', access: 'read'},
+  ],
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
@@ -236,12 +240,14 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
+  // The diff media type reads file contents, which GitHub gates on contents read even though
+  // the route alone accepts pull requests read. A narrowed token without it gets a 403.
   method(
     'get_diff',
     'Get the diff for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestsRead,
+    scopes.pullRequestDiffRead,
   ),
   method(
     'get_status',
@@ -844,7 +850,8 @@ export const githubAgentToolCatalog = [
   tool({
     id: 'pull_request_review_write',
     category: 'pull_requests',
-    description: 'Create and/or submit, delete review of a pull request.',
+    description:
+      'Stage, submit, or delete a pull request review. create opens a pending review, add_comment_to_pending_review attaches inline comments to it, and submit_pending publishes it with its summary.',
     methods: pullRequestReviewWriteMethods,
     inputSchema: repositoryInputSchema(
       {
@@ -853,9 +860,14 @@ export const githubAgentToolCatalog = [
           'The write operation to perform on pull request review',
         ),
         pull_number: integerSchema('Pull request number'),
-        body: stringSchema('Review comment text'),
-        event: enumSchema(['APPROVE', 'REQUEST_CHANGES', 'COMMENT'], 'Review action to perform'),
-        commit_id: stringSchema('SHA of commit to review'),
+        body: stringSchema(
+          'Review summary text. Required by submit_pending unless event is APPROVE; not accepted by delete_pending',
+        ),
+        event: enumSchema(
+          ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'],
+          'Review action. Required by submit_pending; not accepted by create or delete_pending',
+        ),
+        commit_id: stringSchema('SHA of the commit to review. Only used by create'),
       },
       ['method', 'pull_number'],
     ),
@@ -895,13 +907,21 @@ export const githubAgentToolCatalog = [
         pull_number: integerSchema('Pull request number'),
         path: stringSchema('The relative path to the file that necessitates a comment'),
         body: stringSchema('The text of the review comment'),
-        subject_type: enumSchema(['LINE', 'FILE'], 'The level at which the comment is targeted'),
-        line: integerSchema('The line of the blob in the pull request diff'),
-        side: enumSchema(['LEFT', 'RIGHT'], 'The side of the diff to comment on'),
-        start_line: integerSchema('The first line of a multi-line comment range'),
+        subject_type: enumSchema(
+          ['LINE', 'FILE'],
+          'The level at which the comment is targeted. LINE (default) requires line and side; FILE accepts no position fields',
+        ),
+        line: integerSchema('The line of the blob in the pull request diff. Required for LINE'),
+        side: enumSchema(
+          ['LEFT', 'RIGHT'],
+          'The side of the diff to comment on. Required for LINE',
+        ),
+        start_line: integerSchema(
+          'The first line of a multi-line comment range. Must be lower than line and paired with start_side',
+        ),
         start_side: enumSchema(
           ['LEFT', 'RIGHT'],
-          'The starting side of a multi-line comment range',
+          'The starting side of a multi-line comment range. Paired with start_line',
         ),
       },
       ['pull_number', 'path', 'body'],

@@ -72,6 +72,8 @@ const PENDING_REVIEW_PAGE_TIMEOUT_MS = 5_000;
 const PENDING_REVIEW_PAGE_PATTERN = /[?&]page=(\d+)/u;
 const NO_PENDING_REVIEW_MESSAGE =
   'No pending pull request review found for the authenticated GitHub user.';
+const NO_REVIEW_THREAD_MESSAGE =
+  'GitHub did not create the review thread. Check that path, line, side, and any start_line range describe a line in the pull request diff.';
 
 const ADD_PENDING_REVIEW_COMMENT_MUTATION = `
   mutation AddCommentToPendingReview($input: AddPullRequestReviewThreadInput!) {
@@ -249,10 +251,9 @@ async function executeGithubToolOperation(
     const data = await mapGithubError(() =>
       executeGithubGraphqlOperation(client, toolId, method, operation.parameters),
     );
-    if (data === undefined && tool.id === 'add_comment_to_pending_review') {
-      return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
-    }
-    return githubToolResult(toolId, data);
+    return toolId === 'add_comment_to_pending_review'
+      ? pendingReviewCommentResult(data)
+      : githubToolResult(toolId, data);
   }
   const parameters = await mapGithubError(() =>
     resolveGithubOperationParameters(client, operation.parameters, toolId, method),
@@ -264,6 +265,24 @@ async function executeGithubToolOperation(
     executeGithubRestOperation(client, operation.route, parameters, toolId),
   );
   return githubToolResult(toolId, response.data, response, parameters, operation.route);
+}
+
+// GitHub answers a malformed thread position with a null thread and no error, so the
+// success shape has to be checked explicitly.
+function pendingReviewCommentResult(data: unknown): GithubToolCallResult {
+  if (data === undefined) return githubToolError(NO_PENDING_REVIEW_MESSAGE, 'provider-rejected');
+  if (createdReviewThreadId(data) === undefined) {
+    return githubToolError(NO_REVIEW_THREAD_MESSAGE, 'provider-rejected');
+  }
+  return githubToolResult('add_comment_to_pending_review', data);
+}
+
+function createdReviewThreadId(data: unknown): string | undefined {
+  if (!isRecord(data) || !isRecord(data.addPullRequestReviewThread)) return undefined;
+  const thread = data.addPullRequestReviewThread.thread;
+  return isRecord(thread) && typeof thread.id === 'string' && thread.id.length > 0
+    ? thread.id
+    : undefined;
 }
 
 export interface GithubAgentToolsProviderOptions {
@@ -1415,7 +1434,68 @@ function validateGithubToolArguments(
   if (tool.id === 'create_pull_request' || tool.id === 'update_pull_request') {
     return validateRequestedReviewers(arguments_.reviewers);
   }
+  if (tool.id === 'pull_request_review_write') return validateReviewWriteArguments(arguments_);
+  if (tool.id === 'add_comment_to_pending_review') {
+    return validatePendingReviewCommentArguments(arguments_);
+  }
   return tool.id === 'create_commit' ? validateCreateCommitArguments(arguments_) : undefined;
+}
+
+// The shared input schema lists every review field; GitHub only accepts each field on one
+// method, and a submission event on create would publish a review the caller meant to stage.
+function validateReviewWriteArguments(arguments_: Record<string, unknown>): string | undefined {
+  switch (arguments_.method) {
+    case 'create':
+      return arguments_.event === undefined
+        ? undefined
+        : 'Parameter event is not accepted by create, which opens a pending review; submit it with submit_pending';
+    case 'submit_pending':
+      return validateSubmitPendingArguments(arguments_);
+    case 'delete_pending':
+      return arguments_.body === undefined &&
+        arguments_.event === undefined &&
+        arguments_.commit_id === undefined
+        ? undefined
+        : 'Parameters body, event, and commit_id are not accepted by delete_pending';
+    default:
+      return undefined;
+  }
+}
+
+function validateSubmitPendingArguments(arguments_: Record<string, unknown>): string | undefined {
+  if (arguments_.event === undefined) return 'Parameter event is required for submit_pending';
+  const body = arguments_.body;
+  if (arguments_.event !== 'APPROVE' && (typeof body !== 'string' || body.trim().length === 0)) {
+    return 'Parameter body is required for submit_pending unless event is APPROVE';
+  }
+  return undefined;
+}
+
+// GitHub answers an inconsistent position with a null thread rather than an error, so the
+// position invariants are checked before the mutation is sent.
+function validatePendingReviewCommentArguments(
+  arguments_: Record<string, unknown>,
+): string | undefined {
+  const hasRange = arguments_.start_line !== undefined || arguments_.start_side !== undefined;
+  if (arguments_.subject_type === 'FILE') {
+    return arguments_.line === undefined && arguments_.side === undefined && !hasRange
+      ? undefined
+      : 'Parameters line, side, start_line, and start_side are not accepted when subject_type is FILE';
+  }
+  if (arguments_.line === undefined || arguments_.side === undefined) {
+    return 'Parameters line and side are required for a LINE comment';
+  }
+  if ((arguments_.start_line === undefined) !== (arguments_.start_side === undefined)) {
+    return 'Parameters start_line and start_side must be provided together';
+  }
+  if (
+    typeof arguments_.start_line === 'number' &&
+    typeof arguments_.line === 'number' &&
+    arguments_.start_line >= arguments_.line
+  ) {
+    return 'Parameter start_line must be lower than line for a multi-line comment';
+  }
+  return undefined;
 }
 
 function validateRequestedReviewers(reviewers: unknown): string | undefined {
