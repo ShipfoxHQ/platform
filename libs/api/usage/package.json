@@ -1,0 +1,90 @@
+{
+  "name": "@shipfox/api-usage",
+  "license": "MIT",
+  "version": "21.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
+    "directory": "libs/api/usage"
+  },
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "imports": {
+    "#test/*": "./test/*",
+    "#*": {
+      "workspace-source": "./src/*",
+      "default": "./dist/*"
+    }
+  },
+  "exports": {
+    ".": {
+      "workspace-source": {
+        "types": "./src/index.ts",
+        "default": "./src/index.ts"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./config": {
+      "workspace-source": {
+        "types": "./src/config.ts",
+        "default": "./src/config.ts"
+      },
+      "default": {
+        "types": "./dist/config.d.ts",
+        "default": "./dist/config.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "shipfox-swc && shipfox-temporal-bundle dist/temporal/workflows/index.js",
+    "check": "shipfox-biome-check",
+    "check:fix": "shipfox-biome-check --write",
+    "depcruise": "shipfox-depcruise",
+    "test": "shipfox-vitest-run",
+    "test:watch": "shipfox-vitest-watch",
+    "type": "shipfox-tsc-check",
+    "type:emit": "shipfox-tsc-emit"
+  },
+  "dependencies": {
+    "@shipfox/api-auth-context": "workspace:*",
+    "@shipfox/api-runners-dto": "workspace:*",
+    "@shipfox/api-usage-dto": "workspace:*",
+    "@shipfox/api-workflows-dto": "workspace:*",
+    "@shipfox/config": "workspace:*",
+    "@shipfox/inter-module": "workspace:*",
+    "@shipfox/node-drizzle": "workspace:*",
+    "@shipfox/node-fastify": "workspace:*",
+    "@shipfox/node-module": "workspace:*",
+    "@shipfox/node-opentelemetry": "workspace:*",
+    "@shipfox/node-outbox": "workspace:*",
+    "@shipfox/node-postgres": "workspace:*",
+    "@shipfox/node-temporal": "workspace:*",
+    "@shipfox/runner-labels": "workspace:*",
+    "@temporalio/activity": "catalog:",
+    "@temporalio/workflow": "catalog:",
+    "drizzle-orm": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@shipfox/biome": "workspace:*",
+    "@shipfox/depcruise": "workspace:*",
+    "@shipfox/swc": "workspace:*",
+    "@shipfox/ts-config": "workspace:*",
+    "@shipfox/typescript": "workspace:*",
+    "@shipfox/vitest": "workspace:*",
+    "@temporalio/client": "catalog:",
+    "@temporalio/common": "catalog:",
+    "@temporalio/testing": "catalog:",
+    "@temporalio/worker": "catalog:",
+    "@types/pg": "catalog:",
+    "drizzle-kit": "catalog:",
+    "fastify": "catalog:",
+    "fastify-type-provider-zod": "catalog:",
+    "fishery": "catalog:"
+  }
+}

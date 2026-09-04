@@ -45,6 +45,8 @@
       "@shipfox/api-server",
       "@shipfox/api-triggers",
       "@shipfox/api-triggers-dto",
+      "@shipfox/api-usage",
+      "@shipfox/api-usage-dto",
       "@shipfox/api-workflows",
       "@shipfox/api-workflows-dto",
       "@shipfox/api-workspaces",

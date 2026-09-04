@@ -7,6 +7,7 @@
     "ACTIONS_*",
     "AGENT_SESSION_*",
     "LOG_*",
+    "USAGE_*",
     "OBJECT_STORAGE_*",
     "E2E_*",
     "API_URL",
@@ -46,6 +47,7 @@
         "SLACK_OAUTH_REDIRECT_URL",
         "SLACK_SIGNING_SECRET",
         "TEMPORAL_*",
+        "USAGE_*",
         "VITE_*"
       ]
     },
@@ -82,6 +84,7 @@
         "POSTGRES_*",
         "SHIPFOX_*",
         "TEMPORAL_*",
+        "USAGE_*",
         "VITE_API_URL"
       ],
       "dependsOn": ["^build", "build"]
@@ -96,6 +99,7 @@
         "POSTGRES_*",
         "SHIPFOX_*",
         "TEMPORAL_*",
+        "USAGE_*",
         "VITE_API_URL"
       ],
       "dependsOn": ["^build", "build"]
