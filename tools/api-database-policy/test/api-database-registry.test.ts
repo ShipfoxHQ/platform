@@ -30,8 +30,8 @@ describe('database registry', () => {
   test('registers the current owners, migration units, and neutral delegates', async () => {
     const errors = await auditApiDatabaseRegistry();
     assert.deepEqual(errors, []);
-    assert.equal(apiDatabaseRegistry.owners.length, 13);
-    assert.equal(apiDatabaseRegistry.migrationUnits.length, 19);
+    assert.equal(apiDatabaseRegistry.owners.length, 14);
+    assert.equal(apiDatabaseRegistry.migrationUnits.length, 20);
     assert.deepEqual(
       apiDatabaseRegistry.migrationUnits
         .filter((unit) => unit.ownerId === 'integrations')
