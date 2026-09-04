@@ -14,6 +14,11 @@ interface GithubCatalogMethod<RequiredScope = unknown>
   extends AgentToolCatalogMethod<RequiredScope> {
   repositoryScope: GithubRepositoryScopeClassifier;
   indirectTargetNote?: string | undefined;
+  /**
+   * Permission sets GitHub documents as sufficient instead of `requiredScope`. Only
+   * `requiredScope` shapes the minted token profile; alternatives are honored at call time.
+   */
+  alternativeScopes?: readonly RequiredScope[] | undefined;
 }
 
 interface GithubCatalogEntry<RequiredScope = unknown> extends AgentToolCatalogEntry<RequiredScope> {
@@ -280,15 +285,19 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
-  // GitHub accepts issues read or pull_requests read for timeline comments. Issues read keeps
-  // installations that grant issues without pull requests working when only this method is selected.
-  method(
-    'get_comments',
-    'Get conversation comments for a specific pull request.',
-    'read',
-    false,
-    scopes.issuesRead,
-  ),
+  {
+    // GitHub accepts pull_requests read or issues read for timeline comments. Pull requests read
+    // drives the token profile like every sibling method; issues read is honored when a token
+    // already carries it.
+    ...method(
+      'get_comments',
+      'Get conversation comments for a specific pull request.',
+      'read',
+      false,
+      scopes.pullRequestsRead,
+    ),
+    alternativeScopes: [scopes.issuesRead],
+  },
   method(
     'get_check_runs',
     'Get check runs for the head commit of a pull request.',

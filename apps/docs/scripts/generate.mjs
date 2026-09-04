@@ -239,9 +239,16 @@ function renderToolMethod(tool, method) {
     `**Sensitive:** ${method.sensitive ? 'Yes.' : 'No.'}`,
     '',
     `**Required permissions:** ${formatScope(method.requiredScope)}`,
+    ...alternativeScopeLines(method),
     '',
     methodRequirements(tool.inputSchema, method.id),
   ];
+}
+
+function alternativeScopeLines(method) {
+  const alternatives = Array.isArray(method.alternativeScopes) ? method.alternativeScopes : [];
+  if (alternatives.length === 0) return [];
+  return ['', `**Accepted instead:** ${alternatives.map(formatScope).join('; ')}`];
 }
 
 function renderTool(tool, selectionCatalog) {

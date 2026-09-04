@@ -294,7 +294,7 @@ interface GithubAgentToolsScope {
 function intersectGithubToolsWithLiveCatalog(
   tools: readonly GithubToolSelection[],
   liveCatalog: readonly GithubAgentToolCatalogEntry[],
-): AgentToolCatalogEntry<GithubAgentToolRequiredScope>[] {
+): GithubAgentToolCatalogEntry[] {
   return tools.flatMap((tool) => {
     const authorizedTool = intersectGithubToolWithLiveCatalog(tool, liveCatalog);
     return authorizedTool === undefined ? [] : [authorizedTool];
@@ -304,7 +304,7 @@ function intersectGithubToolsWithLiveCatalog(
 function intersectGithubToolWithLiveCatalog(
   tool: GithubToolSelection,
   liveCatalog: readonly GithubAgentToolCatalogEntry[],
-): AgentToolCatalogEntry<GithubAgentToolRequiredScope> | undefined {
+): GithubAgentToolCatalogEntry | undefined {
   const liveTool = liveCatalog.find((candidate) => candidate.id === tool.id);
   if (liveTool === undefined) return undefined;
   if (tool.methods === undefined) return liveTool;
@@ -1426,10 +1426,15 @@ function validateRequestedReviewers(reviewers: unknown): string | undefined {
   return undefined;
 }
 
+const REVIEWER_PART_UNSAFE_PATTERN = /\s/u;
+
 function isRequestedReviewer(value: unknown): boolean {
   if (typeof value !== 'string' || value.length === 0) return false;
   const parts = value.split('/');
-  return parts.length <= 2 && parts.every((part) => part.length > 0);
+  return (
+    parts.length <= 2 &&
+    parts.every((part) => part.length > 0 && !REVIEWER_PART_UNSAFE_PATTERN.test(part))
+  );
 }
 
 function validateMissingGithubToolArgument(
@@ -1697,21 +1702,35 @@ function methodRequiredParameters(
 }
 
 function githubPermissionDeniedMessage(
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubAgentToolCatalogEntry,
   call: AgentToolCallInput,
 ): string {
-  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
-  const required =
-    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
-  const scope = required.map(({permission, access}) => `${permission}: ${access}`).join(', ');
-  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${scope}`;
+  const [required, ...alternatives] = acceptedScopes(tool, call);
+  const alternativeText =
+    alternatives.length === 0 ? '' : ` (or ${alternatives.map(formatGithubScope).join('; ')})`;
+  return `GitHub installation token is missing permission for this operation: ${tool.id} requires ${formatGithubScope(required)}${alternativeText}`;
+}
+
+function formatGithubScope(scope: GithubAgentToolRequiredScope): string {
+  return scope.map(({permission, access}) => `${permission}: ${access}`).join(', ');
+}
+
+/** The declared scope first, then every alternative GitHub documents for the same operation. */
+function acceptedScopes(
+  tool: GithubAgentToolCatalogEntry,
+  call: AgentToolCallInput,
+): readonly [GithubAgentToolRequiredScope, ...GithubAgentToolRequiredScope[]] {
+  const methodId = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
+  const method = tool.methods?.find((candidate) => candidate.id === methodId);
+  if (method === undefined) return [tool.requiredScope];
+  return [method.requiredScope, ...(method.alternativeScopes ?? [])];
 }
 
 const GITHUB_WORKFLOWS_DIRECTORY = '.github/workflows/';
 
 function githubPermissionDenial(
   granted: Record<string, 'read' | 'write' | 'admin'>,
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubAgentToolCatalogEntry,
   call: AgentToolCallInput,
 ): string | undefined {
   if (!hasGrantedPermissions(granted, tool, call)) return githubPermissionDeniedMessage(tool, call);
@@ -1747,14 +1766,13 @@ function fileChangePaths(changes: unknown): string[] {
 
 function hasGrantedPermissions(
   granted: Record<string, 'read' | 'write' | 'admin'>,
-  tool: AgentToolCatalogEntry<GithubAgentToolRequiredScope>,
+  tool: GithubAgentToolCatalogEntry,
   call: AgentToolCallInput,
 ): boolean {
-  const method = typeof call.arguments.method === 'string' ? call.arguments.method : undefined;
-  const required =
-    tool.methods?.find((candidate) => candidate.id === method)?.requiredScope ?? tool.requiredScope;
-  return required.every(({permission, access}) => {
-    const actual = granted[permission];
-    return actual === 'write' || actual === 'admin' || actual === access;
-  });
+  return acceptedScopes(tool, call).some((scope) =>
+    scope.every(({permission, access}) => {
+      const actual = granted[permission];
+      return actual === 'write' || actual === 'admin' || actual === access;
+    }),
+  );
 }

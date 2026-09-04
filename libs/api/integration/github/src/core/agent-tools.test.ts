@@ -85,7 +85,6 @@ const expectedCatalogRows = [
     requiredScope: [
       {permission: 'pull_requests', access: 'read'},
       {permission: 'statuses', access: 'read'},
-      {permission: 'issues', access: 'read'},
       {permission: 'checks', access: 'read'},
     ],
     methods: [
@@ -1431,6 +1430,90 @@ describe('github agent tool catalog', () => {
     expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {statuses: 'read'});
   });
 
+  it.each([
+    {label: 'pull_requests read', permissions: {pull_requests: 'read' as const}},
+    {label: 'issues read', permissions: {issues: 'read' as const}},
+  ])('reads pull request timeline comments with $label', async ({permissions}) => {
+    const request = vi.fn(() => Promise.resolve({data: [{id: 1}]}));
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({token: 'installation-token', expiresAt: new Date(), permissions}),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const pullRequestRead = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_read',
+    );
+    if (!pullRequestRead) throw new Error('Missing pull_request_read tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pullRequestRead],
+      scope: undefined,
+    });
+
+    await expect(
+      session.call({
+        toolId: 'pull_request_read',
+        arguments: {method: 'get_comments', owner: 'shipfox', repo: 'platform', pull_number: 1},
+      }),
+    ).resolves.toMatchObject({structuredContent: {result: [{id: 1}]}});
+
+    expect(request).toHaveBeenCalledWith(
+      'GET /repos/{owner}/{repo}/issues/{pull_number}/comments',
+      {
+        owner: 'shipfox',
+        repo: 'platform',
+        pull_number: 1,
+      },
+    );
+  });
+
+  it('names the alternative grant when pull request timeline comments are denied', async () => {
+    const request = vi.fn();
+    const provider = new GithubAgentToolsProvider({
+      getInstallationByConnectionId: vi.fn(() => Promise.resolve(installation())),
+      tokenProvider: {
+        getInstallationAccessToken: vi.fn(() =>
+          Promise.resolve({
+            token: 'installation-token',
+            expiresAt: new Date(),
+            permissions: {checks: 'read' as const},
+          }),
+        ),
+      },
+      createClient: vi.fn(() => ({request})),
+    });
+    const pullRequestRead = githubAgentToolCatalog.find(
+      (entry) => entry.id === 'pull_request_read',
+    );
+    if (!pullRequestRead) throw new Error('Missing pull_request_read tool');
+    const session = await provider.openSession({
+      connection: connection(),
+      tools: [pullRequestRead],
+      scope: undefined,
+    });
+
+    const result = await session.call({
+      toolId: 'pull_request_read',
+      arguments: {method: 'get_comments', owner: 'shipfox', repo: 'platform', pull_number: 1},
+    });
+
+    expect(request).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'GitHub installation token is missing permission for this operation: pull_request_read requires pull_requests: read (or issues: read)',
+        },
+      ],
+      structuredContent: {code: 'access-denied'},
+    });
+  });
+
   it('removes a sub-issue through the singular endpoint with the child id in the body', async () => {
     const request = vi.fn(() => Promise.resolve({data: {number: 1}}));
     const provider = createAgentToolsProvider({request});
@@ -1701,6 +1784,8 @@ describe('github agent tool catalog', () => {
     {label: 'a team without a slug', reviewers: ['shipfox/']},
     {label: 'a team without an organization', reviewers: ['/reviewers']},
     {label: 'more than one slash', reviewers: ['shipfox/team/extra']},
+    {label: 'whitespace', reviewers: ['octo cat']},
+    {label: 'whitespace in a team slug', reviewers: ['shipfox/code reviewers']},
   ])('rejects reviewers containing $label before saving the pull request', async ({reviewers}) => {
     const request = vi.fn();
     const provider = createAgentToolsProvider({request});

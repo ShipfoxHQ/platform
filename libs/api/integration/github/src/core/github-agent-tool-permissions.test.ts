@@ -54,6 +54,7 @@ interface CatalogOperation {
   toolId: GithubAgentToolId;
   method: string | undefined;
   requiredScope: GithubAgentToolRequiredScope;
+  alternativeScopes: readonly GithubAgentToolRequiredScope[];
 }
 
 type EndpointPermissionSnapshot = ReadonlyMap<string, readonly GithubAppEndpointPermission[]>;
@@ -62,13 +63,22 @@ function catalogOperations(): CatalogOperation[] {
   return githubAgentToolCatalog.flatMap((entry): CatalogOperation[] => {
     const toolId = entry.id as GithubAgentToolId;
     if (entry.methods === undefined) {
-      return [{key: entry.id, toolId, method: undefined, requiredScope: entry.requiredScope}];
+      return [
+        {
+          key: entry.id,
+          toolId,
+          method: undefined,
+          requiredScope: entry.requiredScope,
+          alternativeScopes: [],
+        },
+      ];
     }
     return entry.methods.map((method) => ({
       key: `${entry.id}.${method.id}`,
       toolId,
       method: method.id,
       requiredScope: method.requiredScope,
+      alternativeScopes: method.alternativeScopes ?? [],
     }));
   });
 }
@@ -128,10 +138,12 @@ describe('github agent tool permissions', () => {
     for (const route of operationRoutes(operation)) {
       const required = requiredPermissions(operation, route, snapshot);
       if (required === undefined) continue;
-      expect(
-        declaredScopeSatisfies(operation.requiredScope, required),
-        `${operation.key} declares ${formatScope(operation.requiredScope)} but ${route} needs one of ${formatScope(required)}`,
-      ).toBe(true);
+      for (const scope of [operation.requiredScope, ...operation.alternativeScopes]) {
+        expect(
+          declaredScopeSatisfies(scope, required),
+          `${operation.key} declares ${formatScope(scope)} but ${route} needs one of ${formatScope(required)}`,
+        ).toBe(true);
+      }
     }
   });
 });
