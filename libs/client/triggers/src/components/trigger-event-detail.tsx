@@ -357,7 +357,7 @@ function EventRunsList({
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Workflow decisions</PanelTitle>
+        <PanelTitle>Workflow activity</PanelTitle>
       </PanelHeader>
       <PanelBody>
         <ul>

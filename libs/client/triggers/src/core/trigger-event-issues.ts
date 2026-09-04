@@ -33,19 +33,23 @@ interface MappableTriggerEventIssue extends TriggerEventIssue {
 
 const MAX_VISIBLE_ISSUES = 3;
 const LEGACY_WORKFLOW_ERROR = /^workflows\.[^:]+: ([a-z][a-z0-9-]+)$/;
+type FailureTarget = 'workflow' | 'listener' | 'mixed';
+const PARTIAL_FAILURE_TITLES = {
+  workflow: 'Some workflows failed to start',
+  listener: 'Some listener actions failed',
+  mixed: 'Some workflows and listener actions failed',
+} as const satisfies Record<FailureTarget, string>;
 
 export function getTriggerEventIssueCallout(
   event: TriggerEventDetail,
 ): TriggerEventIssueCallout | null {
-  const decisionIssues = event.decisions.flatMap((decision) => {
-    if (
-      decision.decision !== 'filter-error' &&
-      decision.decision !== 'dispatch-error' &&
-      decision.decision !== 'rejected'
-    )
-      return [];
-    return [decisionIssue(decision)];
-  });
+  const failedDecisions = event.decisions.filter(
+    (decision) =>
+      decision.decision === 'filter-error' ||
+      decision.decision === 'dispatch-error' ||
+      decision.decision === 'rejected',
+  );
+  const decisionIssues = failedDecisions.map(decisionIssue);
   const issues = collapseIssues(resolveIssues(event, decisionIssues));
 
   if (issues.length === 0) return null;
@@ -55,7 +59,7 @@ export function getTriggerEventIssueCallout(
   );
   return {
     type: successfulDecisions.length > 0 ? 'warning' : 'error',
-    title: calloutTitle(issues, successfulDecisions.length, decisionIssues.length),
+    title: calloutTitle(issues, successfulDecisions.length, failedDecisions),
     successSummary: successfulDecisionSummary(successfulDecisions),
     issues: issues.slice(0, MAX_VISIBLE_ISSUES),
     hiddenIssueCount: Math.max(0, issues.length - MAX_VISIBLE_ISSUES),
@@ -75,13 +79,37 @@ function resolveIssues(
 function calloutTitle(
   issues: TriggerEventIssue[],
   successfulDecisionCount: number,
-  failedDecisionCount: number,
+  failedDecisions: TriggerEventMatchedWorkflowResult[],
 ): string {
-  if (successfulDecisionCount > 0) return 'Some workflow processing failed';
-  if (failedDecisionCount > 1)
-    return `${formatCount(failedDecisionCount)} workflow decisions failed`;
+  const failedDecisionCount = failedDecisions.length;
+  if (successfulDecisionCount > 0 && failedDecisionCount === 0) {
+    return 'Some event processing failed';
+  }
+  const target = failureTarget(failedDecisions);
+  if (successfulDecisionCount > 0) return PARTIAL_FAILURE_TITLES[target];
+  if (failedDecisionCount > 1) {
+    return multipleFailureTitle(failedDecisionCount, target);
+  }
   if (issues.length === 1) return issues[0]?.title ?? 'Event processing failed';
-  return 'Workflow decisions failed';
+  return 'Workflow processing failed';
+}
+
+function failureTarget(failedDecisions: TriggerEventMatchedWorkflowResult[]): FailureTarget {
+  const hasListenerFailure = failedDecisions.some(
+    (decision) => decision.subscriptionKind === 'listener',
+  );
+  const hasWorkflowFailure = failedDecisions.some(
+    (decision) => decision.subscriptionKind !== 'listener',
+  );
+  if (hasListenerFailure && hasWorkflowFailure) return 'mixed';
+  return hasListenerFailure ? 'listener' : 'workflow';
+}
+
+function multipleFailureTitle(count: number, target: FailureTarget): string {
+  if (target === 'mixed') return 'Workflows and listener actions failed';
+  return target === 'listener'
+    ? `${formatCount(count)} listener actions failed`
+    : `${formatCount(count)} workflows failed to start`;
 }
 
 function successfulDecisionSummary(decisions: TriggerEventMatchedWorkflowResult[]): string | null {

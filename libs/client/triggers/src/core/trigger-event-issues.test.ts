@@ -100,7 +100,7 @@ describe('getTriggerEventIssueCallout', () => {
 
     expect(callout).toMatchObject({
       type: 'warning',
-      title: 'Some workflow processing failed',
+      title: 'Some workflows failed to start',
       successSummary: '1 workflow started.',
       hiddenIssueCount: 1,
     });
@@ -134,7 +134,7 @@ describe('getTriggerEventIssueCallout', () => {
     );
 
     expect(callout).toMatchObject({
-      title: 'Two workflow decisions failed',
+      title: 'Two workflows failed to start',
       hiddenIssueCount: 0,
       issues: [{id: 'first', affectedCount: 2}],
     });
@@ -173,6 +173,25 @@ describe('getTriggerEventIssueCallout', () => {
       {id: 'listener-one', targetName: 'Notify Slack', affectedCount: 1},
       {id: 'listener-two', targetName: 'Publish status', affectedCount: 1},
     ]);
+    expect(callout?.title).toBe('Two listener actions failed');
+  });
+
+  test('names mixed workflow and listener failures without internal terminology', () => {
+    const callout = getTriggerEventIssueCallout(
+      event({
+        decisions: [
+          decision({subscriptionName: 'Deploy production'}),
+          decision({
+            subscriptionKind: 'listener',
+            subscriptionName: 'Notify Slack',
+            workflowDefinitionId: null,
+            jobId: crypto.randomUUID(),
+          }),
+        ],
+      }),
+    );
+
+    expect(callout?.title).toBe('Workflows and listener actions failed');
   });
 
   test('does not render an unknown legacy reason', () => {

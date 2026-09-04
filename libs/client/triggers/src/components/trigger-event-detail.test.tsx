@@ -105,7 +105,7 @@ describe('TriggerEventDetailView', () => {
     renderDetailView(makeEvent());
 
     expect(await screen.findByText('Triggered 1 workflow')).toBeInTheDocument();
-    expect(screen.getByRole('heading', {name: 'Workflow decisions'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {name: 'Workflow activity'})).toBeInTheDocument();
     expect(screen.getByRole('heading', {name: 'Payload'})).toBeInTheDocument();
     expect(document.querySelectorAll('[data-slot="panel"]')).toHaveLength(2);
     expect(screen.getByText('Deploy production')).toBeInTheDocument();
@@ -121,7 +121,7 @@ describe('TriggerEventDetailView', () => {
 
     expect(await screen.findByText('No workflows triggered')).toBeInTheDocument();
     expect(screen.getByText('No workflow matched this event.')).toBeInTheDocument();
-    expect(screen.queryByText('Workflow decisions')).not.toBeInTheDocument();
+    expect(screen.queryByText('Workflow activity')).not.toBeInTheDocument();
   });
 
   test('does not expose an unclassified legacy reason', async () => {
