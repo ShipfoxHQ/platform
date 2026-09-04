@@ -1,21 +1,21 @@
-import {READ_ANNOTATIONS_MAX_LIMIT, readAnnotationsResponseSchema} from '@shipfox/annotations-dto';
+import {
+  WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
+  workflowRunAnnotationsResponseSchema,
+} from '@shipfox/api-workflows-dto';
 import {checkedApiRequest} from '@shipfox/client-api';
 import {
   type InfiniteData,
-  infiniteQueryOptions,
   type UseInfiniteQueryOptions,
   useInfiniteQuery,
 } from '@tanstack/react-query';
-import {useMemo} from 'react';
+import {useEffect, useMemo} from 'react';
 import {
-  type RunAnnotationRecord,
+  type RunAnnotationEntry,
   type RunAnnotationSummary,
   summarizeRunAnnotations,
 } from '#core/run-annotation.js';
 import {type RunAnnotationPage, toRunAnnotationPage} from './run-annotation-mapper.js';
-
-/** Matches the run detail poll, so annotations and run state never disagree by more than a tick. */
-const ACTIVE_POLL_MS = 4_000;
+import {paginatedWorkflowResourceQueryOptions} from './workflow-resource-query.js';
 
 export const runAnnotationsQueryKeys = {
   all: ['run-annotations'] as const,
@@ -47,16 +47,17 @@ async function listRunAnnotations({
   signal?: AbortSignal;
 }): Promise<RunAnnotationPage> {
   const params = new URLSearchParams({
-    workflow_run_id: workflowRunId,
     attempt: String(runAttempt),
-    limit: String(READ_ANNOTATIONS_MAX_LIMIT),
+    limit: String(WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT),
   });
   if (cursor) params.set('cursor', cursor);
 
   return toRunAnnotationPage(
-    await checkedApiRequest(readAnnotationsResponseSchema, `/annotations?${params.toString()}`, {
-      signal,
-    }),
+    await checkedApiRequest(
+      workflowRunAnnotationsResponseSchema,
+      `/workflows/runs/${workflowRunId}/annotations?${params.toString()}`,
+      {signal},
+    ),
   );
 }
 
@@ -66,6 +67,8 @@ export interface RunAnnotationsQueryInput {
   enabled?: boolean | undefined;
   /** Poll while the run attempt is non-terminal, then settle. */
   live?: boolean | undefined;
+  /** Fetch every page for consumers that need an exact run-wide aggregate. */
+  loadAllPages?: boolean | undefined;
 }
 
 export function runAnnotationsQueryOptions({
@@ -76,15 +79,12 @@ export function runAnnotationsQueryOptions({
 }: RunAnnotationsQueryInput): RunAnnotationsQueryOptions {
   const enabled = Boolean(workflowRunId) && runAttempt !== undefined && enabledOption;
 
-  // Polling stops once the reader has paged past the first page: the cursor bounding page 2 was
-  // computed from page 1's last row, so a refetch that shifts that boundary can drop a range of
-  // annotations into a between-pages gap.
-  return infiniteQueryOptions({
+  return paginatedWorkflowResourceQueryOptions({
     queryKey: workflowRunId
       ? runAnnotationsQueryKeys.list(workflowRunId, runAttempt)
       : ([...runAnnotationsQueryKeys.all, 'list'] as const),
     enabled,
-    initialPageParam: undefined as string | undefined,
+    live,
     queryFn: ({pageParam, signal}) =>
       listRunAnnotations({
         workflowRunId: workflowRunId ?? '',
@@ -92,15 +92,6 @@ export function runAnnotationsQueryOptions({
         cursor: pageParam,
         signal,
       }),
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: 2_000,
-    refetchOnWindowFocus: true,
-    refetchInterval: (query) => {
-      if (!live) return false;
-      const pages = query.state.data?.pages;
-      return pages && pages.length > 1 ? false : ACTIVE_POLL_MS;
-    },
-    refetchIntervalInBackground: false,
   });
 }
 
@@ -115,7 +106,7 @@ export interface RunAnnotationsQueryResult {
     >
   >;
   /** `undefined` until the first page resolves, so counts never render a speculative zero. */
-  annotations: RunAnnotationRecord[] | undefined;
+  entries: RunAnnotationEntry[] | undefined;
   summary: RunAnnotationSummary | undefined;
 }
 
@@ -123,17 +114,33 @@ export function useRunAnnotationsQuery(input: RunAnnotationsQueryInput): RunAnno
   const query = useInfiniteQuery(runAnnotationsQueryOptions(input));
   const pages = query.data?.pages;
 
-  const annotations = useMemo(
-    () => (pages ? pages.flatMap((page) => page.annotations) : undefined),
+  useEffect(() => {
+    if (!input.loadAllPages || !query.hasNextPage || query.isFetchingNextPage || query.isError) {
+      return;
+    }
+    void query.fetchNextPage();
+  }, [
+    input.loadAllPages,
+    query.fetchNextPage,
+    query.hasNextPage,
+    query.isError,
+    query.isFetchingNextPage,
+  ]);
+
+  const entries = useMemo(
+    () => (pages ? pages.flatMap((page) => page.entries) : undefined),
     [pages],
   );
   const summary = useMemo(
     () =>
-      annotations
-        ? summarizeRunAnnotations(annotations, {truncated: pages?.at(-1)?.hasMore ?? false})
+      entries
+        ? summarizeRunAnnotations(
+            entries.map((entry) => entry.annotation),
+            {truncated: pages?.at(-1)?.nextCursor !== null},
+          )
         : undefined,
-    [annotations, pages],
+    [entries, pages],
   );
 
-  return {query, annotations, summary};
+  return {query, entries, summary};
 }

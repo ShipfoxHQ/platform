@@ -1,4 +1,5 @@
-import type {Job} from './workflow-run.js';
+import type {JobStatusReason} from './entities/job.js';
+import type {EvaluationTraceEntry} from './entities/step-attempt.js';
 
 export type RunAnnotationStyle = 'default' | 'info' | 'success' | 'warning' | 'error';
 
@@ -62,13 +63,24 @@ export interface RunAnnotationOrigin {
 
 export interface RunAnnotationEntry {
   annotation: RunAnnotationRecord;
-  jobName: string | null;
+  jobName: string;
+  jobPosition: number;
+  executionSequence: number;
   /** Only set when the job ran more than once, so a single-execution job stays uncluttered. */
   executionLabel: string | null;
-  stepLabel: string | null;
+  stepLabel: string;
   attemptLabel: string;
-  /** `null` when the run attempt no longer contains the emitting step, so no link is offered. */
+  /** `null` when the emitting step attempt has not been created, so no link is offered. */
   origin: RunAnnotationOrigin | null;
+}
+
+export interface RunJobExplanation {
+  jobId: string;
+  jobName: string;
+  jobPosition: number;
+  status: 'failed' | 'skipped';
+  statusReason: JobStatusReason | null;
+  evaluationTrace: EvaluationTraceEntry[] | null;
 }
 
 export function annotationSeverity(style: RunAnnotationStyle): RunAnnotationSeverity | null {
@@ -97,8 +109,7 @@ export function summarizeRunAnnotations(
 }
 
 export interface BuildRunAnnotationListInput {
-  annotations: readonly RunAnnotationRecord[];
-  jobs: readonly Job[];
+  entries: readonly RunAnnotationEntry[];
   severity?: RunAnnotationSeverity | undefined;
   jobId?: string | undefined;
 }
@@ -111,22 +122,20 @@ export interface BuildRunAnnotationListInput {
  * sequence before using it, and ends on the id so the order never depends on input order.
  */
 export function buildRunAnnotationList({
-  annotations,
-  jobs,
+  entries,
   severity,
   jobId,
 }: BuildRunAnnotationListInput): RunAnnotationEntry[] {
-  const index = indexJobs(jobs);
-  const entries: RunAnnotationEntry[] = [];
+  const visible: RunAnnotationEntry[] = [];
 
-  for (const annotation of annotations) {
-    if (jobId && annotation.jobId !== jobId) continue;
-    const annotationSeverityValue = annotationSeverity(annotation.style);
+  for (const entry of entries) {
+    if (jobId && entry.annotation.jobId !== jobId) continue;
+    const annotationSeverityValue = annotationSeverity(entry.annotation.style);
     if (severity && annotationSeverityValue !== severity) continue;
-    entries.push(toEntry(annotation, index));
+    visible.push(entry);
   }
 
-  return entries.sort((left, right) => compareEntries(left, right, index));
+  return visible.sort(compareEntries);
 }
 
 /** Counts annotations owned by one job, for the job page's bounded reference chip. */
@@ -148,97 +157,18 @@ export function highestRunAnnotationSeverity(
   return RUN_ANNOTATION_SEVERITIES.find((severity) => summary[severity] > 0) ?? null;
 }
 
-interface JobIndexEntry {
-  position: number;
-  name: string;
-  executionCount: number;
-  executions: Map<string, JobExecutionIndexEntry>;
-}
-
-interface JobExecutionIndexEntry {
-  sequence: number;
-  steps: Map<string, {label: string; attemptIds: Map<number, string>}>;
-}
-
-function indexJobs(jobs: readonly Job[]): Map<string, JobIndexEntry> {
-  const index = new Map<string, JobIndexEntry>();
-
-  for (const job of jobs) {
-    const executions = new Map<string, JobExecutionIndexEntry>();
-    for (const execution of job.jobExecutions) {
-      const steps = new Map<string, {label: string; attemptIds: Map<number, string>}>();
-      for (const step of execution.steps) {
-        const attemptIds = new Map<number, string>();
-        for (const attempt of step.attempts) attemptIds.set(attempt.attempt, attempt.id);
-        steps.set(step.id, {label: step.name || step.key || step.id, attemptIds});
-      }
-      executions.set(execution.id, {sequence: execution.sequence, steps});
-    }
-
-    index.set(job.id, {
-      position: job.position,
-      name: job.displayName,
-      executionCount: job.jobExecutions.length,
-      executions,
-    });
-  }
-
-  return index;
-}
-
-function toEntry(
-  annotation: RunAnnotationRecord,
-  index: Map<string, JobIndexEntry>,
-): RunAnnotationEntry {
-  const job = index.get(annotation.jobId);
-  const execution = job?.executions.get(annotation.jobExecutionId);
-  const step = execution?.steps.get(annotation.originStepId);
-  const stepAttemptId = step?.attemptIds.get(annotation.originStepAttempt);
-
-  return {
-    annotation,
-    jobName: job?.name ?? null,
-    executionLabel:
-      execution && job && job.executionCount > 1 ? `execution #${execution.sequence}` : null,
-    stepLabel: step?.label ?? null,
-    attemptLabel: `attempt ${annotation.originStepAttempt}`,
-    origin: stepAttemptId
-      ? {
-          jobId: annotation.jobId,
-          jobExecutionId: annotation.jobExecutionId,
-          stepId: annotation.originStepId,
-          stepAttemptId,
-        }
-      : null,
-  };
-}
-
-function compareEntries(
-  left: RunAnnotationEntry,
-  right: RunAnnotationEntry,
-  index: Map<string, JobIndexEntry>,
-): number {
+function compareEntries(left: RunAnnotationEntry, right: RunAnnotationEntry): number {
   const bySeverity = SEVERITY_RANK[left.annotation.style] - SEVERITY_RANK[right.annotation.style];
   if (bySeverity !== 0) return bySeverity;
 
-  const byJob = jobPosition(left, index) - jobPosition(right, index);
+  const byJob = left.jobPosition - right.jobPosition;
   if (byJob !== 0) return byJob;
 
-  const byExecution = executionSequence(left, index) - executionSequence(right, index);
+  const byExecution = left.executionSequence - right.executionSequence;
   if (byExecution !== 0) return byExecution;
 
   const bySequence = left.annotation.sequence - right.annotation.sequence;
   if (bySequence !== 0) return bySequence;
 
   return left.annotation.id.localeCompare(right.annotation.id);
-}
-
-/** An unmatched job sorts last rather than first, so known provenance leads the list. */
-function jobPosition(entry: RunAnnotationEntry, index: Map<string, JobIndexEntry>): number {
-  return index.get(entry.annotation.jobId)?.position ?? Number.MAX_SAFE_INTEGER;
-}
-
-function executionSequence(entry: RunAnnotationEntry, index: Map<string, JobIndexEntry>): number {
-  const job = index.get(entry.annotation.jobId);
-  return job?.executions.get(entry.annotation.jobExecutionId)?.sequence ?? Number.MAX_SAFE_INTEGER;
 }

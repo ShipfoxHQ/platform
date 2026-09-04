@@ -1,9 +1,24 @@
-import type {AnnotationDto, ReadAnnotationsResponseDto} from '@shipfox/annotations-dto';
-import type {RunAnnotationRecord} from '#core/run-annotation.js';
+import type {AnnotationDto} from '@shipfox/annotations-dto';
+import type {
+  WorkflowRunAnnotationItemDto,
+  WorkflowRunAnnotationsResponseDto,
+  WorkflowRunJobExplanationDto,
+  WorkflowRunJobExplanationsResponseDto,
+} from '@shipfox/api-workflows-dto';
+import type {
+  RunAnnotationEntry,
+  RunAnnotationRecord,
+  RunJobExplanation,
+} from '#core/run-annotation.js';
+import {toEvaluationTrace} from './workflow-run-mapper.js';
 
 export interface RunAnnotationPage {
-  annotations: RunAnnotationRecord[];
-  hasMore: boolean;
+  entries: RunAnnotationEntry[];
+  nextCursor: string | null;
+}
+
+export interface RunJobExplanationPage {
+  explanations: RunJobExplanation[];
   nextCursor: string | null;
 }
 
@@ -21,10 +36,52 @@ export function toRunAnnotation(dto: AnnotationDto): RunAnnotationRecord {
   };
 }
 
-export function toRunAnnotationPage(response: ReadAnnotationsResponseDto): RunAnnotationPage {
+export function toRunAnnotationEntry(item: WorkflowRunAnnotationItemDto): RunAnnotationEntry {
+  const {annotation, origin} = item;
   return {
-    annotations: response.annotations.map(toRunAnnotation),
-    hasMore: response.has_more,
+    annotation: toRunAnnotation(annotation),
+    jobName: origin.job_label,
+    jobPosition: origin.job_position,
+    executionSequence: origin.execution_sequence,
+    executionLabel: origin.execution_label,
+    stepLabel: origin.step_label,
+    attemptLabel: `attempt ${origin.step_attempt}`,
+    origin: origin.step_attempt_id
+      ? {
+          jobId: origin.job_id,
+          jobExecutionId: origin.job_execution_id,
+          stepId: origin.step_id,
+          stepAttemptId: origin.step_attempt_id,
+        }
+      : null,
+  };
+}
+
+export function toRunAnnotationPage(
+  response: Pick<WorkflowRunAnnotationsResponseDto, 'items' | 'next_cursor'>,
+): RunAnnotationPage {
+  return {
+    entries: response.items.map(toRunAnnotationEntry),
+    nextCursor: response.next_cursor,
+  };
+}
+
+export function toRunJobExplanation(dto: WorkflowRunJobExplanationDto): RunJobExplanation {
+  return {
+    jobId: dto.job_id,
+    jobName: dto.job_label,
+    jobPosition: dto.job_position,
+    status: dto.status,
+    statusReason: dto.status_reason,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+  };
+}
+
+export function toRunJobExplanationPage(
+  response: Pick<WorkflowRunJobExplanationsResponseDto, 'items' | 'next_cursor'>,
+): RunJobExplanationPage {
+  return {
+    explanations: response.items.map(toRunJobExplanation),
     nextCursor: response.next_cursor,
   };
 }

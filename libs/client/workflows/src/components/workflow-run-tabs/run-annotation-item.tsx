@@ -22,8 +22,8 @@ const ANNOTATION_ROW_CLASS =
   'items-start justify-start gap-cluster hover:bg-background-neutral-base';
 
 /**
- * The contexts the server mints itself, each rebuilt exactly as its producer builds it, with the
- * heading to use when the job that would normally name the row cannot be resolved.
+ * The contexts the server mints itself, each rebuilt exactly as its producer builds it. The
+ * server-provided emitting job names these rows.
  *
  * These are routing keys rather than something a reader chose, so they never become the heading.
  * Rebuilt whole rather than matched by prefix: `context` is caller-chosen with no reserved
@@ -35,19 +35,15 @@ const ANNOTATION_ROW_CLASS =
 const MINTED_CONTEXTS = [
   {
     key: ({originStepId}: MintedContextSource) => `failure:step:${originStepId}`,
-    fallbackTitle: 'Step failure',
   },
   {
     key: ({jobId}: MintedContextSource) => `failure:job:${jobId}`,
-    fallbackTitle: 'Job failure',
   },
   {
     key: ({originStepId}: MintedContextSource) => `agent-tool-capability:${originStepId}`,
-    fallbackTitle: 'Agent tool capability',
   },
   {
     key: ({originStepId}: MintedContextSource) => `renewable-git-capability:${originStepId}`,
-    fallbackTitle: 'Renewable Git capability',
   },
 ] as const;
 
@@ -81,11 +77,8 @@ export function RunAnnotationItem({
 }: RunAnnotationItemProps) {
   const {annotation, origin} = entry;
   const canLink = Boolean(origin && workspaceSlug && projectSlug);
-  // A minted context is never the heading, not even as a last resort: a run that no longer
-  // contains the emitting job resolves no name, and printing the routing key would put a bare
-  // uuid where the row's subject belongs.
   const minted = mintedContext(annotation);
-  const title = minted ? (entry.jobName ?? minted.fallbackTitle) : annotation.context;
+  const title = minted ? entry.jobName : annotation.context;
 
   return (
     <AnnotationRow>
@@ -133,6 +126,7 @@ export function RunAnnotationItem({
 
 export interface RunDerivedAnnotationItemProps {
   style: RunAnnotationStyle;
+  statusLabel: 'Skipped' | 'Failed';
   jobName: string;
   body: string;
 }
@@ -140,12 +134,17 @@ export interface RunDerivedAnnotationItemProps {
 /**
  * A terminal job that never created an execution record.
  *
- * It has no step to link to and no context of its own, so it is titled by its job and says
- * plainly that no execution exists. It renders in the same row as every other annotation, since
- * a job that failed before it started is a diagnostic like any other, and often the first one
- * worth reading.
+ * It has no step to link to and no context of its own, so it is titled by its job and names the
+ * terminal status that prompted the explanation. It renders in the same row as every other
+ * annotation, since a job that failed before it started is a diagnostic like any other, and often
+ * the first one worth reading.
  */
-export function RunDerivedAnnotationItem({style, jobName, body}: RunDerivedAnnotationItemProps) {
+export function RunDerivedAnnotationItem({
+  style,
+  statusLabel,
+  jobName,
+  body,
+}: RunDerivedAnnotationItemProps) {
   return (
     <AnnotationRow>
       <AnnotationCard
@@ -158,7 +157,7 @@ export function RunDerivedAnnotationItem({style, jobName, body}: RunDerivedAnnot
             size="xs"
             className="min-w-0 truncate font-code text-foreground-neutral-subtle"
           >
-            no execution recorded
+            {statusLabel}
           </Text>
         }
         body={body}

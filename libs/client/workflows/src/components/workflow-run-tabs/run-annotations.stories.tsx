@@ -7,13 +7,7 @@ import {
   type RunAnnotationStyle,
   summarizeRunAnnotations,
 } from '#core/run-annotation.js';
-import type {Job} from '#core/workflow-run.js';
-import {
-  workflowJob,
-  workflowJobExecutionDto,
-  workflowStepAttemptDto,
-  workflowStepDto,
-} from '#test/fixtures/workflow-run.js';
+import {runAnnotationEntryFixture} from '#test/fixtures/workflow-run.js';
 import {RunAnnotationCountChip} from './run-annotation-count-chip.js';
 import {
   type DerivedRunAnnotation,
@@ -32,7 +26,6 @@ const TEST_EXECUTION_ID = '77777777-7777-4777-8777-00000000000c';
 const BUILD_STEP_ID = '55555555-5555-4555-8555-00000000000b';
 const TEST_STEP_ID = '55555555-5555-4555-8555-00000000000c';
 const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000b';
-const TEST_ATTEMPT_ID = '66666666-6666-4666-8666-00000000000c';
 
 const LONG_BODY = [
   '### Failing specs',
@@ -110,9 +103,12 @@ export const Playground: Story = {
         derivedAnnotations={[
           {
             id: 'derived-deploy',
-            style: 'warning',
+            jobId: '44444444-4444-4444-8444-00000000000d',
+            jobPosition: 2,
+            style: 'default',
+            statusLabel: 'Skipped',
             jobName: 'deploy production',
-            body: 'Skipped before an execution was created.\n\nReview its dependencies or condition before re-running.\nReason: `dependency_failed`',
+            body: 'A required job did not succeed, so this job did not run.',
           },
         ]}
       />
@@ -199,7 +195,6 @@ export const DataStates: Story = {
                 body: 'Reason: `agent_config_invalid`',
               }),
             ]}
-            jobs={jobsWithUnnamedAgentStep}
           />
         </StateExample>
       </div>
@@ -257,9 +252,9 @@ function AnnotationsFrame({
  */
 function AnnotationsList({
   annotations,
-  derivedAnnotations,
-  jobs: jobsOverride,
+  derivedAnnotations = [],
   query = storyQuery(),
+  jobExplanationsQuery = storyQuery(),
   filtered = false,
   filteredJobName,
   filteredSeverity,
@@ -267,15 +262,13 @@ function AnnotationsList({
 }: {
   annotations: RunAnnotationRecord[];
   derivedAnnotations?: readonly DerivedRunAnnotation[];
-  jobs?: Job[];
   query?: RunAnnotationListQuery;
+  jobExplanationsQuery?: RunAnnotationListQuery;
   filtered?: boolean;
   filteredJobName?: string;
   filteredSeverity?: string;
   summary?: ReturnType<typeof summarizeRunAnnotations>;
 }) {
-  const resolvedJobs = jobsOverride ?? jobs;
-
   return (
     <Panel>
       {summary ? (
@@ -290,10 +283,11 @@ function AnnotationsList({
       ) : null}
       <RunAnnotationList
         query={query}
+        jobExplanationsQuery={jobExplanationsQuery}
         entries={
           query.data === undefined
             ? undefined
-            : buildRunAnnotationList({annotations, jobs: resolvedJobs})
+            : buildRunAnnotationList({entries: annotations.map(annotationEntry)})
         }
         derivedAnnotations={derivedAnnotations}
         workspaceSlug={WORKSPACE_SLUG}
@@ -348,72 +342,20 @@ function annotation(
   };
 }
 
-const jobs: Job[] = [
-  workflowJob({
-    id: BUILD_JOB_ID,
-    key: 'build',
-    name: 'build',
-    position: 0,
-    job_executions: [
-      workflowJobExecutionDto({
-        id: BUILD_EXECUTION_ID,
-        job_id: BUILD_JOB_ID,
-        steps: [
-          workflowStepDto({
-            id: BUILD_STEP_ID,
-            name: 'run smoke checks',
-            attempts: [
-              workflowStepAttemptDto({id: BUILD_ATTEMPT_ID, step_id: BUILD_STEP_ID, attempt: 1}),
-            ],
-          }),
-        ],
-      }),
-    ],
-  }),
-  workflowJob({
-    id: TEST_JOB_ID,
-    key: 'test',
-    name: 'test',
-    position: 1,
-    job_executions: [
-      workflowJobExecutionDto({
-        id: TEST_EXECUTION_ID,
-        job_id: TEST_JOB_ID,
-        steps: [
-          workflowStepDto({
-            id: TEST_STEP_ID,
-            name: 'vitest',
-            attempts: [
-              workflowStepAttemptDto({id: TEST_ATTEMPT_ID, step_id: TEST_STEP_ID, attempt: 1}),
-            ],
-          }),
-        ],
-      }),
-    ],
-  }),
-];
-
-const jobsWithUnnamedAgentStep: Job[] = [
-  jobs[0] as Job,
-  workflowJob({
-    id: TEST_JOB_ID,
-    key: 'test',
-    name: 'Hello world on Anthropic models with Claude',
-    position: 1,
-    job_executions: [
-      workflowJobExecutionDto({
-        id: TEST_EXECUTION_ID,
-        job_id: TEST_JOB_ID,
-        steps: [
-          workflowStepDto({
-            id: TEST_STEP_ID,
-            name: UNNAMED_AGENT_STEP,
-            attempts: [
-              workflowStepAttemptDto({id: TEST_ATTEMPT_ID, step_id: TEST_STEP_ID, attempt: 1}),
-            ],
-          }),
-        ],
-      }),
-    ],
-  }),
-];
+function annotationEntry(annotation: RunAnnotationRecord) {
+  const testJob = annotation.jobId === TEST_JOB_ID;
+  let jobName = testJob ? 'test' : 'build';
+  let stepLabel = testJob ? 'vitest' : 'run smoke checks';
+  if (annotation.id === 'unnamed') {
+    jobName = 'Hello world on Anthropic models with Claude';
+    stepLabel = UNNAMED_AGENT_STEP;
+  }
+  return runAnnotationEntryFixture(annotation, {
+    jobName,
+    jobPosition: testJob ? 1 : 0,
+    stepLabel,
+    origin: {
+      stepAttemptId: testJob ? '66666666-6666-4666-8666-00000000000c' : BUILD_ATTEMPT_ID,
+    },
+  });
+}

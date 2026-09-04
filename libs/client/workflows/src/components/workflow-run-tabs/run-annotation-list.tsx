@@ -1,4 +1,4 @@
-import {QueryLoadError, type QueryLoadErrorQuery} from '@shipfox/client-ui';
+import type {QueryLoadErrorQuery} from '@shipfox/client-ui';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout, CalloutContent} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
@@ -20,7 +20,8 @@ export interface RunAnnotationListQuery extends QueryLoadErrorQuery {
 export interface RunAnnotationListProps {
   query: RunAnnotationListQuery;
   entries: RunAnnotationEntry[] | undefined;
-  /** Synthetic terminal-job diagnostics for jobs that never created an execution record. */
+  jobExplanationsQuery: RunAnnotationListQuery;
+  /** Terminal-job diagnostics for jobs that never created an execution record. */
   derivedAnnotations?: readonly DerivedRunAnnotation[] | undefined;
   workflowRunId: string;
   workspaceSlug?: string | undefined;
@@ -36,17 +37,39 @@ export interface RunAnnotationListProps {
 
 export interface DerivedRunAnnotation {
   id: string;
+  jobId: string;
+  jobPosition: number;
   style: RunAnnotationStyle;
+  statusLabel: 'Skipped' | 'Failed';
   jobName: string;
   body: string;
 }
 
+interface RunAnnotationResourceErrorCopy {
+  loadMessage: string;
+  refreshMessage: string;
+  retryLabel: string;
+}
+
+const ANNOTATION_RESOURCE_ERROR_COPY: RunAnnotationResourceErrorCopy = {
+  loadMessage: 'Could not load annotations.',
+  refreshMessage: 'Could not refresh annotations.',
+  retryLabel: 'Retry loading annotations',
+};
+
+const JOB_DETAILS_RESOURCE_ERROR_COPY: RunAnnotationResourceErrorCopy = {
+  loadMessage: 'Some details about skipped or failed jobs could not be loaded.',
+  refreshMessage: 'Some details about skipped or failed jobs may be out of date.',
+  retryLabel: 'Retry loading skipped and failed job details',
+};
+
 /**
- * How many annotations render at once.
+ * How many rows from each independently loaded resource render at once.
  *
- * A page holds up to 500 rows and each one mounts a Markdown pipeline, so the fetch budget is
- * not a render budget. The window grows on demand and the server page only loads once the
- * reader has actually seen everything already fetched.
+ * Each server resource pages independently and every row mounts a Markdown pipeline, so the
+ * fetch budget is not a render budget. Each window grows on demand and another server page only
+ * loads once the reader has actually seen everything already fetched. Keeping the windows
+ * separate prevents a newly arriving explanation from evicting an annotation already on screen.
  */
 const RENDER_WINDOW = 25;
 
@@ -63,7 +86,8 @@ const RENDER_WINDOW = 25;
 export function RunAnnotationList({
   query,
   entries,
-  derivedAnnotations = [],
+  jobExplanationsQuery,
+  derivedAnnotations,
   workflowRunId,
   workspaceSlug,
   projectSlug,
@@ -73,107 +97,207 @@ export function RunAnnotationList({
   filtered,
   onClearFilters,
 }: RunAnnotationListProps) {
-  const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW);
+  const [visibleEntryCount, setVisibleEntryCount] = useState(RENDER_WINDOW);
+  const [visibleExplanationCount, setVisibleExplanationCount] = useState(RENDER_WINDOW);
+  const resolvedEntries = entries ?? [];
+  const resolvedDerivedAnnotations = derivedAnnotations ?? [];
+  const isWaitingForContent =
+    (query.isPending && entries === undefined) ||
+    (jobExplanationsQuery.isPending && derivedAnnotations === undefined);
 
-  if (query.isPending) return <RunAnnotationListSkeleton />;
-
-  if (query.isError && entries === undefined) {
-    return (
-      <QueryLoadError query={query} subject="annotations" icon="fileDamageLine" variant="panel" />
-    );
-  }
-
-  if (entries === undefined) return <RunAnnotationListSkeleton />;
-
-  const visible = entries.slice(0, visibleCount);
-  const hiddenCount = entries.length - visible.length;
-  const totalCount = entries.length + derivedAnnotations.length;
+  const visibleDerivedAnnotations = resolvedDerivedAnnotations.slice(0, visibleExplanationCount);
+  const visibleEntries = resolvedEntries.slice(0, visibleEntryCount);
+  const totalCount = resolvedEntries.length + resolvedDerivedAnnotations.length;
+  const hiddenCount = totalCount - visibleDerivedAnnotations.length - visibleEntries.length;
   const hasContent = totalCount > 0;
-  let content: ReactNode;
+  const hasUnknownContent =
+    entries === undefined ||
+    derivedAnnotations === undefined ||
+    query.isError ||
+    jobExplanationsQuery.isError;
+  return (
+    <>
+      {entries === undefined ? null : <RunAnnotationLiveRegion entries={entries} />}
+      {query.isError ? (
+        <RunAnnotationResourceError
+          query={query}
+          copy={ANNOTATION_RESOURCE_ERROR_COPY}
+          hasStaleContent={entries !== undefined}
+        />
+      ) : null}
+      {jobExplanationsQuery.isError ? (
+        <RunAnnotationResourceError
+          query={jobExplanationsQuery}
+          copy={JOB_DETAILS_RESOURCE_ERROR_COPY}
+          hasStaleContent={derivedAnnotations !== undefined}
+        />
+      ) : null}
+
+      <RunAnnotationListContent
+        hasContent={hasContent}
+        hasUnknownContent={hasUnknownContent}
+        isWaitingForContent={isWaitingForContent}
+        filtered={filtered}
+        filteredJobName={filteredJobName}
+        filteredSeverity={filteredSeverity}
+        incomplete={query.hasNextPage || jobExplanationsQuery.hasNextPage}
+        onClearFilters={onClearFilters}
+        derivedAnnotations={visibleDerivedAnnotations}
+        entries={visibleEntries}
+        workspaceSlug={workspaceSlug}
+        projectSlug={projectSlug}
+        workflowRunId={workflowRunId}
+        runAttempt={runAttempt}
+      />
+      <RunAnnotationPagination
+        hiddenCount={hiddenCount}
+        totalCount={totalCount}
+        query={query}
+        jobExplanationsQuery={jobExplanationsQuery}
+        onShowMore={() => {
+          const explanationsToReveal = Math.min(
+            RENDER_WINDOW,
+            Math.max(0, resolvedDerivedAnnotations.length - visibleExplanationCount),
+          );
+          setVisibleExplanationCount((current) => current + explanationsToReveal);
+          setVisibleEntryCount(
+            (current) => current + Math.max(0, RENDER_WINDOW - explanationsToReveal),
+          );
+        }}
+      />
+    </>
+  );
+}
+
+function RunAnnotationListContent({
+  hasContent,
+  hasUnknownContent,
+  isWaitingForContent,
+  filtered,
+  filteredJobName,
+  filteredSeverity,
+  incomplete,
+  onClearFilters,
+  derivedAnnotations,
+  entries,
+  workspaceSlug,
+  projectSlug,
+  workflowRunId,
+  runAttempt,
+}: {
+  hasContent: boolean;
+  hasUnknownContent: boolean;
+  isWaitingForContent: boolean;
+  filtered: boolean;
+  filteredJobName: string | undefined;
+  filteredSeverity: string | undefined;
+  incomplete: boolean;
+  onClearFilters: (() => void) | undefined;
+  derivedAnnotations: readonly DerivedRunAnnotation[];
+  entries: readonly RunAnnotationEntry[];
+  workspaceSlug: string | undefined;
+  projectSlug: string | undefined;
+  workflowRunId: string;
+  runAttempt: number | undefined;
+}): ReactNode {
+  if (hasUnknownContent && !hasContent) {
+    return isWaitingForContent ? <RunAnnotationListSkeleton /> : null;
+  }
   if (!hasContent) {
-    content = filtered ? (
+    return filtered ? (
       <RunAnnotationsFilteredEmpty
         jobName={filteredJobName}
         severity={filteredSeverity}
-        incomplete={query.hasNextPage}
+        incomplete={incomplete}
         onClearFilters={onClearFilters}
       />
     ) : (
       <RunAnnotationsEmpty />
     );
-  } else {
-    content = (
-      <PanelBody asChild>
-        <ol>
-          {/* A job that failed before it ever created an execution is the most upstream thing
-              in the run, and it has no step to link to. It leads rather than trailing behind a
-              render window that could bury it. */}
-          {derivedAnnotations.map((annotation) => (
-            <RunDerivedAnnotationItem
-              key={annotation.id}
-              style={annotation.style}
-              jobName={annotation.jobName}
-              body={annotation.body}
-            />
-          ))}
-          {visible.map((entry) => (
-            <RunAnnotationItem
-              key={entry.annotation.id}
-              entry={entry}
-              workspaceSlug={workspaceSlug}
-              projectSlug={projectSlug}
-              workflowRunId={workflowRunId}
-              runAttempt={runAttempt}
-            />
-          ))}
-        </ol>
-      </PanelBody>
-    );
   }
+  return (
+    <PanelBody asChild>
+      <ol>
+        {/* A job that failed before it ever created an execution is the most upstream thing
+            in the run, and it has no step to link to. It leads rather than trailing behind a
+            render window that could bury it. */}
+        {derivedAnnotations.map((annotation) => (
+          <RunDerivedAnnotationItem
+            key={annotation.id}
+            style={annotation.style}
+            statusLabel={annotation.statusLabel}
+            jobName={annotation.jobName}
+            body={annotation.body}
+          />
+        ))}
+        {entries.map((entry) => (
+          <RunAnnotationItem
+            key={entry.annotation.id}
+            entry={entry}
+            workspaceSlug={workspaceSlug}
+            projectSlug={projectSlug}
+            workflowRunId={workflowRunId}
+            runAttempt={runAttempt}
+          />
+        ))}
+      </ol>
+    </PanelBody>
+  );
+}
 
-  let footer: ReactNode = null;
+function RunAnnotationPagination({
+  hiddenCount,
+  totalCount,
+  query,
+  jobExplanationsQuery,
+  onShowMore,
+}: {
+  hiddenCount: number;
+  totalCount: number;
+  query: RunAnnotationListQuery;
+  jobExplanationsQuery: RunAnnotationListQuery;
+  onShowMore: () => void;
+}): ReactNode {
   if (hiddenCount > 0) {
-    footer = (
+    return (
       <RunAnnotationListFooter>
         <Button
           type="button"
           size="sm"
           variant="secondary"
           className="[@media(pointer:coarse)]:min-h-44"
-          onClick={() => setVisibleCount((current) => current + RENDER_WINDOW)}
+          onClick={onShowMore}
         >
           Show {Math.min(hiddenCount, RENDER_WINDOW)} more of {totalCount}
         </Button>
       </RunAnnotationListFooter>
     );
-  } else if (query.hasNextPage) {
-    footer = (
-      <RunAnnotationListFooter>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="[@media(pointer:coarse)]:min-h-44"
-          isLoading={query.isFetchingNextPage}
-          onClick={() => {
-            void query.fetchNextPage();
-          }}
-        >
-          Load more annotations
-        </Button>
-      </RunAnnotationListFooter>
-    );
   }
-
+  if (!query.hasNextPage && !jobExplanationsQuery.hasNextPage) return null;
   return (
-    <>
-      <RunAnnotationLiveRegion entries={entries} />
-      {query.isError ? <RunAnnotationStaleError query={query} /> : null}
-
-      {content}
-      {footer}
-    </>
+    <RunAnnotationListFooter>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        className="[@media(pointer:coarse)]:min-h-44"
+        isLoading={query.isFetchingNextPage || jobExplanationsQuery.isFetchingNextPage}
+        onClick={() => void fetchNextAnnotationPages(query, jobExplanationsQuery)}
+      >
+        Load more annotations
+      </Button>
+    </RunAnnotationListFooter>
   );
+}
+
+async function fetchNextAnnotationPages(
+  query: RunAnnotationListQuery,
+  jobExplanationsQuery: RunAnnotationListQuery,
+): Promise<void> {
+  await Promise.all([
+    ...(query.hasNextPage ? [query.fetchNextPage()] : []),
+    ...(jobExplanationsQuery.hasNextPage ? [jobExplanationsQuery.fetchNextPage()] : []),
+  ]);
 }
 
 function RunAnnotationLiveRegion({entries}: {entries: readonly RunAnnotationEntry[]}): ReactNode {
@@ -286,23 +410,31 @@ function RunAnnotationsFilteredEmpty({
 }
 
 /**
- * A failed poll keeps the annotations already on screen and marks them stale rather than
- * clearing. Polite rather than assertive: the poll runs every 4s and a flapping API would
- * otherwise interrupt a screen reader on every cycle.
+ * A failed resource stays distinct from an empty result and keeps any loaded rows on screen.
+ * Polite rather than assertive: a flapping API must not interrupt a screen reader on every poll.
  *
  * A band inside the panel rather than a bordered notice, because the hairline below it already
  * separates it from the rows and a second frame would be a box inside a box.
  */
-function RunAnnotationStaleError({query}: {query: QueryLoadErrorQuery}) {
+function RunAnnotationResourceError({
+  query,
+  copy,
+  hasStaleContent,
+}: {
+  query: QueryLoadErrorQuery;
+  copy: RunAnnotationResourceErrorCopy;
+  hasStaleContent: boolean;
+}) {
   return (
     <div className="border-b border-border-neutral-base bg-background-neutral-base px-row py-row">
       <Callout role="status" aria-live="polite" type="error" variant="secondary">
         <CalloutContent className="flex items-center justify-between gap-inline">
-          <Text size="xs">Could not refresh annotations.</Text>
+          <Text size="xs">{hasStaleContent ? copy.refreshMessage : copy.loadMessage}</Text>
           <Button
             type="button"
             size="2xs"
             variant="secondary"
+            aria-label={copy.retryLabel}
             className="[@media(pointer:coarse)]:min-h-44"
             isLoading={query.isFetching}
             onClick={() => {

@@ -1,3 +1,4 @@
+import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {act, screen, waitFor} from '@testing-library/react';
@@ -48,6 +49,7 @@ const JOB_DETAIL_PATH_RE = /^\/workflows\/runs\/jobs\/([^/]+)$/u;
 describe('WorkflowJobDetailPage', () => {
   beforeEach(() => {
     jobAnnotations.value = [];
+    jobAnnotations.nextPage = [];
   });
 
   test('lets the job detail route inherit its shell canvas', async () => {
@@ -107,6 +109,56 @@ describe('WorkflowJobDetailPage', () => {
 
     await screen.findByRole('heading', {name: 'release'});
     expect(screen.queryByRole('link', {name: ANNOTATION_LINK_PATTERN})).not.toBeInTheDocument();
+  });
+
+  test('loads every annotation page before settling the job count', async () => {
+    jobAnnotations.value = [
+      {
+        id: 'aaaaaaaa-1111-4aaa-8aaa-000000000001',
+        job_id: SIBLING_JOB_ID,
+        job_execution_id: EXECUTION_ID,
+        origin_step_id: STEP_ID,
+        origin_step_attempt: 1,
+        context: 'other job',
+        style: 'info',
+        sequence: 1,
+        body: 'Not this job.',
+      },
+    ];
+    jobAnnotations.nextPage = [
+      {
+        id: 'aaaaaaaa-1111-4aaa-8aaa-000000000002',
+        job_id: JOB_ID,
+        job_execution_id: EXECUTION_ID,
+        origin_step_id: STEP_ID,
+        origin_step_attempt: 2,
+        context: 'smoke check',
+        style: 'error',
+        sequence: 2,
+        body: 'Task nine failed.',
+      },
+    ];
+    const annotationRequests: URL[] = [];
+    configureApiClient({
+      fetchImpl: vi.fn((input: RequestInfo | URL) => {
+        const url = new URL((input as Request).url);
+        if (url.pathname === `/workflows/runs/${RUN_ID}/annotations`) {
+          annotationRequests.push(url);
+        }
+        return jobDetailFetch(input);
+      }),
+    });
+
+    renderJobPath(`?jobExecution=${EXECUTION_ID}&runAttempt=1`);
+
+    expect(
+      await screen.findByRole('link', {name: 'View 1 annotation, highest severity error'}),
+    ).toBeInTheDocument();
+    expect(
+      annotationRequests.some(
+        (request) => request.searchParams.get('cursor') === 'job-annotations-page-2',
+      ),
+    ).toBe(true);
   });
 
   test('resolves an exact job execution and step attempt from a deep link', async () => {
@@ -485,10 +537,33 @@ function renderJobPath(path = '', jobId = JOB_ID) {
 }
 
 /** Annotations for the job page, which renders their count and never their bodies. */
-const jobAnnotations: {value: unknown[]} = {value: []};
+const jobAnnotations: {value: AnnotationDto[]; nextPage: AnnotationDto[]} = {
+  value: [],
+  nextPage: [],
+};
 
-function annotationsResponse() {
-  return {annotations: jobAnnotations.value, has_more: false, next_cursor: null};
+function annotationsResponse(cursor: string | null = null) {
+  const annotations =
+    cursor === 'job-annotations-page-2' ? jobAnnotations.nextPage : jobAnnotations.value;
+  return {
+    items: annotations.map((annotation) => ({
+      annotation,
+      origin: {
+        job_id: annotation.job_id,
+        job_label: annotation.job_id === JOB_ID ? 'release' : 'sibling',
+        job_position: annotation.job_id === JOB_ID ? 0 : 1,
+        job_execution_id: annotation.job_execution_id,
+        execution_sequence: 2,
+        execution_label: 'execution #2',
+        step_id: annotation.origin_step_id,
+        step_label: 'release',
+        step_attempt_id: ATTEMPT_ID,
+        step_attempt: annotation.origin_step_attempt,
+      },
+    })),
+    next_cursor:
+      cursor === null && jobAnnotations.nextPage.length > 0 ? 'job-annotations-page-2' : null,
+  };
 }
 
 function jobDetailFetch(input: RequestInfo | URL) {
@@ -496,7 +571,7 @@ function jobDetailFetch(input: RequestInfo | URL) {
   const url = new URL(request.url);
 
   if (url.pathname.endsWith('/annotations')) {
-    return Promise.resolve(jsonResponse(annotationsResponse()));
+    return Promise.resolve(jsonResponse(annotationsResponse(url.searchParams.get('cursor'))));
   }
 
   if (url.pathname.endsWith('/attempts')) {
