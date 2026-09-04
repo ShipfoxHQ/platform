@@ -34,6 +34,11 @@ const sqlTemplateExpression = /\bsql(?:\.raw)?\s*`[^`]*$/su;
 const sqlCallExpression = /\bsql(?:\.raw)?\s*\([^\n]*$/u;
 const sqlKeywordExpression =
   /\b(?:SELECT\s+.+\s+FROM|TRUNCATE\s+(?:TABLE\s+)?[A-Za-z_"']|INSERT\s+INTO|UPDATE\s+[A-Za-z_"']+\s+SET|DELETE\s+FROM|(?:ALTER|DROP|CREATE)\s+(?:TABLE|TYPE|INDEX|VIEW|SEQUENCE|TRIGGER)|LOCK\s+TABLE)\b/iu;
+const sqlTagOrCallExpression = /\bsql(?:\.raw)?\s*(?:`|\()/u;
+const staticSqlCandidateExpression = new RegExp(
+  `(?:${sqlTagOrCallExpression.source}|${sqlKeywordExpression.source})`,
+  'iu',
+);
 const migrationSqlKeywordExpression = /\b(?:ALTER|DROP|CREATE)\b/iu;
 const referencesKeywordExpression = /\bREFERENCES\b/iu;
 const dynamicSqlKeywordExpression =
@@ -54,8 +59,6 @@ const namespaceImportExpression = /\*\s+as\s+([A-Za-z_$][\w$]*)/u;
 const defaultImportExpression = /^\s*([A-Za-z_$][\w$]*)/u;
 const dynamicSqlRawKeywordExpression =
   /\b(?:FROM|JOIN|INTO|UPDATE|TABLE|TRUNCATE|ALTER|DROP|CREATE)\b/iu;
-const staticSqlCandidateExpression =
-  /\bsql(?:\.raw)?\s*(?:`|\()|\b(?:SELECT|TRUNCATE|INSERT\s+INTO|UPDATE\s+[^\n]+\s+SET|DELETE\s+FROM|(?:ALTER|DROP|CREATE)\s+(?:TABLE|TYPE|INDEX|VIEW|SEQUENCE|TRIGGER)|LOCK\s+TABLE)\b/iu;
 
 export type DatabaseBoundaryRule =
   | 'direct-table-declaration'

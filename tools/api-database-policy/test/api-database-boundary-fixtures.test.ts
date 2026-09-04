@@ -51,6 +51,11 @@ const fixtureRegistry: ApiDatabaseRegistry = {
   ],
   delegates: [],
 };
+const emptyObjectRegistry: ApiDatabaseRegistry = {
+  owners: fixtureRegistry.owners.slice(0, 1),
+  migrationUnits: fixtureRegistry.migrationUnits.slice(0, 1),
+  delegates: [],
+};
 const nonEmptyOutputPattern = /./u;
 
 async function writeFixture(
@@ -159,6 +164,14 @@ async function createFixtureRepository(rootDirectory: string): Promise<void> {
   );
   await writeFixture(
     rootDirectory,
+    'libs/api/alpha/src/raw-sql.ts',
+    [
+      "import {sql} from 'drizzle-orm';",
+      "export const selected = sql.raw('SELECT * FROM beta_owned');",
+    ].join('\n'),
+  );
+  await writeFixture(
+    rootDirectory,
     'libs/api/integrations/provider/src/db/schema/common.ts',
     [
       "import {pgTableCreator} from 'drizzle-orm/pg-core';",
@@ -173,6 +186,7 @@ async function createFixtureRepository(rootDirectory: string): Promise<void> {
       "import {sql} from 'drizzle-orm';",
       "export const providerTable = pgTable('local', {});",
       'export const sharedQuery = sql`SELECT * FROM integrations_core_owned`;',
+      "export const sharedRawQuery = sql.raw('SELECT * FROM integrations_core_owned');",
       'export const registeredQuery = sql`SELECT * FROM $' + '{providerTable}`;',
     ].join('\n'),
   );
@@ -240,6 +254,14 @@ describe('database boundary verifier fixtures', () => {
             finding.rule === 'foreign-key',
         ),
       );
+      assert.ok(
+        findings.some(
+          (finding) =>
+            finding.file === 'libs/api/alpha/src/raw-sql.ts' &&
+            finding.object === 'beta_owned' &&
+            finding.rule === 'foreign-raw-sql',
+        ),
+      );
       assert.doesNotMatch(
         findings
           .filter((finding) => finding.file.includes('/accepted.ts'))
@@ -260,6 +282,32 @@ describe('database boundary verifier fixtures', () => {
           .map((finding) => finding.rule)
           .join(','),
         nonEmptyOutputPattern,
+      );
+    } finally {
+      await rm(rootDirectory, {force: true, recursive: true});
+    }
+  });
+
+  test('skips static SQL auditing when the registry has no database objects', async () => {
+    const rootDirectory = await mkdtemp(join(tmpdir(), 'shipfox-api-database-empty-'));
+    try {
+      await writeFixture(rootDirectory, 'libs/api/alpha/package.json', '{"name":"@fixture/alpha"}');
+      await writeFixture(rootDirectory, 'libs/api/alpha/drizzle.config.ts', 'export default {}');
+      await writeFixture(
+        rootDirectory,
+        'libs/api/alpha/src/query.ts',
+        [
+          "import {sql} from 'drizzle-orm';",
+          'export const query = sql`SELECT * FROM beta_owned`;',
+        ].join('\n'),
+      );
+
+      assert.deepEqual(
+        await auditApiDatabaseBoundaries({
+          registry: emptyObjectRegistry,
+          rootDirectory,
+        }),
+        [],
       );
     } finally {
       await rm(rootDirectory, {force: true, recursive: true});
