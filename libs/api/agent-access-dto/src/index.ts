@@ -117,6 +117,23 @@ export {
   listWorkflowRunJobExplanationsResultSchema,
 } from './schemas/workflow-diagnostics.js';
 export {
+  AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
+  AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
+  AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
+  type GetExecutionTriggerEventInputDto,
+  type GetExecutionTriggerEventResultDto,
+  getExecutionTriggerEventInputJsonSchema,
+  getExecutionTriggerEventInputSchema,
+  getExecutionTriggerEventResultJsonSchema,
+  getExecutionTriggerEventResultSchema,
+  type ListExecutionTriggerEventsInputDto,
+  type ListExecutionTriggerEventsResultDto,
+  listExecutionTriggerEventsInputJsonSchema,
+  listExecutionTriggerEventsInputSchema,
+  listExecutionTriggerEventsResultJsonSchema,
+  listExecutionTriggerEventsResultSchema,
+} from './schemas/workflow-execution-events.js';
+export {
   AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX,
   AGENT_ACCESS_WORKFLOW_EXECUTION_COUNT_MAX,
   AGENT_ACCESS_WORKFLOW_EXECUTION_PAGE_LIMIT,

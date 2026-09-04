@@ -423,6 +423,7 @@ describe('Workflows inter-module presentation', () => {
           received_at: receivedAt.toISOString(),
           stored_payload_bytes: 32,
           normalized_event_bytes: 128,
+          cursor: expect.any(String),
         },
       ],
       nextCursor: expect.any(String),

@@ -13,7 +13,7 @@ import {reducePagedAgentAccessResponse, truncateAgentAccessUtf8} from './respons
 
 export {truncateAgentAccessUtf8};
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const DECIMAL_RE = /^\d+$/u;
 
 export interface SafeParseSchema<T> {
@@ -40,6 +40,12 @@ export function decodeTimestampCursor(
   if (value === undefined) return undefined;
   const cursor = decodeTimestampIdCursor(value);
   return cursor ? {createdAt: cursor.createdAt.toISOString(), id: cursor.id} : undefined;
+}
+
+export function validateTimestampCursor(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const cursor = decodeTimestampCursor(value);
+  return cursor !== undefined && UUID_RE.test(cursor.id) ? value : undefined;
 }
 
 export function decodeStringCursor(

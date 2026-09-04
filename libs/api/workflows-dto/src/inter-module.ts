@@ -10,6 +10,7 @@ import {
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
   workflowExecutionTriggerEventDetailSchema,
+  workflowExecutionTriggerEventSummarySchema,
   workflowExecutionTriggerEventsResponseSchema,
 } from './schemas/workflow-execution-events.js';
 import {workflowExecutionPayloadFieldSchema} from './schemas/workflow-execution-payload.js';
@@ -153,7 +154,10 @@ const workflowStepAttemptsInterModulePageSchema = z.object({
   total: workflowStepAttemptSummariesResponseSchema.shape.total,
 });
 const workflowExecutionTriggerEventsInterModulePageSchema = z.object({
-  items: workflowExecutionTriggerEventsResponseSchema.shape.items,
+  items: workflowExecutionTriggerEventSummarySchema
+    .extend({cursor: z.string().min(1)})
+    .array()
+    .max(WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX),
   nextCursor: z.string().nullable(),
   total: workflowExecutionTriggerEventsResponseSchema.shape.total,
 });
