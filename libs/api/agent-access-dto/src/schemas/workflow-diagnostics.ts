@@ -2,6 +2,7 @@ import {z} from 'zod';
 import type {AgentAccessObjectSchema} from './envelope.js';
 import {AGENT_ACCESS_PAGE_LIMIT_MAX, AGENT_ACCESS_TEXT_MAX_BYTES} from './paged-tools.js';
 import {dateTimeSchema, idSchema, utf8CappedString} from './primitives.js';
+import {AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX} from './workflow-tools.js';
 
 /** Smaller per-value allowance used by Agent Access before the common response ceiling. */
 export const AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES = 16 * 1024;
@@ -12,7 +13,7 @@ export const AGENT_ACCESS_WORKFLOW_SOURCE_MAX_BYTES =
 
 const textSchema = utf8CappedString(AGENT_ACCESS_TEXT_MAX_BYTES);
 const sourceTextSchema = utf8CappedString(AGENT_ACCESS_WORKFLOW_SOURCE_MAX_BYTES);
-const attemptSchema = z.number().int().min(1).max(2_147_483_647);
+const attemptSchema = z.number().int().min(1).max(AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX);
 
 const diagnosticFields = [
   'authored_config',
@@ -43,7 +44,7 @@ const oversizedReasonSchema = z.enum([
   'value_truncated_at_write_limit',
 ]);
 
-const oversizedFieldSchema = z
+export const agentAccessOversizedFieldSchema = z
   .object({
     field: agentAccessWorkflowDiagnosticFieldSchema,
     stored_bytes: z.number().int().nonnegative(),
@@ -51,7 +52,59 @@ const oversizedFieldSchema = z
   })
   .strict();
 
-export type AgentAccessOversizedFieldDto = z.infer<typeof oversizedFieldSchema>;
+export type AgentAccessOversizedFieldDto = z.infer<typeof agentAccessOversizedFieldSchema>;
+
+const stepErrorReasons = [
+  'checkout_failed',
+  'checkout_auth_failed',
+  'checkout_unavailable',
+  'checkout_path_invalid',
+  'checkout_destination_occupied',
+  'git_unavailable',
+  'workspace_prep_failed',
+  'setup_aborted',
+  'config_unresolvable',
+  'output_invalid',
+  'agent_config_invalid',
+  'agent_invocation_failed',
+  'agent_harness_unavailable',
+  'agent_inference_credentials_unavailable',
+  'agent_session_key_invalid',
+  'agent_session_held',
+  'agent_session_harness_mismatch',
+  'agent_session_unavailable',
+  'execution_payload_too_large',
+  'step_result_too_large',
+  'diagnostic_too_large',
+  'tool_error',
+  'tool_config_invalid',
+  'invocation_interrupted',
+] as const;
+
+const agentConfigIssues = [
+  'step_config_invalid',
+  'provider_not_configured',
+  'provider_unsupported',
+  'model_unavailable',
+  'credentials_invalid',
+] as const;
+
+const errorCategories = ['setup', 'user'] as const;
+const gateKinds = [
+  'none',
+  'not_evaluated',
+  'passed',
+  'failed',
+  'uncheckable',
+  'evaluation_error',
+  'unknown',
+] as const;
+const sourceUnavailableReasons = [
+  'temporary_run',
+  'pre_snapshot_run',
+  'legacy_snapshot_too_large',
+] as const;
+const explanationStatuses = ['failed', 'skipped'] as const;
 
 const evaluationTraceValueSchema = z
   .object({
@@ -101,46 +154,11 @@ const stepErrorSchema = z
     managed_provider_id: textSchema.optional(),
     exit_code: z.number().int().nullable().optional(),
     signal: textSchema.optional(),
-    reason: z
-      .enum([
-        'checkout_failed',
-        'checkout_auth_failed',
-        'checkout_unavailable',
-        'checkout_path_invalid',
-        'checkout_destination_occupied',
-        'git_unavailable',
-        'workspace_prep_failed',
-        'setup_aborted',
-        'config_unresolvable',
-        'output_invalid',
-        'agent_config_invalid',
-        'agent_invocation_failed',
-        'agent_harness_unavailable',
-        'agent_inference_credentials_unavailable',
-        'agent_session_key_invalid',
-        'agent_session_held',
-        'agent_session_harness_mismatch',
-        'agent_session_unavailable',
-        'execution_payload_too_large',
-        'step_result_too_large',
-        'diagnostic_too_large',
-        'tool_error',
-        'tool_config_invalid',
-        'invocation_interrupted',
-      ])
-      .optional(),
+    reason: z.enum(stepErrorReasons).optional(),
     field: textSchema.optional(),
     source: textSchema.optional(),
-    agent_config_issue: z
-      .enum([
-        'step_config_invalid',
-        'provider_not_configured',
-        'provider_unsupported',
-        'model_unavailable',
-        'credentials_invalid',
-      ])
-      .optional(),
-    category: z.enum(['setup', 'user']).optional(),
+    agent_config_issue: z.enum(agentConfigIssues).optional(),
+    category: z.enum(errorCategories).optional(),
     retryable: z.boolean().optional(),
     limit_bytes: z.number().int().positive().optional(),
     measured_bytes: z.number().int().positive().optional(),
@@ -151,15 +169,7 @@ const stepErrorSchema = z
 
 const gateResultSchema = z
   .object({
-    kind: z.enum([
-      'none',
-      'not_evaluated',
-      'passed',
-      'failed',
-      'uncheckable',
-      'evaluation_error',
-      'unknown',
-    ]),
+    kind: z.enum(gateKinds),
     passed: z.boolean().optional(),
     source: textSchema.optional(),
     exit_code: z.number().int().nullable().optional(),
@@ -242,7 +252,7 @@ export const getWorkflowRunSourceResultSchema = z.discriminatedUnion('kind', [
       kind: z.literal('unavailable'),
       workflow_run_id: idSchema,
       workflow_run_attempt: attemptSchema,
-      reason: z.enum(['temporary_run', 'pre_snapshot_run', 'legacy_snapshot_too_large']),
+      reason: z.enum(sourceUnavailableReasons),
     })
     .strict(),
 ]);
@@ -260,10 +270,14 @@ export const getWorkflowExecutionContextResultSchema = z
     job_outputs: z.unknown().nullable(),
     execution_outputs: z.unknown().nullable(),
     trigger_events: z.array(workflowExecutionEventSchema).max(AGENT_ACCESS_PAGE_LIMIT_MAX),
+    trigger_events_truncated: z.literal(true).optional(),
+    trigger_events_total_count: z.number().int().nonnegative().optional(),
     job_evaluation_trace: evaluationTraceSchema.nullable(),
     execution_evaluation_trace: evaluationTraceSchema.nullable(),
     condition: textSchema.nullable(),
-    oversized_fields: z.array(oversizedFieldSchema).max(AGENT_ACCESS_PAGE_LIMIT_MAX),
+    condition_truncated: z.literal(true).optional(),
+    condition_total_bytes: z.number().int().nonnegative().optional(),
+    oversized_fields: z.array(agentAccessOversizedFieldSchema).max(AGENT_ACCESS_PAGE_LIMIT_MAX),
   })
   .strict();
 
@@ -291,7 +305,11 @@ export const getStepAttemptResultSchema = z
     gate_result: gateResultSchema,
     invocations: z.array(invocationSchema).max(10),
     restart_feedback: textSchema.nullable(),
-    oversized_fields: z.array(oversizedFieldSchema).max(AGENT_ACCESS_PAGE_LIMIT_MAX),
+    restart_feedback_truncated: z.literal(true).optional(),
+    restart_feedback_total_bytes: z.number().int().nonnegative().optional(),
+    response_text_truncated: z.literal(true).optional(),
+    response_text_total_bytes: z.number().int().nonnegative().optional(),
+    oversized_fields: z.array(agentAccessOversizedFieldSchema).max(AGENT_ACCESS_PAGE_LIMIT_MAX),
   })
   .strict();
 
@@ -301,8 +319,8 @@ const explanationSchema = z
   .object({
     job_id: idSchema,
     job_label: textSchema,
-    job_position: z.number().int().nonnegative().max(2_147_483_647),
-    status: z.enum(['failed', 'skipped']),
+    job_position: z.number().int().nonnegative().max(AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX),
+    status: z.enum(explanationStatuses),
     status_reason: textSchema.nullable(),
     evaluation_trace: evaluationTraceSchema.nullable(),
   })
@@ -333,7 +351,7 @@ export const getWorkflowRunSourceInputJsonSchema = {
   type: 'object',
   properties: {
     run_id: uuid,
-    attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
   },
   required: ['run_id', 'attempt'],
   additionalProperties: false,
@@ -350,7 +368,7 @@ export const getStepAttemptInputJsonSchema = {
   type: 'object',
   properties: {
     step_id: uuid,
-    attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
   },
   required: ['step_id'],
   additionalProperties: false,
@@ -360,7 +378,7 @@ export const listWorkflowRunJobExplanationsInputJsonSchema = {
   type: 'object',
   properties: {
     run_id: uuid,
-    attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     limit: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_PAGE_LIMIT_MAX, default: 100},
     cursor: {type: 'string', minLength: 1},
   },
@@ -375,11 +393,7 @@ const oversizedFieldJson = {
     stored_bytes: {type: 'integer', minimum: 0},
     reason: {
       type: 'string',
-      enum: [
-        'legacy_value_exceeds_inline_limit',
-        'value_exceeds_inline_limit',
-        'value_truncated_at_write_limit',
-      ],
+      enum: oversizedReasonSchema.options,
     },
   },
   required: ['field', 'stored_bytes', 'reason'],
@@ -460,48 +474,11 @@ const stepErrorJson = {
     managed_provider_id: text,
     exit_code: nullable({type: 'integer'}),
     signal: text,
-    reason: {
-      type: 'string',
-      enum: [
-        'checkout_failed',
-        'checkout_auth_failed',
-        'checkout_unavailable',
-        'checkout_path_invalid',
-        'checkout_destination_occupied',
-        'git_unavailable',
-        'workspace_prep_failed',
-        'setup_aborted',
-        'config_unresolvable',
-        'output_invalid',
-        'agent_config_invalid',
-        'agent_invocation_failed',
-        'agent_harness_unavailable',
-        'agent_inference_credentials_unavailable',
-        'agent_session_key_invalid',
-        'agent_session_held',
-        'agent_session_harness_mismatch',
-        'agent_session_unavailable',
-        'execution_payload_too_large',
-        'step_result_too_large',
-        'diagnostic_too_large',
-        'tool_error',
-        'tool_config_invalid',
-        'invocation_interrupted',
-      ],
-    },
+    reason: {type: 'string', enum: stepErrorReasons},
     field: text,
     source: text,
-    agent_config_issue: {
-      type: 'string',
-      enum: [
-        'step_config_invalid',
-        'provider_not_configured',
-        'provider_unsupported',
-        'model_unavailable',
-        'credentials_invalid',
-      ],
-    },
-    category: {type: 'string', enum: ['setup', 'user']},
+    agent_config_issue: {type: 'string', enum: agentConfigIssues},
+    category: {type: 'string', enum: errorCategories},
     retryable: {type: 'boolean'},
     limit_bytes: {type: 'integer', minimum: 1},
     measured_bytes: {type: 'integer', minimum: 1},
@@ -514,18 +491,7 @@ const stepErrorJson = {
 const gateResultJson = {
   type: 'object',
   properties: {
-    kind: {
-      type: 'string',
-      enum: [
-        'none',
-        'not_evaluated',
-        'passed',
-        'failed',
-        'uncheckable',
-        'evaluation_error',
-        'unknown',
-      ],
-    },
+    kind: {type: 'string', enum: gateKinds},
     passed: {type: 'boolean'},
     source: text,
     exit_code: nullable({type: 'integer'}),
@@ -576,24 +542,33 @@ export const getWorkflowRunSourceResultJsonSchema = {
   properties: {
     kind: {type: 'string', enum: ['available', 'unavailable']},
     workflow_run_id: uuid,
-    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     source_snapshot: sourceSnapshotJson,
     source_snapshot_truncated: {const: true},
     source_snapshot_total_bytes: {type: 'integer', minimum: 0},
-    reason: {
-      type: 'string',
-      enum: ['temporary_run', 'pre_snapshot_run', 'legacy_snapshot_too_large'],
-    },
+    reason: {type: 'string', enum: sourceUnavailableReasons},
   },
   required: ['kind', 'workflow_run_id', 'workflow_run_attempt'],
   additionalProperties: false,
+  oneOf: [
+    {
+      properties: {kind: {const: 'available'}},
+      required: ['source_snapshot'],
+      not: {required: ['reason']},
+    },
+    {
+      properties: {kind: {const: 'unavailable'}},
+      required: ['reason'],
+      not: {required: ['source_snapshot']},
+    },
+  ],
 } as const satisfies AgentAccessObjectSchema;
 
 export const getWorkflowExecutionContextResultJsonSchema = {
   type: 'object',
   properties: {
     workflow_run_id: uuid,
-    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     job_id: uuid,
     job_execution_id: uuid,
     job_runner: nullable({type: 'array', items: text}),
@@ -605,9 +580,13 @@ export const getWorkflowExecutionContextResultJsonSchema = {
       maxItems: AGENT_ACCESS_PAGE_LIMIT_MAX,
       items: workflowExecutionEventJson,
     },
+    trigger_events_truncated: {const: true},
+    trigger_events_total_count: {type: 'integer', minimum: 0},
     job_evaluation_trace: nullable(evaluationTraceJson),
     execution_evaluation_trace: nullable(evaluationTraceJson),
     condition: nullable(text),
+    condition_truncated: {const: true},
+    condition_total_bytes: {type: 'integer', minimum: 0},
     oversized_fields: {
       type: 'array',
       maxItems: AGENT_ACCESS_PAGE_LIMIT_MAX,
@@ -636,12 +615,12 @@ export const getStepAttemptResultJsonSchema = {
   type: 'object',
   properties: {
     workflow_run_id: uuid,
-    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     job_id: uuid,
     job_execution_id: uuid,
     step_id: uuid,
     step_attempt_id: uuid,
-    attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     authored_config: nullableDynamicJson,
     config: nullableDynamicJson,
     session: nullable(sessionJson),
@@ -653,6 +632,10 @@ export const getStepAttemptResultJsonSchema = {
     gate_result: nullable(gateResultJson),
     invocations: {type: 'array', maxItems: 10, items: invocationJson},
     restart_feedback: nullable(text),
+    restart_feedback_truncated: {const: true},
+    restart_feedback_total_bytes: {type: 'integer', minimum: 0},
+    response_text_truncated: {const: true},
+    response_text_total_bytes: {type: 'integer', minimum: 0},
     oversized_fields: {
       type: 'array',
       maxItems: AGENT_ACCESS_PAGE_LIMIT_MAX,
@@ -688,8 +671,8 @@ const explanationJson = {
   properties: {
     job_id: uuid,
     job_label: text,
-    job_position: {type: 'integer', minimum: 0, maximum: 2_147_483_647},
-    status: {type: 'string', enum: ['failed', 'skipped']},
+    job_position: {type: 'integer', minimum: 0, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
+    status: {type: 'string', enum: explanationStatuses},
     status_reason: nullable(text),
     evaluation_trace: nullable(evaluationTraceJson),
   },
@@ -701,7 +684,7 @@ export const listWorkflowRunJobExplanationsResultJsonSchema = {
   type: 'object',
   properties: {
     workflow_run_id: uuid,
-    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: 2_147_483_647},
+    workflow_run_attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
     explanations: {type: 'array', maxItems: AGENT_ACCESS_PAGE_LIMIT_MAX, items: explanationJson},
     next_cursor: nullable({type: 'string', minLength: 1}),
   },

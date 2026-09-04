@@ -76,6 +76,7 @@ export {
   AGENT_ACCESS_WORKFLOW_SOURCE_MAX_BYTES,
   type AgentAccessOversizedFieldDto,
   type AgentAccessWorkflowDiagnosticFieldDto,
+  agentAccessOversizedFieldSchema,
   agentAccessWorkflowDiagnosticFieldSchema,
   type GetStepAttemptInputDto,
   type GetStepAttemptResultDto,

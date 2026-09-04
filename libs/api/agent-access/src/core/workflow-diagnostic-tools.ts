@@ -1,10 +1,14 @@
 import {
+  AGENT_ACCESS_PAGE_LIMIT_MAX,
   AGENT_ACCESS_RESPONSE_MAX_BYTES,
+  AGENT_ACCESS_TEXT_MAX_BYTES,
+  AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX,
   AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES,
   AGENT_ACCESS_WORKFLOW_SOURCE_MAX_BYTES,
   type AgentAccessOversizedFieldDto,
   type AgentAccessWorkflowDiagnosticFieldDto,
   agentAccessOutputSchema,
+  agentAccessOversizedFieldSchema,
   getStepAttemptInputJsonSchema,
   getStepAttemptInputSchema,
   getStepAttemptResultJsonSchema,
@@ -22,17 +26,21 @@ import {
   listWorkflowRunJobExplanationsResultJsonSchema,
   listWorkflowRunJobExplanationsResultSchema,
 } from '@shipfox/api-agent-access-dto';
-import type {
-  EvaluationTraceDto,
-  EvaluationTraceEntryDto,
-  OversizedFieldDto,
-  StepAttemptDetailResponseDto,
-  StepAttemptInvocationDto,
-  StepGateResultDto,
-  WorkflowExecutionEventDto,
-  WorkflowJobExecutionContextResponseDto,
-  WorkflowRunJobExplanationDto,
-  WorkflowRunSourceResponseDto,
+import {
+  agentConfigIssueSchema,
+  type EvaluationTraceDto,
+  type EvaluationTraceEntryDto,
+  type OversizedFieldDto,
+  type StepAttemptDetailResponseDto,
+  type StepAttemptInvocationDto,
+  type StepGateResultDto,
+  stepErrorCategorySchema,
+  stepErrorReasonSchema,
+  stepGateResultDtoSchema,
+  type WorkflowExecutionEventDto,
+  type WorkflowJobExecutionContextResponseDto,
+  type WorkflowRunJobExplanationDto,
+  type WorkflowRunSourceResponseDto,
 } from '@shipfox/api-workflows-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {encodeStringIdCursor} from '@shipfox/node-drizzle';
@@ -50,7 +58,6 @@ import {
 } from './tool-utils.js';
 import type {AgentAccessTool} from './tools.js';
 
-const AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX = 2_147_483_647;
 const MAX_INVOCATIONS = 10;
 const utf8Encoder = new TextEncoder();
 
@@ -245,12 +252,7 @@ function projectWorkflowExecutionContext(
     producerFields,
     projectEvaluationTrace,
   );
-  const triggerEvents = projectStructuredField(
-    'trigger_events',
-    value.trigger_events ?? [],
-    producerFields,
-    projectWorkflowExecutionEvents,
-  );
+  const triggerEvents = projectTriggerEvents(value.trigger_events, producerFields);
   const condition = projectTextField('condition', value.condition, producerFields);
 
   return {
@@ -269,9 +271,18 @@ function projectWorkflowExecutionContext(
     job_outputs: jobOutputs.value,
     execution_outputs: executionOutputs.value,
     trigger_events: triggerEvents.value ?? [],
+    ...(triggerEvents.truncated
+      ? {
+          trigger_events_truncated: true,
+          trigger_events_total_count: triggerEvents.totalCount,
+        }
+      : {}),
     job_evaluation_trace: jobTrace.value,
     execution_evaluation_trace: executionTrace.value,
     condition: condition.value,
+    ...(condition.truncated
+      ? {condition_truncated: true, condition_total_bytes: condition.totalBytes}
+      : {}),
     oversized_fields: projectOversizedFields([
       ...producerFields,
       jobOutputs.oversized,
@@ -285,6 +296,8 @@ function projectWorkflowExecutionContext(
 }
 
 function projectStepAttempt(detail: StepAttemptDetailResponseDto): Record<string, unknown> | null {
+  // The gateway composes this factory only after the producer ancestry rollout.
+  // A partial mixed-version payload must not be presented as a different attempt.
   if (
     detail.workflow_run_id === undefined ||
     detail.workflow_run_attempt === undefined ||
@@ -341,10 +354,19 @@ function projectStepAttempt(detail: StepAttemptDetailResponseDto): Record<string
     output: output.value,
     outputs: outputs.value,
     response: response.value,
+    ...(response.truncated
+      ? {response_text_truncated: true, response_text_total_bytes: response.totalBytes}
+      : {}),
     error: error.value,
     gate_result: gateResult.value,
     invocations: (detail.invocations ?? []).slice(0, MAX_INVOCATIONS).map(projectInvocation),
     restart_feedback: restartFeedback.value,
+    ...(restartFeedback.truncated
+      ? {
+          restart_feedback_truncated: true,
+          restart_feedback_total_bytes: restartFeedback.totalBytes,
+        }
+      : {}),
     oversized_fields: projectOversizedFields([
       ...producerFields,
       authoredConfig.oversized,
@@ -376,17 +398,38 @@ interface ProjectedStructuredValue {
   oversized: AgentAccessOversizedFieldDto | null;
 }
 
+interface ProjectedTextValue {
+  value: string | null;
+  oversized: AgentAccessOversizedFieldDto | null;
+  truncated: boolean;
+  totalBytes: number | null;
+}
+
 function projectStructuredField<T>(
   field: AgentAccessWorkflowDiagnosticFieldDto,
   value: T | null | undefined,
   producerFields: readonly OversizedFieldDto[],
   project: (value: T) => unknown = (input) => input,
 ): ProjectedStructuredValue {
+  if (value === null || value === undefined) {
+    const producerField = producerFields.find((candidate) => candidate.field === field);
+    return {
+      value: null,
+      oversized: producerField === undefined ? null : toAgentOversizedField(producerField),
+    };
+  }
+
   const producerField = producerFields.find((candidate) => candidate.field === field);
   if (producerField !== undefined) {
-    return {value: null, oversized: toAgentOversizedField(producerField)};
+    const storedBytes = structuredValueByteLength(value);
+    if (storedBytes > AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES) {
+      return {
+        value: null,
+        oversized: toAgentOversizedField(producerField),
+      };
+    }
+    return {value: project(value), oversized: toAgentOversizedField(producerField)};
   }
-  if (value === null || value === undefined) return {value: null, oversized: null};
 
   const storedBytes = structuredValueByteLength(value);
   if (storedBytes > AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES) {
@@ -406,12 +449,23 @@ function projectTextField(
   field: AgentAccessWorkflowDiagnosticFieldDto,
   value: string | null | undefined,
   producerFields: readonly OversizedFieldDto[],
-): {value: string | null; oversized: AgentAccessOversizedFieldDto | null} {
-  const producerField = producerFields.find((candidate) => candidate.field === field);
-  if (producerField !== undefined) {
-    return {value: null, oversized: toAgentOversizedField(producerField)};
+): ProjectedTextValue {
+  if (value === null || value === undefined) {
+    const producerField = producerFields.find((candidate) => candidate.field === field);
+    return {
+      value: null,
+      oversized: producerField === undefined ? null : toAgentOversizedField(producerField),
+      truncated: false,
+      totalBytes: null,
+    };
   }
-  return {value: value === null || value === undefined ? null : cap(value), oversized: null};
+  const projected = truncateAgentAccessUtf8(value, AGENT_ACCESS_TEXT_MAX_BYTES);
+  return {
+    value: projected.value,
+    oversized: null,
+    truncated: projected.truncated,
+    totalBytes: projected.totalBytes,
+  };
 }
 
 function projectEvaluationTrace(
@@ -422,14 +476,21 @@ function projectEvaluationTrace(
 }
 
 function projectExplanationTrace(trace: EvaluationTraceDto | null): EvaluationTraceDto | null {
-  const projected = projectEvaluationTrace(trace);
-  if (
-    projected === null ||
-    structuredValueByteLength(projected) <= AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES
-  ) {
-    return projected;
+  if (trace === null) return null;
+
+  const projected: EvaluationTraceEntryDto[] = [];
+  let serializedBytes = 2;
+  for (const entry of trace) {
+    const next = projectEvaluationTraceEntry(entry);
+    const nextBytes =
+      serializedBytes + structuredValueByteLength(next) + (projected.length === 0 ? 0 : 1);
+    if (nextBytes > AGENT_ACCESS_WORKFLOW_DIAGNOSTIC_VALUE_MAX_BYTES) {
+      return [{truncated: true, dropped: trace.length}];
+    }
+    projected.push(next);
+    serializedBytes = nextBytes;
   }
-  return [{truncated: true, dropped: projected.length}];
+  return projected;
 }
 
 function projectEvaluationTraceEntry(entry: EvaluationTraceEntryDto): EvaluationTraceEntryDto {
@@ -449,7 +510,7 @@ function projectEvaluationTraceEntry(entry: EvaluationTraceEntryDto): Evaluation
 function projectWorkflowExecutionEvents(
   events: readonly WorkflowExecutionEventDto[],
 ): WorkflowExecutionEventDto[] {
-  return events.map((event) => ({
+  return events.slice(0, AGENT_ACCESS_PAGE_LIMIT_MAX).map((event) => ({
     source: cap(event.source),
     event: cap(event.event),
     delivery_id: cap(event.delivery_id),
@@ -460,6 +521,32 @@ function projectWorkflowExecutionEvents(
     commit: capNullable(event.commit),
     data: event.data,
   }));
+}
+
+interface ProjectedTriggerEvents extends ProjectedStructuredValue {
+  value: WorkflowExecutionEventDto[] | null;
+  truncated: boolean;
+  totalCount: number | null;
+}
+
+function projectTriggerEvents(
+  events: readonly WorkflowExecutionEventDto[] | null | undefined,
+  producerFields: readonly OversizedFieldDto[],
+): ProjectedTriggerEvents {
+  const source = events ?? [];
+  const bounded = source.slice(0, AGENT_ACCESS_PAGE_LIMIT_MAX);
+  const projected = projectStructuredField(
+    'trigger_events',
+    bounded,
+    producerFields,
+    projectWorkflowExecutionEvents,
+  );
+  return {
+    value: projected.value as WorkflowExecutionEventDto[] | null,
+    oversized: projected.oversized,
+    truncated: source.length > AGENT_ACCESS_PAGE_LIMIT_MAX,
+    totalCount: source.length > AGENT_ACCESS_PAGE_LIMIT_MAX ? source.length : null,
+  };
 }
 
 function projectSession(
@@ -481,11 +568,16 @@ function projectStepError(error: unknown): Record<string, unknown> | null {
   assignCappedString(projected, 'managed_provider_id', error.managed_provider_id);
   assignNumberOrNull(projected, 'exit_code', error.exit_code);
   assignCappedString(projected, 'signal', error.signal);
-  assignString(projected, 'reason', error.reason);
+  assignKnownValue(projected, 'reason', error.reason, stepErrorReasonSchema);
   assignCappedString(projected, 'field', error.field);
   assignCappedString(projected, 'source', error.source);
-  assignString(projected, 'agent_config_issue', error.agent_config_issue);
-  assignString(projected, 'category', error.category);
+  assignKnownValue(
+    projected,
+    'agent_config_issue',
+    error.agent_config_issue,
+    agentConfigIssueSchema,
+  );
+  assignKnownValue(projected, 'category', error.category, stepErrorCategorySchema);
   assignBoolean(projected, 'retryable', error.retryable);
   assignNumber(projected, 'limit_bytes', error.limit_bytes);
   assignNumber(projected, 'measured_bytes', error.measured_bytes);
@@ -495,6 +587,13 @@ function projectStepError(error: unknown): Record<string, unknown> | null {
 
 function projectGateResult(gate: StepGateResultDto): Record<string, unknown> | null {
   if (gate === null) return null;
+  if (!stepGateResultDtoSchema.safeParse(gate).success) {
+    const rawGate = gate as unknown as Record<string, unknown>;
+    return {
+      kind: 'unknown',
+      ...(rawGate.data === undefined ? {} : {data: rawGate.data}),
+    };
+  }
   switch (gate.kind) {
     case 'none':
     case 'not_evaluated':
@@ -541,6 +640,7 @@ function projectOversizedFields(
   for (const field of fields) {
     if (field === null) continue;
     const projected = toAgentOversizedField(field);
+    if (projected === null) continue;
     unique.set(`${projected.field}:${projected.stored_bytes}:${projected.reason}`, projected);
   }
   return [...unique.values()]
@@ -550,13 +650,18 @@ function projectOversizedFields(
         left.stored_bytes - right.stored_bytes ||
         compareLexical(left.reason, right.reason),
     )
-    .slice(0, 100);
+    .slice(0, AGENT_ACCESS_PAGE_LIMIT_MAX);
 }
 
 function toAgentOversizedField(
   field: OversizedFieldDto | AgentAccessOversizedFieldDto,
-): AgentAccessOversizedFieldDto {
-  return {field: field.field, stored_bytes: field.stored_bytes, reason: field.reason};
+): AgentAccessOversizedFieldDto | null {
+  const parsed = agentAccessOversizedFieldSchema.safeParse({
+    field: field.field,
+    stored_bytes: field.stored_bytes,
+    reason: field.reason,
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function structuredValueByteLength(value: unknown): number {
@@ -582,8 +687,14 @@ function assignCappedString(target: Record<string, unknown>, key: string, value:
   if (typeof value === 'string') target[key] = cap(value);
 }
 
-function assignString(target: Record<string, unknown>, key: string, value: unknown): void {
-  if (typeof value === 'string') target[key] = value;
+function assignKnownValue<T>(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  schema: {safeParse(value: unknown): {success: true; data: T} | {success: false}},
+): void {
+  const parsed = schema.safeParse(value);
+  if (parsed.success) target[key] = parsed.data;
 }
 
 function assignNumber(target: Record<string, unknown>, key: string, value: unknown): void {
