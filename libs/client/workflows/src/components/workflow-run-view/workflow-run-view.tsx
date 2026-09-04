@@ -25,13 +25,16 @@ import {
 import {
   isWorkflowRunTerminal,
   type StepSourceLocation,
-  type WorkflowRunDetail,
   type WorkflowRunOverview,
   type WorkflowRunOverviewJob,
   type WorkflowRunRerunMode,
+  type WorkflowRunSelectionResolution,
   type WorkflowRunSource,
 } from '#core/workflow-run.js';
-import {withoutWorkflowRunSelectionSearch} from '#core/workflow-run-url-state.js';
+import {
+  type WorkflowRunSelectionInput,
+  withoutWorkflowRunSelectionSearch,
+} from '#core/workflow-run-url-state.js';
 import {useWorkflowRunAnnotationSummaryQuery} from '#hooks/api/annotations.js';
 import {useRunAnnotationsQuery} from '#hooks/api/run-annotations.js';
 import {useRunJobExplanationsQuery} from '#hooks/api/run-job-explanations.js';
@@ -45,7 +48,6 @@ import {useWorkflowRunSelectionQuery} from '#hooks/api/workflow-run-selection.js
 import {
   useCancelWorkflowRunMutation,
   useRerunWorkflowRunMutation,
-  useWorkflowRunAttemptQuery,
   useWorkflowRunListItem,
 } from '#hooks/api/workflow-runs.js';
 import {
@@ -67,11 +69,11 @@ import {presentRunJobExplanation} from '../workflow-run-tabs/run-job-explanation
 import {WorkflowSourceContent} from '../workflow-source-panel/index.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
 import {WorkflowRunLargeJobs} from './workflow-run-large-jobs.js';
-import {resolveWorkflowRunSelection} from './workflow-run-selection.js';
 import {
   WorkflowRunContentSkeleton,
   WorkflowRunNewerAttemptBanner,
   WorkflowRunNotFound,
+  WorkflowRunSelectionNotFound,
   WorkflowRunSkeleton,
   WorkflowRunStaleError,
 } from './workflow-run-states.js';
@@ -79,8 +81,7 @@ import {
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
 type WorkflowRunShell =
   | NonNullable<ReturnType<typeof useWorkflowRunListItem>>
-  | WorkflowRunOverview
-  | WorkflowRunDetail;
+  | WorkflowRunOverview;
 
 export interface WorkflowRunViewProps {
   projectId: string;
@@ -94,8 +95,6 @@ export interface WorkflowRunViewProps {
   activeJob?: WorkflowRunOverviewJob | undefined;
   jobSearch?: WorkflowJobSearch | undefined;
   jobContent?: ReactNode | undefined;
-  /** Legacy full-tree bridge, retained only when bounded selection resolution fails. */
-  legacyQuery?: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
 }
 
 /**
@@ -114,7 +113,6 @@ export function WorkflowRunView({
   activeJob,
   jobSearch,
   jobContent,
-  legacyQuery: providedLegacyQuery,
 }: WorkflowRunViewProps) {
   const activeSection = runWorkspaceSection(tab);
   const routeAttempt = selection?.runAttempt ?? runAttempt;
@@ -122,8 +120,11 @@ export function WorkflowRunView({
     {workflowRunId: string; attempt: number} | undefined
   >();
   const explicitAttempt = routeAttempt ?? pinnedWorkflowRunAttempt(pinnedAttempt, workflowRunId);
-  const hasLegacyJobSelection =
-    activeSection === 'summary' && containsLegacyJobSelection(selection);
+  const hasWorkflowRunSelection = shouldResolveWorkflowRunSelection(
+    activeSection,
+    selection,
+    activeJobId,
+  );
 
   useEffect(() => {
     if (routeAttempt !== undefined) setPinnedAttempt(undefined);
@@ -142,13 +143,13 @@ export function WorkflowRunView({
     jobExecutionId: selection?.jobExecutionId,
     stepId: selection?.stepId,
     stepAttemptId: selection?.stepAttemptId,
-    enabled: shouldResolveLegacySelection(hasLegacyJobSelection, activeJobId),
+    enabled: hasWorkflowRunSelection,
   });
   // A list row is a safe stale seed for the overview. A direct URL without an attempt waits for
   // the head/selection resolver and is pinned in route state before this query is enabled.
   const overviewAttempt = workflowRunOverviewAttempt({
     explicitAttempt,
-    hasLegacyJobSelection,
+    hasWorkflowRunSelection,
     listAttempt: listRun?.currentAttempt,
     selectionAttempt: selectionQuery.data?.workflowRunAttempt,
     selectionQueryIsError: selectionQuery.isError,
@@ -169,18 +170,6 @@ export function WorkflowRunView({
     workflowRunId,
     enabled: activeSection === 'source',
   });
-  const legacyBridgeEnabled = shouldLoadLegacyBridge({
-    activeJobId,
-    hasLegacyJobSelection,
-    selectionQueryIsError: selectionQuery.isError,
-  });
-  const legacyBridgeQuery = useWorkflowRunAttemptQuery({
-    workflowRunId,
-    runAttempt: overviewAttempt,
-    enabled: legacyBridgeEnabled && providedLegacyQuery === undefined,
-    requestKind: 'bridge',
-  });
-  const legacyQuery = providedLegacyQuery ?? legacyBridgeQuery;
   const overviewStatus = overviewQuery.data?.runAttempt.status;
   const annotationSummaryQuery = useWorkflowRunAnnotationSummaryQuery(
     workflowRunId,
@@ -212,8 +201,18 @@ export function WorkflowRunView({
     onPin: setPinnedAttempt,
     routeAttempt,
     selectionQuery,
-    waitForSelection: shouldResolveLegacySelection(hasLegacyJobSelection, activeJobId),
+    waitForSelection: hasWorkflowRunSelection,
     workflowRunId,
+  });
+  useCanonicalizeWorkflowRunSelection({
+    activeSection,
+    navigate,
+    projectSlug,
+    selection,
+    selectionResolutionEnabled: hasWorkflowRunSelection,
+    selectionQuery,
+    workflowRunId,
+    workspaceSlug,
   });
   useRefreshWorkflowRunHeadOnTerminal({headQuery, overviewStatus});
 
@@ -228,7 +227,6 @@ export function WorkflowRunView({
           overview={overview}
           sourceQuery={sourceQuery}
           listRun={listRun}
-          legacyQuery={legacyQuery}
           annotations={annotationsQuery}
           jobExplanations={jobExplanationsQuery}
           annotationSummaryQuery={annotationSummaryQuery}
@@ -241,6 +239,7 @@ export function WorkflowRunView({
           jobSearch={jobSearch}
           jobContent={jobContent}
           selectionQuery={selectionQuery}
+          selectionResolutionEnabled={hasWorkflowRunSelection}
         />
       </div>
     </RelativeTimeProvider>
@@ -265,16 +264,21 @@ function workflowRunLineageHeadSeed(listRun: ReturnType<typeof useWorkflowRunLis
   });
 }
 
-function shouldResolveLegacySelection(
-  hasLegacyJobSelection: boolean,
+function shouldResolveWorkflowRunSelection(
+  activeSection: RunWorkspaceSection,
+  selection: WorkflowRunsSearch | undefined,
   activeJobId: string | undefined,
 ): boolean {
-  return hasLegacyJobSelection && activeJobId === undefined;
+  return (
+    activeJobId === undefined &&
+    (activeSection === 'summary' || activeSection === 'source') &&
+    containsWorkflowRunSelection(selection)
+  );
 }
 
 function workflowRunOverviewAttempt({
   explicitAttempt,
-  hasLegacyJobSelection,
+  hasWorkflowRunSelection,
   headAttempt,
   listAttempt,
   selectionAttempt,
@@ -282,7 +286,7 @@ function workflowRunOverviewAttempt({
   headResolved,
 }: {
   explicitAttempt: number | undefined;
-  hasLegacyJobSelection: boolean;
+  hasWorkflowRunSelection: boolean;
   headAttempt: number | undefined;
   listAttempt: number | undefined;
   selectionAttempt: number | undefined;
@@ -290,7 +294,7 @@ function workflowRunOverviewAttempt({
   headResolved: boolean;
 }): number | undefined {
   if (explicitAttempt !== undefined) return explicitAttempt;
-  if (!hasLegacyJobSelection) return headResolved ? (headAttempt ?? listAttempt) : undefined;
+  if (!hasWorkflowRunSelection) return headResolved ? (headAttempt ?? listAttempt) : undefined;
   if (selectionAttempt !== undefined) return selectionAttempt;
   return selectionQueryIsError && headResolved ? (headAttempt ?? listAttempt) : undefined;
 }
@@ -298,20 +302,15 @@ function workflowRunOverviewAttempt({
 function workflowRunShellForAttempt({
   overview,
   listRun,
-  legacyRun,
   runAttempt,
 }: {
   overview: WorkflowRunOverview | undefined;
   listRun: ReturnType<typeof useWorkflowRunListItem>;
-  legacyRun: WorkflowRunDetail | undefined;
   runAttempt: number | undefined;
 }): WorkflowRunShell | undefined {
   if (overview) return overview;
   if (listRun && (runAttempt === undefined || listRun.currentAttempt === runAttempt)) {
     return listRun;
-  }
-  if (legacyRun && (runAttempt === undefined || legacyRun.runAttempt.attempt === runAttempt)) {
-    return legacyRun;
   }
   return undefined;
 }
@@ -334,19 +333,6 @@ function workflowRunActionsReady({
       !headQuery.isFetching &&
       !headQuery.isError,
   );
-}
-
-function shouldLoadLegacyBridge({
-  activeJobId,
-  hasLegacyJobSelection,
-  selectionQueryIsError,
-}: {
-  activeJobId: string | undefined;
-  hasLegacyJobSelection: boolean;
-  selectionQueryIsError: boolean;
-}): boolean {
-  if (activeJobId !== undefined) return false;
-  return hasLegacyJobSelection && selectionQueryIsError;
 }
 
 function shouldLoadAnnotationSummary({
@@ -416,7 +402,11 @@ function usePinWorkflowRunAttempt({
       headQuery.isPending ||
       headQuery.isFetching ||
       headQuery.isError ||
-      (waitForSelection && (selectionQuery.isPending || selectionQuery.isFetching))
+      (waitForSelection &&
+        (selectionQuery.isPending ||
+          selectionQuery.isFetching ||
+          selectionQuery.isError ||
+          selectionQuery.data !== undefined))
     ) {
       return;
     }
@@ -439,12 +429,122 @@ function usePinWorkflowRunAttempt({
     navigate,
     onPin,
     routeAttempt,
+    selectionQuery.data,
+    selectionQuery.isError,
     selectionQuery.isFetching,
     selectionQuery.isPending,
-    selectionQuery.data?.workflowRunAttempt,
     waitForSelection,
     workflowRunId,
   ]);
+}
+
+function useCanonicalizeWorkflowRunSelection({
+  activeSection,
+  navigate,
+  projectSlug,
+  selection,
+  selectionResolutionEnabled,
+  selectionQuery,
+  workflowRunId,
+  workspaceSlug,
+}: {
+  activeSection: RunWorkspaceSection;
+  navigate: ReturnType<typeof useNavigate>;
+  projectSlug: string | undefined;
+  selection: WorkflowRunsSearch | undefined;
+  selectionResolutionEnabled: boolean;
+  selectionQuery: ReturnType<typeof useWorkflowRunSelectionQuery>;
+  workflowRunId: string | undefined;
+  workspaceSlug: string | undefined;
+}) {
+  useEffect(() => {
+    if (
+      !workflowRunId ||
+      !workspaceSlug ||
+      !projectSlug ||
+      !selectionResolutionEnabled ||
+      selectionQuery.isError ||
+      !selectionQuery.data
+    ) {
+      return;
+    }
+
+    const canonicalSelection = workflowRunSelectionFromResolution(selectionQuery.data);
+    if (!canonicalSelection.jobId) return;
+
+    if (activeSection === 'summary') {
+      void navigate({
+        to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
+        params: {
+          workspaceSlug,
+          projectSlug,
+          workflowRunId,
+          jobId: canonicalSelection.jobId,
+        },
+        search: workflowJobSearchParams(
+          workflowJobSearchFromSelection(canonicalSelection),
+        ) as never,
+        replace: true,
+      });
+      return;
+    }
+
+    if (activeSection !== 'source' || workflowRunSelectionMatches(selection, canonicalSelection)) {
+      return;
+    }
+
+    const runSearch: WorkflowRunsSearch = {...selection, tab: 'source'};
+    void navigate({
+      to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId',
+      params: {workspaceSlug, projectSlug, workflowRunId},
+      search: workflowRunSearchParams(runSearch, canonicalSelection) as never,
+      replace: true,
+    });
+  }, [
+    activeSection,
+    navigate,
+    projectSlug,
+    selection,
+    selectionQuery.data,
+    selectionQuery.isError,
+    selectionResolutionEnabled,
+    workflowRunId,
+    workspaceSlug,
+  ]);
+}
+
+function workflowRunSelectionFromResolution(
+  resolution: WorkflowRunSelectionResolution,
+): WorkflowRunSelectionInput {
+  return {
+    ...(resolution.jobId ? {jobId: resolution.jobId} : {}),
+    ...(resolution.jobExecutionId ? {jobExecutionId: resolution.jobExecutionId} : {}),
+    ...(resolution.stepId ? {stepId: resolution.stepId} : {}),
+    ...(resolution.stepAttemptId ? {stepAttemptId: resolution.stepAttemptId} : {}),
+    runAttempt: resolution.workflowRunAttempt,
+  };
+}
+
+function workflowJobSearchFromSelection(selection: WorkflowRunSelectionInput): WorkflowJobSearch {
+  return {
+    ...(selection.jobExecutionId ? {jobExecutionId: selection.jobExecutionId} : {}),
+    ...(selection.stepId ? {stepId: selection.stepId} : {}),
+    ...(selection.stepAttemptId ? {stepAttemptId: selection.stepAttemptId} : {}),
+    ...(selection.runAttempt === undefined ? {} : {runAttempt: selection.runAttempt}),
+  };
+}
+
+function workflowRunSelectionMatches(
+  current: WorkflowRunsSearch | undefined,
+  canonical: WorkflowRunSelectionInput,
+): boolean {
+  return (
+    current?.jobId === canonical.jobId &&
+    current?.jobExecutionId === canonical.jobExecutionId &&
+    current?.stepId === canonical.stepId &&
+    current?.stepAttemptId === canonical.stepAttemptId &&
+    current?.runAttempt === canonical.runAttempt
+  );
 }
 
 function useRefreshWorkflowRunHeadOnTerminal({
@@ -473,7 +573,6 @@ function RunViewContent({
   overview,
   sourceQuery,
   listRun,
-  legacyQuery,
   annotations,
   jobExplanations,
   annotationSummaryQuery,
@@ -486,6 +585,7 @@ function RunViewContent({
   activeJob,
   jobSearch,
   jobContent,
+  selectionResolutionEnabled,
 }: {
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
@@ -494,7 +594,6 @@ function RunViewContent({
   overview: WorkflowRunOverview | undefined;
   sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
   listRun: ReturnType<typeof useWorkflowRunListItem>;
-  legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
   jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummaryQuery: ReturnType<typeof useWorkflowRunAnnotationSummaryQuery>;
@@ -507,70 +606,19 @@ function RunViewContent({
   activeJob: WorkflowRunOverviewJob | undefined;
   jobSearch: WorkflowJobSearch | undefined;
   jobContent: ReactNode | undefined;
+  selectionResolutionEnabled: boolean;
 }) {
   const navigate = useNavigate();
   const activeSection = runWorkspaceSection(tab);
-  const legacyRun = legacyQuery?.data;
-  const shellRun = workflowRunShellForAttempt({overview, listRun, legacyRun, runAttempt});
-  const resolvedSelection =
-    legacyRun && selection ? resolveWorkflowRunSelection({run: legacyRun, selection}) : undefined;
-  const resolvedJobId = selectionQuery.data?.jobId ?? resolvedSelection?.job?.id;
+  const shellRun = workflowRunShellForAttempt({overview, listRun, runAttempt});
+  const resolvedJobId = selectionQuery.data?.jobId ?? undefined;
   const selectedJobId = selectedRunJobId({activeSection, selection, resolvedJobId});
-  const highlightedLineRange =
-    selectionQuery.data?.sourceLocation ?? resolvedSelection?.step?.sourceLocation ?? null;
+  const highlightedLineRange = selectionQuery.data?.sourceLocation ?? null;
   const annotationSummary = annotationSummaryQuery.data ?? annotations.summary;
   const actionsReady = workflowRunActionsReady({overview, runAttempt, headQuery});
   const actionRun = actionsReady ? overview : undefined;
   const cancelMutation = useCancelWorkflowRunMutation(actionRun);
   const activeAttempt = runAttempt ?? overview?.runAttempt.attempt ?? shellRun?.runAttempt.attempt;
-
-  useEffect(() => {
-    if (
-      !shouldRedirectLegacyJob({
-        activeJobId,
-        activeSection,
-        hasLegacyJobSelection: containsLegacyJobSelection(selection),
-        hasResolvedJob: Boolean(resolvedJobId),
-        hasRunData: Boolean(shellRun),
-        workspaceSlug,
-        projectSlug,
-      }) ||
-      !resolvedJobId ||
-      !shellRun ||
-      !workspaceSlug ||
-      !projectSlug
-    ) {
-      return;
-    }
-
-    void navigate({
-      to: '/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId/jobs/$jobId',
-      params: {
-        workspaceSlug,
-        projectSlug,
-        workflowRunId: shellRun.id,
-        jobId: resolvedJobId,
-      },
-      search: workflowJobSearchParams({
-        jobExecutionId: selection?.jobExecutionId,
-        stepId: selection?.stepId,
-        stepAttemptId: selection?.stepAttemptId,
-        runAttempt: selectionQuery.data?.workflowRunAttempt ?? activeAttempt,
-      }) as never,
-      replace: true,
-    });
-  }, [
-    activeAttempt,
-    activeJobId,
-    activeSection,
-    navigate,
-    projectSlug,
-    resolvedJobId,
-    selection,
-    selectionQuery.data?.workflowRunAttempt,
-    shellRun,
-    workspaceSlug,
-  ]);
 
   async function rerun(mode: WorkflowRunRerunMode) {
     if (!actionRun || !workspaceSlug || !projectSlug) {
@@ -649,7 +697,6 @@ function RunViewContent({
       overview={overview}
       sourceQuery={sourceQuery}
       shellRun={shellRun}
-      legacyQuery={legacyQuery}
       annotations={annotations}
       jobExplanations={jobExplanations}
       annotationSummary={annotationSummary}
@@ -662,6 +709,8 @@ function RunViewContent({
       selectedJobId={selectedJobId}
       jobContent={jobContent}
       highlightedLineRange={highlightedLineRange}
+      selectionQuery={selectionQuery}
+      selectionResolutionEnabled={selectionResolutionEnabled}
       onCancel={actionRun ? cancelRun : undefined}
       cancelling={cancelMutation.isPending}
       onRerun={actionRun ? (mode) => void rerun(mode) : undefined}
@@ -682,7 +731,7 @@ function selectedRunJobId({
   resolvedJobId: string | undefined;
 }): string | undefined {
   if (activeSection === 'annotations') return selection?.jobId;
-  if (containsLegacyJobSelection(selection)) return resolvedJobId;
+  if (containsWorkflowRunSelection(selection)) return resolvedJobId;
   return undefined;
 }
 
@@ -694,7 +743,6 @@ function RunViewLayout({
   overview,
   sourceQuery,
   shellRun,
-  legacyQuery,
   annotations,
   jobExplanations,
   annotationSummary,
@@ -707,6 +755,8 @@ function RunViewLayout({
   selectedJobId,
   jobContent,
   highlightedLineRange,
+  selectionQuery,
+  selectionResolutionEnabled,
   onCancel,
   cancelling,
   onRerun,
@@ -721,7 +771,6 @@ function RunViewLayout({
   overview: WorkflowRunOverview | undefined;
   sourceQuery: ReturnType<typeof useWorkflowRunSourceQuery>;
   shellRun: WorkflowRunShell | undefined;
-  legacyQuery: ReturnType<typeof useWorkflowRunAttemptQuery> | undefined;
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
   jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
@@ -734,6 +783,8 @@ function RunViewLayout({
   selectedJobId: string | undefined;
   jobContent: ReactNode | undefined;
   highlightedLineRange: StepSourceLocation | null;
+  selectionQuery: ReturnType<typeof useWorkflowRunSelectionQuery>;
+  selectionResolutionEnabled: boolean;
   onCancel?: (() => void) | undefined;
   cancelling: boolean;
   onRerun?: ((mode: WorkflowRunRerunMode) => void) | undefined;
@@ -788,12 +839,7 @@ function RunViewLayout({
               run={shellRun}
               activeSection={activeSection}
               currentJobId={activeJobId}
-              activeJob={
-                activeJob ??
-                (activeJobId
-                  ? legacyQuery?.data?.jobs.find((job) => job.id === activeJobId)
-                  : undefined)
-              }
+              activeJob={activeJob}
               jobSearch={jobSearch}
               annotationSummary={annotationSummary}
             />
@@ -815,6 +861,8 @@ function RunViewLayout({
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
               selection={selection}
+              selectionQuery={selectionQuery}
+              selectionResolutionEnabled={selectionResolutionEnabled}
               selectedJobId={selectedJobId}
               onSelectGraphJob={onSelectGraphJob}
               onSelectAnnotationJob={onSelectAnnotationJob}
@@ -842,6 +890,8 @@ function RunWorkspaceContent({
   workspaceSlug,
   projectSlug,
   selection,
+  selectionQuery,
+  selectionResolutionEnabled,
   selectedJobId,
   onSelectGraphJob,
   onSelectAnnotationJob,
@@ -863,6 +913,8 @@ function RunWorkspaceContent({
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   selection: WorkflowRunsSearch | undefined;
+  selectionQuery: ReturnType<typeof useWorkflowRunSelectionQuery>;
+  selectionResolutionEnabled: boolean;
   selectedJobId: string | undefined;
   onSelectGraphJob: (jobId: string | undefined, source?: JobGraphSelectionSource) => void;
   onSelectAnnotationJob: (jobId: string | undefined) => void;
@@ -882,6 +934,11 @@ function RunWorkspaceContent({
       );
     return <div className="min-h-0 flex-1 overflow-auto p-panel">{error}</div>;
   }
+  const selectionBoundary = workflowRunSelectionBoundary({
+    query: selectionQuery,
+    enabled: selectionResolutionEnabled,
+  });
+  if (selectionBoundary) return selectionBoundary;
   if (jobContent) return jobContent;
   if (overviewQuery.isError && overview === undefined) {
     return (
@@ -947,37 +1004,26 @@ function workspaceSectionFallback({
   return undefined;
 }
 
-function containsLegacyJobSelection(selection: WorkflowRunsSearch | undefined): boolean {
-  return Boolean(
-    selection?.jobId || selection?.jobExecutionId || selection?.stepId || selection?.stepAttemptId,
-  );
+function workflowRunSelectionBoundary({
+  query,
+  enabled,
+}: {
+  query: ReturnType<typeof useWorkflowRunSelectionQuery>;
+  enabled: boolean;
+}): ReactNode | undefined {
+  if (!enabled || !query.isError) return undefined;
+  const error =
+    query.error instanceof ApiError && query.error.status === 404 ? (
+      <WorkflowRunSelectionNotFound />
+    ) : (
+      <QueryLoadError query={query} subject="workflow run selection" icon="pulseLine" />
+    );
+  return <div className="min-h-0 flex-1 overflow-auto p-panel">{error}</div>;
 }
 
-function shouldRedirectLegacyJob({
-  activeJobId,
-  activeSection,
-  hasLegacyJobSelection,
-  hasResolvedJob,
-  hasRunData,
-  workspaceSlug,
-  projectSlug,
-}: {
-  activeJobId: string | undefined;
-  activeSection: ReturnType<typeof runWorkspaceSection>;
-  hasLegacyJobSelection: boolean;
-  hasResolvedJob: boolean;
-  hasRunData: boolean;
-  workspaceSlug: string | undefined;
-  projectSlug: string | undefined;
-}): boolean {
-  return (
-    !activeJobId &&
-    activeSection === 'summary' &&
-    hasLegacyJobSelection &&
-    hasResolvedJob &&
-    hasRunData &&
-    Boolean(workspaceSlug) &&
-    Boolean(projectSlug)
+function containsWorkflowRunSelection(selection: WorkflowRunsSearch | undefined): boolean {
+  return Boolean(
+    selection?.jobId || selection?.jobExecutionId || selection?.stepId || selection?.stepAttemptId,
   );
 }
 

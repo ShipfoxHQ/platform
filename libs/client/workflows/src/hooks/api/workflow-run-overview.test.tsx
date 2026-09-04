@@ -33,7 +33,10 @@ import {
   workflowRunOverviewJobsInfiniteQueryOptions,
   workflowRunOverviewQueryOptions,
 } from './workflow-run-overview.js';
-import {useWorkflowRunSelectionQuery} from './workflow-run-selection.js';
+import {
+  useWorkflowRunSelectionQuery,
+  workflowRunSelectionQueryOptions,
+} from './workflow-run-selection.js';
 
 const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
 const DEFINITION_ID = '33333333-3333-4333-8333-333333333333';
@@ -489,6 +492,31 @@ describe('workflow run bounded overview API hooks', () => {
       stepAttempt: 2,
       sourceLocation: {startLine: 12, endLine: 18},
     });
+  });
+
+  test('does not put the optional attempt in the selection query key', () => {
+    const identity = {stepId: STEP_ID, stepAttemptId: STEP_ATTEMPT_ID};
+    const firstAttempt = workflowRunSelectionQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 1,
+      ...identity,
+    });
+    const secondAttempt = workflowRunSelectionQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 2,
+      ...identity,
+    });
+
+    expect(firstAttempt.queryKey).toEqual(secondAttempt.queryKey);
+    expect(firstAttempt.queryKey).toEqual([
+      'workflow-runs',
+      'selection',
+      RUN_ID,
+      null,
+      null,
+      STEP_ID,
+      STEP_ATTEMPT_ID,
+    ]);
   });
 });
 

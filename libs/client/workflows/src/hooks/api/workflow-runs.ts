@@ -79,13 +79,11 @@ export const workflowRunsQueryKeys = {
       stepId?: string | undefined;
       stepAttemptId?: string | undefined;
     },
-    runAttempt?: number | undefined,
   ) =>
     [
       ...workflowRunsQueryKeys.all,
       'selection',
       workflowRunId,
-      runAttempt ?? null,
       identity.jobId ?? null,
       identity.jobExecutionId ?? null,
       identity.stepId ?? null,

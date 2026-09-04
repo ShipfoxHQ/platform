@@ -40,7 +40,7 @@ export function workflowRunSelectionQueryOptions({
   return queryOptions({
     queryKey:
       workflowRunId && hasIdentity
-        ? workflowRunsQueryKeys.selection(workflowRunId, identity, runAttempt)
+        ? workflowRunsQueryKeys.selection(workflowRunId, identity)
         : ([...workflowRunsQueryKeys.all, 'selection'] as const),
     enabled: queryEnabled,
     queryFn: ({signal}) =>
@@ -50,6 +50,7 @@ export function workflowRunSelectionQueryOptions({
         signal,
       ),
     staleTime: Infinity,
+    refetchInterval: false,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
   });

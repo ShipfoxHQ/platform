@@ -51,6 +51,16 @@ export function WorkflowRunNotFound() {
   );
 }
 
+export function WorkflowRunSelectionNotFound() {
+  return (
+    <EmptyState
+      icon="pulseLine"
+      title="Selection not found"
+      description="This resource is not part of the selected workflow run or is no longer available."
+    />
+  );
+}
+
 /**
  * Slim non-blocking banner shown when a background refetch fails after the run already
  * loaded (active-run polling can hit a transient API error), so the loaded run stays on
