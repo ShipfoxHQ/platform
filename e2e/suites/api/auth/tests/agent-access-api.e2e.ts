@@ -300,7 +300,10 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
   expect(relistedGrants.status()).toBe(200);
   expect(listAgentGrantsResponseSchema.parse(await relistedGrants.json()).grants).toEqual([]);
 
-  const stillValidClient = new Client({name: 'agent-access-revocation-e2e-client', version: '0.0.0'});
+  const stillValidClient = new Client({
+    name: 'agent-access-revocation-e2e-client',
+    version: '0.0.0',
+  });
   const stillValidTransport = new StreamableHTTPClientTransport(new URL('/mcp', apiOrigin), {
     requestInit: {
       headers: {

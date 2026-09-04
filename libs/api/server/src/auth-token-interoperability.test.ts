@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it} from '@shipfox/vitest/vi';
 
 vi.hoisted(() => {
   process.env.AUTH_ROOT_KEY ??= 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
+  process.env.API_PUBLIC_URL ??= 'https://api.example.test';
 });
 
 const leaseRoute = defineRoute({
