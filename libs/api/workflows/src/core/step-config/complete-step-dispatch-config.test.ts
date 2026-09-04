@@ -556,7 +556,10 @@ describe('completeStepDispatchConfig', () => {
     });
   });
 
-  it('rejects a deferred non-object input before injecting the selected method', async () => {
+  it.each([
+    {kind: 'scalar', value: 42},
+    {kind: 'array', value: ['a', 'b']},
+  ])('rejects a deferred $kind input before injecting the selected method', async ({value}) => {
     const pending = step({
       type: 'tool',
       config: {
@@ -572,7 +575,7 @@ describe('completeStepDispatchConfig', () => {
       },
       configPlan: {
         tool: {
-          with: plannedField(template('steps.build.outputs.count')).segments,
+          with: plannedField(template('steps.build.outputs.input')).segments,
         },
       },
     });
@@ -582,7 +585,7 @@ describe('completeStepDispatchConfig', () => {
         step: pending,
         context: {
           ...context,
-          values: {steps: {build: {outputs: {count: 42}}}},
+          values: {steps: {build: {outputs: {input: value}}}},
         },
         resolveAgentDefaults,
         definitionId: 'def-1',
