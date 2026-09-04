@@ -324,7 +324,9 @@ function projectExecutionTriggerEventSummary(
   event: WorkflowExecutionTriggerEventSummaryDto,
 ): WorkflowExecutionTriggerEventSummaryDto {
   return {
-    event_ref: cap(event.event_ref),
+    // event_ref is the exact key accepted by get_execution_trigger_event;
+    // preserve it rather than applying the bounded display-text cap.
+    event_ref: event.event_ref,
     delivery_id: cap(event.delivery_id),
     source: cap(event.source),
     event: cap(event.event),

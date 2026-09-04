@@ -102,6 +102,30 @@ describe('workflow execution event Agent Access tools', () => {
     expect(listExecutionTriggerEventsResultSchema.safeParse(result).success).toBe(true);
   });
 
+  test('forwards a valid continuation cursor unchanged and accepts an empty producer page', async () => {
+    const mocks = clients();
+    const cursor = encodeTimestampIdCursor({
+      createdAt: new Date('2026-08-31T12:00:00.000Z'),
+      id: uuid(14),
+    });
+    mocks.listExecutionTriggerEvents.mockResolvedValue({items: [], nextCursor: null});
+
+    const response = await tool(mocks, 'list_execution_trigger_events').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId, cursor},
+    });
+    const result = success<ListExecutionTriggerEventsResultDto>(response);
+
+    expect(mocks.listExecutionTriggerEvents).toHaveBeenCalledWith({
+      workspaceId,
+      jobId,
+      executionId,
+      limit: 25,
+      cursor,
+    });
+    expect(result).toMatchObject({trigger_events: [], next_cursor: null});
+  });
+
   test('reads a bounded serialized JSON preview as inert text', async () => {
     const mocks = clients();
     mocks.getExecutionTriggerEvent.mockResolvedValue({
@@ -126,21 +150,109 @@ describe('workflow execution event Agent Access tools', () => {
     expect(getExecutionTriggerEventResultSchema.safeParse(result).success).toBe(true);
   });
 
-  test('rejects malformed cursors before calling Workflows', async () => {
+  test('maps absent list and detail resources to not-found', async () => {
     const mocks = clients();
+    mocks.listExecutionTriggerEvents.mockResolvedValue(null);
+
+    const listResponse = await tool(mocks, 'list_execution_trigger_events').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId},
+    });
+    expect(listResponse).toEqual({ok: false, error: {code: 'not-found'}});
+
+    mocks.getExecutionTriggerEvent.mockResolvedValue(null);
+    const detailResponse = await tool(mocks, 'get_execution_trigger_event').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId, event_ref: uuid(15)},
+    });
+    expect(detailResponse).toEqual({ok: false, error: {code: 'not-found'}});
+  });
+
+  test('preserves long event references while capping display metadata', async () => {
+    const mocks = clients();
+    const longEventRef = 'r'.repeat(513);
+    const source = eventSummary({
+      event_ref: longEventRef,
+      delivery_id: 'd'.repeat(513),
+      source: 's'.repeat(513),
+      event: 'e'.repeat(513),
+    });
+    mocks.listExecutionTriggerEvents.mockResolvedValue({
+      items: [source],
+      nextCursor: null,
+    });
+
     const response = await tool(mocks, 'list_execution_trigger_events').execute({
       context,
-      arguments: {
-        job_id: jobId,
-        execution_id: executionId,
-        cursor: encodeTimestampIdCursor({
-          createdAt: new Date('2026-08-31T12:00:00.000Z'),
-          id: 'not-a-uuid',
-        }),
-      },
+      arguments: {job_id: jobId, execution_id: executionId, limit: 1},
+    });
+    const result = success<ListExecutionTriggerEventsResultDto>(response);
+    const [event] = result.trigger_events;
+
+    expect(event).toMatchObject({
+      event_ref: longEventRef,
+      delivery_id: 'd'.repeat(512),
+      source: 's'.repeat(512),
+      event: 'e'.repeat(512),
+    });
+    expect(result.next_cursor).toBeNull();
+    expect(listExecutionTriggerEventsResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('preserves an oversized-event preview descriptor and long detail key', async () => {
+    const mocks = clients();
+    const longEventRef = 'r'.repeat(513);
+    mocks.getExecutionTriggerEvent.mockResolvedValue({
+      ...eventSummary({event_ref: longEventRef}),
+      payload_preview: null,
+      payload_preview_truncated: true,
+      payload_preview_total_bytes: 20 * 1024,
+    });
+
+    const response = await tool(mocks, 'get_execution_trigger_event').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId, event_ref: longEventRef},
+    });
+    const result = success<GetExecutionTriggerEventResultDto>(response);
+
+    expect(result).toMatchObject({
+      event_ref: longEventRef,
+      payload_preview: null,
+      payload_preview_truncated: true,
+      payload_preview_total_bytes: 20 * 1024,
+    });
+    expect(getExecutionTriggerEventResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('rejects an empty detail key before calling Workflows', async () => {
+    const mocks = clients();
+
+    const response = await tool(mocks, 'get_execution_trigger_event').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId, event_ref: ''},
     });
 
     expect(response).toEqual({ok: false, error: {code: 'invalid-request'}});
+    expect(mocks.getExecutionTriggerEvent).not.toHaveBeenCalled();
+  });
+
+  test('rejects malformed cursors before calling Workflows', async () => {
+    const mocks = clients();
+    for (const id of ['not-a-uuid', '00000000-0000-a000-8000-000000000001']) {
+      const response = await tool(mocks, 'list_execution_trigger_events').execute({
+        context,
+        arguments: {
+          job_id: jobId,
+          execution_id: executionId,
+          cursor: encodeTimestampIdCursor({
+            createdAt: new Date('2026-08-31T12:00:00.000Z'),
+            id,
+          }),
+        },
+      });
+
+      expect(response).toEqual({ok: false, error: {code: 'invalid-request'}});
+    }
     expect(mocks.listExecutionTriggerEvents).not.toHaveBeenCalled();
   });
 

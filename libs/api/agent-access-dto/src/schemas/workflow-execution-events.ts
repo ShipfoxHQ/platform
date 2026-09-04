@@ -28,10 +28,11 @@ const executionTriggerEventOutcomeSchema = z.enum([
 const executionTriggerEventOutcomeReasonSchema = z
   .enum(['payload_too_large', 'until', 'timeout', 'max_executions', 'cancelled'])
   .nullable();
+const eventRefSchema = z.string().min(1);
 
 const executionTriggerEventSummarySchema = z
   .object({
-    event_ref: textSchema,
+    event_ref: eventRefSchema,
     delivery_id: textSchema,
     source: textSchema,
     event: textSchema,
@@ -62,7 +63,7 @@ export const getExecutionTriggerEventInputSchema = z
   .object({
     job_id: idSchema,
     execution_id: idSchema,
-    event_ref: textSchema,
+    event_ref: eventRefSchema,
   })
   .strict();
 
@@ -103,6 +104,7 @@ export type GetExecutionTriggerEventResultDto = z.infer<
 const uuid = {type: 'string', format: 'uuid'} as const;
 const dateTime = {type: 'string', format: 'date-time'} as const;
 const text = {type: 'string', maxLength: AGENT_ACCESS_TEXT_MAX_BYTES} as const;
+const eventRef = {type: 'string', minLength: 1} as const;
 const serializedJson = {
   type: 'string',
   maxLength: AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
@@ -129,7 +131,7 @@ export const listExecutionTriggerEventsInputJsonSchema = {
 
 export const getExecutionTriggerEventInputJsonSchema = {
   type: 'object',
-  properties: {job_id: uuid, execution_id: uuid, event_ref: text},
+  properties: {job_id: uuid, execution_id: uuid, event_ref: eventRef},
   required: ['job_id', 'execution_id', 'event_ref'],
   additionalProperties: false,
 } as const satisfies AgentAccessObjectSchema;
@@ -137,7 +139,7 @@ export const getExecutionTriggerEventInputJsonSchema = {
 const executionTriggerEventSummaryJson = {
   type: 'object',
   properties: {
-    event_ref: text,
+    event_ref: eventRef,
     delivery_id: text,
     source: text,
     event: text,

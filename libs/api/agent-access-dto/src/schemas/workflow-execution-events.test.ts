@@ -2,6 +2,8 @@ import {
   AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
   AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
+  getExecutionTriggerEventInputJsonSchema,
+  getExecutionTriggerEventInputSchema,
   getExecutionTriggerEventResultJsonSchema,
   getExecutionTriggerEventResultSchema,
   listExecutionTriggerEventsInputSchema,
@@ -22,6 +24,35 @@ describe('workflow execution event Agent Access schemas', () => {
       getExecutionTriggerEventResultSchema.safeParse({
         ...summary(),
         payload_preview: '{"action":"opened"}',
+      }).success,
+    ).toBe(true);
+  });
+
+  test('requires non-empty event references and preserves long lookup keys', () => {
+    const longEventRef = `${eventRef}${'x'.repeat(512)}`;
+
+    expect(
+      getExecutionTriggerEventInputSchema.safeParse({
+        job_id: jobId,
+        execution_id: executionId,
+        event_ref: longEventRef,
+      }).success,
+    ).toBe(true);
+    expect(
+      getExecutionTriggerEventInputSchema.safeParse({
+        job_id: jobId,
+        execution_id: executionId,
+        event_ref: '',
+      }).success,
+    ).toBe(false);
+    expect(getExecutionTriggerEventInputJsonSchema.properties.event_ref).toMatchObject({
+      minLength: 1,
+    });
+    expect(
+      getExecutionTriggerEventResultSchema.safeParse({
+        ...summary(),
+        event_ref: longEventRef,
+        payload_preview: null,
       }).success,
     ).toBe(true);
   });

@@ -1,8 +1,8 @@
 ---
 "@shipfox/api-agent-access": minor
 "@shipfox/api-agent-access-dto": minor
-"@shipfox/api-workflows": patch
-"@shipfox/api-workflows-dto": patch
+"@shipfox/api-workflows": minor
+"@shipfox/api-workflows-dto": minor
 ---
 
-Adds bounded Agent Access tools for workflow execution trigger-event diagnostics while preserving producer-owned cursor continuity.
+Adds bounded Agent Access tools for workflow execution trigger-event diagnostics.
