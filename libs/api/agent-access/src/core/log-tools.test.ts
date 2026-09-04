@@ -184,7 +184,7 @@ describe('bounded step-log agent-access tool', () => {
     expect(result.run_id).toBe(runId);
     expect(result.workflow_run_attempt).toBe(4);
     expect(result.sections.map((section) => section.step_id)).toEqual(
-      coordinates.slice(0, AGENT_ACCESS_LOG_SECTION_MAX_ITEMS).map((item) => item.step_id),
+      coordinates.map((item) => item.step_id),
     );
     expect(result.sections).toHaveLength(AGENT_ACCESS_LOG_SECTION_MAX_ITEMS);
     for (const section of result.sections) {

@@ -252,8 +252,8 @@ function createGetRunAnnotationsTool(
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
         workflowRunAttempt: attempt,
-        ...(input.job_execution_id ? {jobExecutionId: input.job_execution_id} : {}),
-        ...(cursor ? {cursor} : {}),
+        ...optionalField('jobExecutionId', input.job_execution_id),
+        ...optionalField('cursor', cursor),
         limit: input.limit,
       });
       const result = {

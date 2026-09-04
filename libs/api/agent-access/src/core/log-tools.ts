@@ -114,7 +114,7 @@ async function readFailedStepLogs(
   });
   if (page === null) return notFound();
 
-  const coordinates = page.items.slice(0, AGENT_ACCESS_LOG_SECTION_MAX_ITEMS);
+  const coordinates = page.items;
   const hasMismatchedAncestry = coordinates.some(
     (coordinate) =>
       coordinate.workflow_run_id !== input.run_id ||
