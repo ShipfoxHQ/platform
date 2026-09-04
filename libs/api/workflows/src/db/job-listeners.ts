@@ -24,7 +24,6 @@ import type {
   JobExecutionStatus,
   WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
-import {normalizeWorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import {
   InterpolationUnresolvableError,
   WorkflowExecutionPayloadTooLargeError,
@@ -51,9 +50,15 @@ import {
   recordListenerBatchPartition,
   recordListenerEventsCoalesced,
   recordWorkflowJobExecutionStatusChanged,
+  recordWorkflowListenerEventOutcome,
   recordWorkflowListenerResolved,
 } from '#metrics/instance.js';
 import {db, type Tx} from './db.js';
+import {
+  type FinalizedListenerEventCounts,
+  finalizePendingListenerEvents,
+  normalizeListenerEvent,
+} from './job-listener-events.js';
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
 import {
   type JobExecutionDb,
@@ -66,6 +71,7 @@ import {jobs, toJob} from './schema/jobs.js';
 import {steps} from './schema/steps.js';
 import {workflowRunAttempts} from './schema/workflow-run-attempts.js';
 import {toWorkflowRun, workflowRuns} from './schema/workflow-runs.js';
+import {lockWorkflowRun} from './workflow-runs/shared.js';
 import {
   bulkUpdateStepStatuses,
   getDirectDependencyJobContexts,
@@ -76,6 +82,25 @@ import {
 
 const TERMINAL_EXECUTION_STATUSES: JobExecutionStatus[] = ['succeeded', 'failed', 'cancelled'];
 const MAX_LISTENER_RESOLUTION_ATTEMPTS = 3;
+
+function pendingListenerEventCondition() {
+  return and(
+    eq(jobListenerEvents.outcome, 'pending'),
+    isNull(jobListenerEvents.consumedByExecutionId),
+  );
+}
+
+function recordFinalizedListenerEventMetrics(
+  counts: FinalizedListenerEventCounts,
+  reason: ResolutionReason,
+): void {
+  if (counts.honored > 0) {
+    recordWorkflowListenerEventOutcome('honored', 'none', counts.honored);
+  }
+  if (counts.abandoned > 0) {
+    recordWorkflowListenerEventOutcome('abandoned', reason, counts.abandoned);
+  }
+}
 
 const listenerPriorExecutionSelection = {
   id: jobExecutions.id,
@@ -372,6 +397,7 @@ export async function drainListenerEventsIntoExecution(
   }
   if (drained.result.kind === 'execution' && drained.batchSize !== undefined) {
     recordListenerEventsCoalesced(drained.batchSize);
+    recordWorkflowListenerEventOutcome('consumed', 'none', drained.batchSize);
   }
 
   return drained.result;
@@ -381,6 +407,9 @@ async function drainListenerEventsInTransaction(
   params: ListenerDrainTransactionParams,
   tx: Tx,
 ): Promise<DrainedListenerEvents> {
+  // Cancellation locks the run, attempt, job, and then listener events. Keep
+  // the drain's lock order the same before locking any event rows.
+  const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
   const existing = await findExistingExecution(params.drain, tx);
   if (existing) return {result: existing};
 
@@ -397,7 +426,6 @@ async function drainListenerEventsInTransaction(
     };
   }
 
-  const target = await loadListenerMaterializationTarget(params.drain.jobId, tx);
   const priorExecutions = await loadListenerPriorExecutions(
     params.drain.jobId,
     target.job.name ?? target.job.key,
@@ -457,12 +485,7 @@ export async function peekListenerBuffer(params: {jobId: string}): Promise<Liste
       newestAgeMs: sql<number>`coalesce(floor(extract(epoch from (statement_timestamp() - max(${jobListenerEvents.receivedAt}) filter (where ${jobListenerEvents.disposition} = 'fire'))) * 1000), 0)::integer`,
     })
     .from(jobListenerEvents)
-    .where(
-      and(
-        eq(jobListenerEvents.jobId, params.jobId),
-        isNull(jobListenerEvents.consumedByExecutionId),
-      ),
-    );
+    .where(and(eq(jobListenerEvents.jobId, params.jobId), pendingListenerEventCondition()));
 
   return {
     fireCount: row?.fireCount ?? 0,
@@ -487,6 +510,7 @@ export async function resolveJobListener(params: {
     throw new Error(`Optimistic lock failure resolving listener job ${params.jobId}`);
   }
 
+  recordFinalizedListenerEventMetrics(result.eventOutcomes, params.reason);
   if (result.changed) recordWorkflowListenerResolved(params.reason);
   return {status: result.status, jobVersion: result.jobVersion};
 }
@@ -501,6 +525,7 @@ type ApplyJobListenerResolutionResult =
       status: 'succeeded' | 'failed';
       jobVersion: number;
       changed: boolean;
+      eventOutcomes: FinalizedListenerEventCounts;
     }
   | {kind: 'stale'};
 
@@ -584,13 +609,22 @@ async function applyJobListenerResolution(
       evaluationTrace: decision.trace,
     });
     const job = updated?.job ?? toJob(jobRow);
+    const eventOutcomes = await finalizePendingListenerEvents(tx, {
+      jobId: params.jobId,
+      reason: params.reason,
+    });
     const resolvedStatus: 'succeeded' | 'failed' =
       job.status === 'succeeded' ? 'succeeded' : 'failed';
     return {
       kind: 'applied' as const,
       status: resolvedStatus,
       jobVersion: job.version,
-      changed: listenerRows.length > 0 || updated?.changed === true,
+      changed:
+        listenerRows.length > 0 ||
+        updated?.changed === true ||
+        eventOutcomes.honored > 0 ||
+        eventOutcomes.abandoned > 0,
+      eventOutcomes,
     };
   });
 }
@@ -671,7 +705,7 @@ async function hasPendingResolveEvent(jobId: string, tx: Tx): Promise<boolean> {
       and(
         eq(jobListenerEvents.jobId, jobId),
         eq(jobListenerEvents.disposition, 'resolve'),
-        isNull(jobListenerEvents.consumedByExecutionId),
+        pendingListenerEventCondition(),
       ),
     )
     .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id))
@@ -688,7 +722,7 @@ async function hasBufferedFireEvent(jobId: string, tx: Tx): Promise<boolean> {
       and(
         eq(jobListenerEvents.jobId, jobId),
         eq(jobListenerEvents.disposition, 'fire'),
-        isNull(jobListenerEvents.consumedByExecutionId),
+        pendingListenerEventCondition(),
       ),
     )
     .limit(1);
@@ -711,7 +745,7 @@ async function lockBufferedFireEventBatch(
         and(
           eq(jobListenerEvents.jobId, params.jobId),
           eq(jobListenerEvents.disposition, 'fire'),
-          isNull(jobListenerEvents.consumedByExecutionId),
+          pendingListenerEventCondition(),
           cursor === undefined
             ? undefined
             : or(
@@ -750,17 +784,7 @@ async function lockBufferedFireEventBatch(
 }
 
 function listenerTriggerEvent(event: JobListenerEventDb): WorkflowExecutionEvent {
-  return normalizeWorkflowExecutionEvent({
-    source: event.source,
-    event: event.event,
-    delivery_id: event.deliveryId,
-    received_at: event.receivedAt.toISOString(),
-    project: event.triggerReference?.project ?? null,
-    repository: event.triggerReference?.repository ?? null,
-    ref: event.triggerReference?.ref ?? null,
-    commit: event.triggerReference?.commit ?? null,
-    data: event.payload,
-  });
+  return normalizeListenerEvent(event);
 }
 
 async function persistMaterializedListenerExecution(
@@ -818,7 +842,7 @@ async function persistMaterializedListenerExecution(
 
   await tx
     .update(jobListenerEvents)
-    .set({consumedByExecutionId: execution.id})
+    .set({consumedByExecutionId: execution.id, outcome: 'consumed', outcomeReason: null})
     .where(inArray(jobListenerEvents.id, [...params.bufferedEventIds]));
 
   if (params.materialized.status === 'pending' && params.materialized.steps.length > 0) {
@@ -879,7 +903,7 @@ async function persistRejectedMaterializedListenerExecution(
   });
   await tx
     .update(jobListenerEvents)
-    .set({consumedByExecutionId: execution.id})
+    .set({consumedByExecutionId: execution.id, outcome: 'consumed', outcomeReason: null})
     .where(inArray(jobListenerEvents.id, [...params.bufferedEventIds]));
 
   return execution;
@@ -904,14 +928,47 @@ function drainExecutionResult(
 }
 
 async function loadListenerMaterializationTarget(jobId: string, tx?: Tx) {
-  const query = (tx ?? db())
+  if (tx !== undefined) {
+    // Keep transaction lock acquisition explicit and aligned with cancellation
+    // and timeout: run, attempt, job, then listener events.
+    const [jobReference] = await tx
+      .select({workflowRunAttemptId: jobs.workflowRunAttemptId})
+      .from(jobs)
+      .where(eq(jobs.id, jobId))
+      .limit(1);
+    if (!jobReference) throw new Error(`Job not found: ${jobId}`);
+
+    const [attemptReference] = await tx
+      .select({workflowRunId: workflowRunAttempts.workflowRunId})
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, jobReference.workflowRunAttemptId))
+      .limit(1);
+    if (!attemptReference) throw new Error(`Job not found: ${jobId}`);
+
+    const run = await lockWorkflowRun(attemptReference.workflowRunId, tx);
+    if (!run) throw new Error(`Job not found: ${jobId}`);
+
+    const [attempt] = await tx
+      .select()
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, jobReference.workflowRunAttemptId))
+      .limit(1)
+      .for('update');
+    if (!attempt) throw new Error(`Job not found: ${jobId}`);
+
+    const [job] = await tx.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).for('update');
+    if (!job) throw new Error(`Job not found: ${jobId}`);
+
+    return {job, attempt, run};
+  }
+
+  const [target] = await db()
     .select({job: jobs, attempt: workflowRunAttempts, run: workflowRuns})
     .from(jobs)
     .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
     .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
     .where(eq(jobs.id, jobId))
     .limit(1);
-  const [target] = tx === undefined ? await query : await query.for('update');
   if (!target) throw new Error(`Job not found: ${jobId}`);
 
   return target;

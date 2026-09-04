@@ -10,8 +10,16 @@ import {
   type WorkflowRunStatus,
 } from '#core/entities/workflow-run.js';
 import {WorkflowRunNotCancellableError, WorkflowRunNotFoundError} from '#core/errors.js';
-import {recordWorkflowJobStatusChanged, recordWorkflowRunStatusChanged} from '#metrics/instance.js';
+import {
+  recordWorkflowJobStatusChanged,
+  recordWorkflowListenerEventOutcome,
+  recordWorkflowRunStatusChanged,
+} from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
+import {
+  type FinalizedListenerEventCounts,
+  finalizePendingListenerEvents,
+} from '../job-listener-events.js';
 import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
 import {jobExecutions} from '../schema/job-executions.js';
 import {jobs} from '../schema/jobs.js';
@@ -42,6 +50,17 @@ export interface RunTerminationSpec {
   emitCancelledEvent: boolean;
 }
 
+function finalizeCancelledListenerEvents(
+  tx: Tx,
+  jobId: string,
+  spec: RunTerminationSpec,
+): Promise<FinalizedListenerEventCounts> {
+  if (spec.statusReason !== 'run_cancelled') {
+    return Promise.resolve({honored: 0, abandoned: 0});
+  }
+  return finalizePendingListenerEvents(tx, {jobId, reason: 'cancelled'});
+}
+
 /**
  * Shared terminal transition for a run attempt. The caller locks the run and the
  * attempt (and decides how an already-terminal run is handled: timeout returns
@@ -57,8 +76,13 @@ async function terminateRunAttempt(
     lockedAttempt: typeof workflowRunAttempts.$inferSelect;
     spec: RunTerminationSpec;
   },
-): Promise<{run: WorkflowRun; changedJobs: Job[]}> {
+): Promise<{
+  run: WorkflowRun;
+  changedJobs: Job[];
+  listenerEventOutcomes: FinalizedListenerEventCounts;
+}> {
   const {lockedRun, lockedAttempt, spec} = params;
+  const listenerEventOutcomes: FinalizedListenerEventCounts = {honored: 0, abandoned: 0};
 
   const runJobExecutionIds = tx
     .select({id: jobExecutions.id})
@@ -82,6 +106,10 @@ async function terminateRunAttempt(
 
   const changedJobs: Job[] = [];
   for (const jobRow of jobRows) {
+    const finalized = await finalizeCancelledListenerEvents(tx, jobRow.id, spec);
+    listenerEventOutcomes.honored += finalized.honored;
+    listenerEventOutcomes.abandoned += finalized.abandoned;
+
     if (isJobTerminal(jobRow.status)) continue;
 
     const updated = await updateJobStatusAtVersion(tx, {
@@ -191,13 +219,24 @@ async function terminateRunAttempt(
     });
   }
 
-  return {run, changedJobs};
+  return {run, changedJobs, listenerEventOutcomes};
 }
 
 export async function failWorkflowRunAsTimedOut(
   params: FailWorkflowRunAsTimedOutParams,
 ): Promise<WorkflowRun> {
   const result = await db().transaction(async (tx) => {
+    const [attemptReference] = await tx
+      .select()
+      .from(workflowRunAttempts)
+      .where(eq(workflowRunAttempts.id, params.runAttemptId))
+      .limit(1);
+    if (!attemptReference) throw new WorkflowRunNotFoundError(params.runAttemptId);
+
+    // Keep timeout aligned with cancellation and listener drain: lock the run,
+    // then the attempt, before any job or listener-event rows.
+    const lockedRun = await lockWorkflowRun(attemptReference.workflowRunId, tx);
+    if (!lockedRun) throw new WorkflowRunNotFoundError(attemptReference.workflowRunId);
     const [lockedAttempt] = await tx
       .select()
       .from(workflowRunAttempts)
@@ -205,9 +244,6 @@ export async function failWorkflowRunAsTimedOut(
       .limit(1)
       .for('update');
     if (!lockedAttempt) throw new WorkflowRunNotFoundError(params.runAttemptId);
-
-    const lockedRun = await lockWorkflowRun(lockedAttempt.workflowRunId, tx);
-    if (!lockedRun) throw new WorkflowRunNotFoundError(lockedAttempt.workflowRunId);
     if (isWorkflowRunTerminal(lockedRun.status)) {
       return {run: toWorkflowRun(lockedRun), changedJobs: [], changed: false};
     }
@@ -272,6 +308,13 @@ export async function cancelWorkflowRun(params: CancelWorkflowRunParams): Promis
 
   recordWorkflowRunStatusChanged(result.run.status);
   for (const job of result.changedJobs) recordWorkflowJobStatusChanged(job.status);
+  if (result.listenerEventOutcomes.abandoned > 0) {
+    recordWorkflowListenerEventOutcome(
+      'abandoned',
+      'cancelled',
+      result.listenerEventOutcomes.abandoned,
+    );
+  }
 
   return result.run;
 }

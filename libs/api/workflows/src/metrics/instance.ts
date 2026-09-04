@@ -98,6 +98,16 @@ const listenerResolvedCount = meter.createCounter<{reason: ResolutionReason}>(
   {description: 'Listener resolutions by bounded reason'},
 );
 
+type WorkflowListenerEventOutcome = 'consumed' | 'honored' | 'rejected' | 'abandoned';
+type WorkflowListenerEventOutcomeReason = 'none' | 'payload_too_large' | ResolutionReason;
+
+const listenerEventOutcomesCount = meter.createCounter<{
+  outcome: WorkflowListenerEventOutcome;
+  reason: WorkflowListenerEventOutcomeReason;
+}>('workflows_listener_event_outcomes', {
+  description: 'Listener event terminal outcomes by bounded outcome and reason',
+});
+
 const agentToolWarningFailedCount = meter.createCounter<{
   reason: 'budget' | 'lookup' | 'write';
 }>('workflows_agent_tool_warning_failed', {
@@ -320,6 +330,14 @@ export function recordWorkflowListenerExecution(
 
 export function recordWorkflowListenerResolved(reason: ResolutionReason): void {
   listenerResolvedCount.add(1, {reason});
+}
+
+export function recordWorkflowListenerEventOutcome(
+  outcome: WorkflowListenerEventOutcome,
+  reason: WorkflowListenerEventOutcomeReason,
+  count = 1,
+): void {
+  if (count > 0) listenerEventOutcomesCount.add(count, {outcome, reason});
 }
 
 export function recordListenerEventsCoalesced(batchSize: number): void {

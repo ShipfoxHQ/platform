@@ -59,6 +59,22 @@ describe('deliverEventToListener', () => {
     expect(rows[0]?.disposition).toBe(disposition);
   });
 
+  it('persists pending outcome and byte metadata', async () => {
+    const job = await jobFactory.create({}, {transient: {status: 'pending'}});
+
+    await deliver({jobId: job.id});
+
+    const [row] = await listEvents(job.id);
+    expect(row).toMatchObject({
+      outcome: 'pending',
+      outcomeReason: null,
+      storedPayloadBytes: expect.any(Number),
+      normalizedEventBytes: expect.any(Number),
+    });
+    expect(row?.storedPayloadBytes).toBeGreaterThan(0);
+    expect(row?.normalizedEventBytes).toBeGreaterThan(row?.storedPayloadBytes ?? 0);
+  });
+
   it('persists the normalized trigger reference with the listener event', async () => {
     const job = await jobFactory.create({}, {transient: {status: 'pending'}});
     const triggerReference: WorkflowRunTriggerReference = {

@@ -11,6 +11,9 @@ import {
   stepAttemptTerminatedEvents,
 } from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
+import {deliverEventToListener} from '../job-listener-events.js';
+import {jobListenerEvents} from '../schema/job-listener-events.js';
+import {jobs} from '../schema/jobs.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {workflowRuns} from '../schema/workflow-runs.js';
 import {
@@ -315,6 +318,52 @@ describe('workflow run queries', () => {
       expect(await stepAttemptTerminatedEvents(runningJobExecution.id)).toHaveLength(1);
       expect(await jobTerminatedEvents(succeededJob.id)).toHaveLength(1);
       expect(await jobTerminatedEvents(skippedJob.id)).toHaveLength(1);
+    });
+
+    test('abandons pending listener events when cancelling the run', async () => {
+      const run = await createWorkflowRun({
+        workspaceId,
+        projectId,
+        definitionId,
+        model: buildModel({jobs: {listen: {steps: [{run: 'echo listen'}]}}}),
+        triggerPayload: {
+          source: 'manual',
+          event: 'fire',
+          subscriptionId: crypto.randomUUID(),
+          userId: crypto.randomUUID(),
+        },
+      });
+      await updateWorkflowRunStatus({workflowRunId: run.id, status: 'running', expectedVersion: 1});
+      const [job] = await getJobsByWorkflowRunId(run.id);
+      if (!job) throw new Error('Expected listener job');
+      await db()
+        .update(jobs)
+        .set({mode: 'listening', listenerStatus: 'listening'})
+        .where(eq(jobs.id, job.id));
+      await deliverEventToListener({
+        jobId: job.id,
+        disposition: 'fire',
+        eventRef: crypto.randomUUID(),
+        deliveryId: crypto.randomUUID(),
+        source: 'github',
+        event: 'pull_request',
+        provider: 'github',
+        payload: {action: 'opened'},
+        receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      await cancelWorkflowRun({workflowRunId: run.id});
+
+      const [event] = await db()
+        .select()
+        .from(jobListenerEvents)
+        .where(eq(jobListenerEvents.jobId, job.id));
+      expect(event).toMatchObject({
+        outcome: 'abandoned',
+        outcomeReason: 'cancelled',
+        consumedByExecutionId: null,
+        payload: {action: 'opened'},
+      });
     });
 
     test('cancels the current rerun attempt after current_attempt moves', async () => {
