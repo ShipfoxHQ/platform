@@ -1,6 +1,7 @@
 // biome-ignore-all lint/a11y/noRedundantRoles: the story mirrors the job log region contract.
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: the story mirrors the focusable log surface.
 
+import {configureApiClient} from '@shipfox/client-api';
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -12,7 +13,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {expect, userEvent, waitFor, within} from 'storybook/test';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import type {
@@ -334,8 +335,53 @@ function StoryQueryProvider({
   children: ReactNode;
 }) {
   const [queryClient] = useState(() => createStoryQueryClient(run, stepDetails));
+  const [configured, setConfigured] = useState(false);
+
+  useEffect(() => {
+    if (!run) {
+      setConfigured(true);
+      return;
+    }
+
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: (input) => {
+        const url = storyRequestUrl(input);
+        const path = new URL(url, 'https://api.example.test').pathname;
+        const response =
+          path === `/workflows/runs/${run.id}/head`
+            ? {
+                body: {
+                  current_attempt: run.overview.currentAttempt,
+                  latest_attempt: run.overview.latestAttempt,
+                  current_status: run.status,
+                  updated_at: run.updatedAt,
+                },
+                status: 200,
+              }
+            : {body: {code: 'not-found'}, status: 404};
+        return new Response(JSON.stringify(response.body), {
+          status: response.status,
+          headers: {'content-type': 'application/json'},
+        });
+      },
+    });
+    setConfigured(true);
+
+    return () => {
+      configureApiClient({baseUrl: '', fetchImpl: undefined});
+    };
+  }, [run]);
+
+  if (!configured) return null;
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function storyRequestUrl(input: RequestInfo | URL): string {
+  if (input instanceof Request) return input.url;
+  if (input instanceof URL) return input.href;
+  return String(input);
 }
 
 function createStoryQueryClient(
