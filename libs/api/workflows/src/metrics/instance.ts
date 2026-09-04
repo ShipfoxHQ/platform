@@ -148,6 +148,27 @@ const executionPayloadLimit = meter.createCounter<{
   description: 'Workflow execution payload limit decisions by bounded field and outcome',
 });
 
+type WorkflowNextStepResponseKind = 'step' | 'wait' | 'done';
+type WorkflowNextStepResponseMetricLabels = {kind: WorkflowNextStepResponseKind};
+
+const nextStepResponseBytes = meter.createHistogram<WorkflowNextStepResponseMetricLabels>(
+  'workflows_next_step_response_size',
+  {
+    description: 'Serialized workflow next-step response sizes by response kind',
+    unit: 'By',
+    advice: {
+      explicitBucketBoundaries: [1_024, 10_240, 100_000, 256_000, 500_000, 868_928, 1_000_000],
+    },
+  },
+);
+
+const nextStepResponseOverflow = meter.createCounter<WorkflowNextStepResponseMetricLabels>(
+  'workflows_next_step_response_overflow',
+  {
+    description: 'Workflow next-step responses exceeding the serialized response budget',
+  },
+);
+
 const diagnosticOversized = meter.createCounter<{
   field: WorkflowDiagnosticFieldDto;
   reason: 'current_value_exceeds_inline_limit' | 'value_truncated_at_write_limit';
@@ -319,6 +340,18 @@ export function recordWorkflowExecutionPayloadSize(
     executionPayloadBytes.record(bytes, {field});
     executionPayloadLimit.add(1, {field, outcome});
   });
+}
+
+export function recordWorkflowNextStepResponseSize(
+  kind: WorkflowNextStepResponseKind,
+  bytes: number,
+): void {
+  if (!Number.isFinite(bytes) || bytes < 0) return;
+  recordMetric(() => nextStepResponseBytes.record(bytes, {kind}));
+}
+
+export function recordWorkflowNextStepResponseOverflow(kind: WorkflowNextStepResponseKind): void {
+  recordMetric(() => nextStepResponseOverflow.add(1, {kind}));
 }
 
 export function recordWorkflowDiagnosticOversized(

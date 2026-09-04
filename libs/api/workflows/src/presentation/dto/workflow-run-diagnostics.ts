@@ -15,19 +15,26 @@ export interface InlineDiagnostic<T> {
   oversized: OversizedFieldDto | null;
 }
 
+interface InlineDiagnosticOptions {
+  limitBytes?: number;
+  reason?: OversizedFieldDto['reason'];
+}
+
 export function inlineDiagnostic<T>(
   field: WorkflowDiagnosticFieldDto,
   value: T | null | undefined,
   storedBytes?: number | null,
+  options?: InlineDiagnosticOptions,
 ): InlineDiagnostic<T> {
-  const limitBytes = diagnosticByteLimit(field);
+  const limitBytes = options?.limitBytes ?? diagnosticByteLimit(field);
+  const reason = options?.reason ?? 'legacy_value_exceeds_inline_limit';
   if (storedBytes !== null && storedBytes !== undefined && storedBytes > limitBytes) {
     return {
       value: null,
       oversized: {
         field,
         stored_bytes: storedBytes,
-        reason: 'legacy_value_exceeds_inline_limit',
+        reason,
       },
     };
   }
@@ -41,7 +48,7 @@ export function inlineDiagnostic<T>(
     oversized: {
       field,
       stored_bytes: measuredBytes,
-      reason: 'legacy_value_exceeds_inline_limit',
+      reason,
     },
   };
 }

@@ -1,7 +1,8 @@
 import {
   type LogOutcomeDto,
-  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import {captureException} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
@@ -22,6 +23,7 @@ import type {
   StepAttemptStatus,
   StepStatus,
   StepStatusReason,
+  StepType,
 } from '#core/entities/step.js';
 import {deriveCompletion, isTerminal} from '#core/step-transition/decide-step-transition.js';
 import {
@@ -68,7 +70,7 @@ export interface StepAttemptDetail {
   workflowRunAttempt: number;
   jobId: string;
   jobExecutionId: string;
-  step: Step;
+  step: StepAttemptDetailStep;
   attempt: StepAttempt;
   /**
    * The session descriptor is projected independently from the attempt config.
@@ -77,9 +79,26 @@ export interface StepAttemptDetail {
    */
   sessionDescriptor?: unknown;
   diagnosticBytes?: {
-    config: number | null;
-    evaluationTrace: number | null;
+    authoredConfig?: number | null;
+    stepError?: number | null;
+    config?: number | null;
+    evaluationTrace?: number | null;
   };
+}
+
+/**
+ * The attempt-detail query intentionally does not return a complete Step. This
+ * projection contains only fields used by detail mappers and failure annotations.
+ */
+export interface StepAttemptDetailStep {
+  id: string;
+  jobExecutionId: string;
+  status: StepStatus;
+  type: StepType;
+  currentAttempt: number;
+  config: {tool?: unknown};
+  authoredConfig: Record<string, unknown> | null;
+  error: Record<string, unknown> | null;
 }
 
 export interface JobExecutionFailureOrigin {
@@ -160,15 +179,57 @@ export async function getStepAttemptDetail(params: {
       workflowRunAttempt: workflowRunAttempts.attempt,
       jobId: jobs.id,
       jobExecutionId: jobExecutions.id,
-      step: steps,
+      step: {
+        id: steps.id,
+        jobExecutionId: steps.jobExecutionId,
+        status: steps.status,
+        type: steps.type,
+        currentAttempt: steps.currentAttempt,
+        // Failure annotations only need tool provider/sensitivity. Keep the
+        // rest of the resolved step config out of the detail read.
+        config: sql<{tool?: unknown}>`jsonb_build_object('tool', case
+          when jsonb_typeof(${steps.config} -> 'tool') = 'object'
+          then jsonb_build_object(
+            'provider', ${steps.config} -> 'tool' -> 'provider',
+            'sensitivity', ${steps.config} -> 'tool' -> 'sensitivity'
+          )
+          else null
+        end)`,
+        authoredConfig: sql<Record<string, unknown> | null>`case
+          when ${steps.authoredConfig} is null then null
+          when jsonb_typeof(${steps.authoredConfig}) = 'object'
+            and octet_length(${steps.authoredConfig}::text) <= ${WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES}
+          then ${steps.authoredConfig}
+          else null
+        end`,
+        error: sql<Record<string, unknown> | null>`case
+          when ${steps.error} is null then null
+          when jsonb_typeof(${steps.error}) = 'object'
+            and octet_length(${steps.error}::text) <= ${WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES}
+          then ${steps.error}
+          else null
+        end`,
+      },
+      stepAuthoredConfigBytes: sql<number | null>`case
+        when ${steps.authoredConfig} is null then null
+        when jsonb_typeof(${steps.authoredConfig}) = 'object'
+        then octet_length(${steps.authoredConfig}::text)
+        else null
+      end`,
+      stepErrorBytes: sql<number | null>`case
+        when ${steps.error} is null then null
+        when jsonb_typeof(${steps.error}) = 'object'
+        then octet_length(${steps.error}::text)
+        else null
+      end`,
       stepAttempt: {
         ...getTableColumns(stepAttempts),
-        // Keep legacy oversized values out of the Node heap while retaining
+        // Keep oversized values out of the Node heap while retaining
         // their byte counts for the typed oversized-field response.
         config: sql<Record<string, unknown> | null>`case
           when ${stepAttempts.config} is null then null
           when jsonb_typeof(${stepAttempts.config}) = 'object'
-            and octet_length(${stepAttempts.config}::text) <= ${WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES}
+            and octet_length(${stepAttempts.config}::text) <= ${WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES}
           then ${stepAttempts.config}
           else null
         end`,
@@ -212,10 +273,12 @@ export async function getStepAttemptDetail(params: {
     workflowRunAttempt: row.workflowRunAttempt,
     jobId: row.jobId,
     jobExecutionId: row.jobExecutionId,
-    step: toStep(row.step),
+    step: row.step,
     attempt: toStepAttempt(row.stepAttempt),
     sessionDescriptor: row.stepAttemptSessionDescriptor,
     diagnosticBytes: {
+      authoredConfig: row.stepAuthoredConfigBytes ?? null,
+      stepError: row.stepErrorBytes ?? null,
       config: row.stepAttemptConfigBytes ?? null,
       evaluationTrace: row.stepAttemptEvaluationTraceBytes ?? null,
     },

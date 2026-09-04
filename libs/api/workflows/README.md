@@ -101,6 +101,8 @@ remain in logs and traces.
 | --- | --- | --- | --- |
 | `workflows_tool_invocation_duration_ms` | Instance | `provider`, `outcome` | Elapsed time for a claimed tool invocation through its durable result. The histogram uses millisecond units and explicit buckets through 120 seconds. |
 | `workflows_tool_invocation_reclaims` | Instance | `action` | Expired or non-retryable claims handled by the executor. `requeued` means the call advances for another read attempt. `failed` means the invocation is settled as interrupted. |
+| `workflows_next_step_response_size` | Instance | `kind` | Serialized `/steps/next` response size in bytes (`unit: By`) by `step`, `wait`, or `done`; explicit buckets are 1,024, 10,240, 100,000, 256,000, 500,000, 868,928, and 1,000,000 bytes. |
+| `workflows_next_step_response_overflow` | Instance | `kind` | Count of serialized `/steps/next` responses over the 1,000,000-byte budget; overflow is reported while the response remains served. |
 | `workflows_tool_invocations_queued` | Service | none | Current count of queued tool invocations across the shared database. |
 | `workflows_tool_invocations_in_flight` | Service | none | Current count of tool invocations claimed by an executor. |
 

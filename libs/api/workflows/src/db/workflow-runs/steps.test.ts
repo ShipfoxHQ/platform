@@ -1,7 +1,8 @@
 import {
   MAX_RESOLVED_STEP_CONFIG_BYTES,
-  WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+  WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
 import {WORKFLOW_STEP_ATTEMPT_INVOCATION_WRITE_MAX} from '#core/diagnostics.js';
@@ -28,6 +29,8 @@ import {
   insertRunningStepAttempt,
   markStepRunning,
 } from '../workflow-runs.js';
+
+const RUN_CONFIG_JSON_OVERHEAD_BYTES = Buffer.byteLength(JSON.stringify({run: ''}) ?? '', 'utf8');
 
 describe('workflow run queries', () => {
   let workspaceId: string;
@@ -97,7 +100,14 @@ describe('workflow run queries', () => {
 
       await db()
         .update(stepsTable)
-        .set({currentAttempt: attempt.attempt + 1})
+        .set({
+          currentAttempt: attempt.attempt + 1,
+          config: {
+            run: 'x'.repeat(MAX_RESOLVED_STEP_CONFIG_BYTES - RUN_CONFIG_JSON_OVERHEAD_BYTES),
+          },
+          authoredConfig: {run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES)},
+          error: {message: 'x'.repeat(WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES)},
+        })
         .where(eq(stepsTable.id, attempt.stepId));
 
       const detail = await getStepAttemptDetail({stepId: attempt.stepId, attempt: attempt.attempt});
@@ -120,19 +130,59 @@ describe('workflow run queries', () => {
       expect(detail).toMatchObject({
         workflowRunId: run.id,
         workflowRunAttemptId: job.workflowRunAttemptId,
-        step: {id: attempt.stepId},
+        step: {
+          id: attempt.stepId,
+          jobExecutionId: expect.any(String),
+          type: 'run',
+          config: {tool: null},
+          authoredConfig: null,
+          error: null,
+        },
         attempt: {id: attempt.id, attempt: attempt.attempt},
       });
+      expect(detail?.step).not.toHaveProperty('config.run');
+      expect(detail?.step).not.toHaveProperty('configPlan');
+      expect(detail?.step).not.toHaveProperty('condition');
+      expect(detail?.step).not.toHaveProperty('evaluationTrace');
+      expect(detail?.diagnosticBytes?.authoredConfig).toBeGreaterThan(
+        WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
+      );
+      expect(detail?.diagnosticBytes?.stepError).toBeGreaterThan(
+        WORKFLOW_DIAGNOSTIC_ERROR_MAX_BYTES,
+      );
       expect(scopedDetail).toMatchObject({workflowRunId: run.id});
       expect(latestAttempt).toBe(attempt.attempt);
       expect(foreignWorkspaceAttempt).toBeUndefined();
       expect(foreignScopedDetail).toBeUndefined();
 
       await db()
+        .update(stepsTable)
+        .set({
+          type: 'tool',
+          config: {
+            tool: {
+              provider: 'linear',
+              sensitivity: 'write',
+              with: {payload: 'x'.repeat(20_000)},
+            },
+          },
+        })
+        .where(eq(stepsTable.id, attempt.stepId));
+
+      const toolDetail = await getStepAttemptDetail({
+        stepId: attempt.stepId,
+        attempt: attempt.attempt,
+      });
+      expect(toolDetail?.step.config).toEqual({
+        tool: {provider: 'linear', sensitivity: 'write'},
+      });
+      expect(toolDetail?.step.config.tool).not.toHaveProperty('with');
+
+      await db()
         .update(stepAttemptsTable)
         .set({
           config: {
-            run: 'x'.repeat(WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES),
+            run: 'x'.repeat(WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES),
             session: {
               id: crypto.randomUUID(),
               key: 'main',
@@ -155,7 +205,7 @@ describe('workflow run queries', () => {
         segment: 3,
       });
       expect(oversizedDetail?.diagnosticBytes?.config).toBeGreaterThan(
-        WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
+        WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
       );
     });
   });

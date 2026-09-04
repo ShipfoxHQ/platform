@@ -11,6 +11,7 @@ import type {
 export type {
   WorkflowDiagnosticField,
   WorkflowDiagnosticUnavailableField,
+  WorkflowDiagnosticUnavailableReason,
 } from './workflow-diagnostics.js';
 
 /** A bounded page returned by one of the selected-job cursor endpoints. */

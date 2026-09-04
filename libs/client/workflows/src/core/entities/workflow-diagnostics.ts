@@ -15,8 +15,13 @@ export type WorkflowDiagnosticField =
   | 'condition'
   | 'trigger_events';
 
+export type WorkflowDiagnosticUnavailableReason =
+  | 'legacy_value_exceeds_inline_limit'
+  | 'value_exceeds_inline_limit'
+  | 'value_truncated_at_write_limit';
+
 export interface WorkflowDiagnosticUnavailableField {
   field: WorkflowDiagnosticField;
   storedBytes: number;
-  reason: 'legacy_value_exceeds_inline_limit';
+  reason: WorkflowDiagnosticUnavailableReason;
 }

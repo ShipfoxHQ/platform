@@ -37,6 +37,7 @@ export function getStepAttemptDetailRoute(projects: ProjectsModuleClient) {
           jobExecutionId: detail.jobExecutionId,
         },
         detail.diagnosticBytes,
+        detail.sessionDescriptor,
       );
     },
   });

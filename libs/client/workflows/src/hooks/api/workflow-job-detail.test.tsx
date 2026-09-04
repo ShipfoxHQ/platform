@@ -276,6 +276,11 @@ describe('selected-job API hooks', () => {
           storedBytes: 70_000,
           reason: 'legacy_value_exceeds_inline_limit',
         },
+        {
+          field: 'response',
+          storedBytes: 16_384,
+          reason: 'value_truncated_at_write_limit',
+        },
       ],
     });
   });
@@ -509,6 +514,11 @@ function workflowJobExecutionContextResponseDto(): WorkflowJobExecutionContextRe
         field: 'job_outputs',
         stored_bytes: 70_000,
         reason: 'legacy_value_exceeds_inline_limit',
+      },
+      {
+        field: 'response',
+        stored_bytes: 16_384,
+        reason: 'value_truncated_at_write_limit',
       },
     ],
   };

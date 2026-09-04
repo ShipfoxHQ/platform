@@ -2,17 +2,21 @@ import {
   agentConfigIssueSchema,
   agentStepSessionDescriptorSchema,
   deriveStepErrorCategory,
+  type OversizedFieldDto,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
   type StepAttemptDetailResponseDto,
   type StepAttemptDto,
   type StepDto,
   type StepErrorDto,
   type StepGateResultDto,
+  stepDiagnosticFieldSchema,
   stepErrorReasonSchema,
   WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX,
+  WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
 } from '@shipfox/api-workflows-dto';
 import type {Step, StepAttempt} from '#core/entities/step.js';
 import {GATE_EVALUATION_ERROR_REASON} from '#core/step-transition/evaluate-gate.js';
+import type {StepAttemptDetailStep} from '#db/workflow-runs/steps.js';
 import {toEvaluationTraceDto} from './evaluation-trace.js';
 import {inlineDiagnostic} from './workflow-run-diagnostics.js';
 
@@ -175,11 +179,39 @@ export function toStepGateResultDto(
   return {kind: 'unknown', data: gateResult};
 }
 
-function toSessionDto(config: Record<string, unknown> | null): StepDto['session'] {
-  const sessionValue = config?.session;
-  if (sessionValue === undefined || sessionValue === null) return null;
-  const session = agentStepSessionDescriptorSchema.safeParse(sessionValue);
+function toSessionDescriptorDto(value: unknown): StepDto['session'] {
+  const session = agentStepSessionDescriptorSchema.safeParse(value);
   return session.success ? session.data : null;
+}
+
+function toSessionDto(config: Record<string, unknown> | null): StepDto['session'] {
+  return toSessionDescriptorDto(config?.session);
+}
+
+const WRITE_TRUNCATED_STEP_FIELDS = new Set<string>([
+  'output',
+  'response',
+  'error',
+  'gate_result',
+  'restart_feedback',
+]);
+
+function toWriteTruncatedDiagnostic(error: StepAttempt['error']): OversizedFieldDto | null {
+  if (error?.reason !== 'step_result_too_large') return null;
+
+  const field = stepDiagnosticFieldSchema.safeParse(error.field);
+  if (!field.success || !WRITE_TRUNCATED_STEP_FIELDS.has(field.data)) return null;
+
+  const storedBytes = error.measuredBytes;
+  if (typeof storedBytes !== 'number' || !Number.isSafeInteger(storedBytes) || storedBytes < 0) {
+    return null;
+  }
+
+  return {
+    field: field.data,
+    stored_bytes: storedBytes,
+    reason: 'value_truncated_at_write_limit',
+  };
 }
 
 export function toStepDto(step: Step): StepDto {
@@ -236,7 +268,7 @@ export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
 }
 
 export function toStepAttemptDetailResponseDto(
-  step: Step,
+  step: StepAttemptDetailStep,
   attempt: StepAttempt,
   ancestry: {
     workflowRunId: string;
@@ -245,23 +277,42 @@ export function toStepAttemptDetailResponseDto(
     jobExecutionId: string;
   },
   diagnosticBytes?: {
+    authoredConfig?: number | null;
+    stepError?: number | null;
     config?: number | null;
     evaluationTrace?: number | null;
   },
+  sessionDescriptor?: unknown,
 ): StepAttemptDetailResponseDto {
-  const authoredConfig = inlineDiagnostic('authored_config', step.authoredConfig);
-  const config = inlineDiagnostic('config', attempt.config, diagnosticBytes?.config);
+  const stepConfigDiagnosticOptions = {
+    limitBytes: WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES,
+    reason: 'value_exceeds_inline_limit' as const,
+  };
+  const authoredConfig = inlineDiagnostic(
+    'authored_config',
+    step.authoredConfig,
+    diagnosticBytes?.authoredConfig,
+    stepConfigDiagnosticOptions,
+  );
+  const config = inlineDiagnostic(
+    'config',
+    attempt.config,
+    diagnosticBytes?.config,
+    stepConfigDiagnosticOptions,
+  );
   const evaluationTrace = inlineDiagnostic(
     'evaluation_trace',
     attempt.evaluationTrace,
     diagnosticBytes?.evaluationTrace,
   );
+  const stepError = inlineDiagnostic('error', step.error, diagnosticBytes?.stepError);
   const output = inlineDiagnostic('output', attempt.output);
   const outputs = inlineDiagnostic('outputs', attempt.output);
   const response = inlineDiagnostic('response', attempt.response);
   const error = inlineDiagnostic('error', attempt.error);
   const gateResult = inlineDiagnostic('gate_result', attempt.gateResult);
   const restartFeedback = inlineDiagnostic('restart_feedback', attempt.restartFeedback);
+  const writeTruncated = toWriteTruncatedDiagnostic(attempt.error);
 
   return {
     workflow_run_id: ancestry.workflowRunId,
@@ -273,7 +324,7 @@ export function toStepAttemptDetailResponseDto(
     attempt: attempt.attempt,
     authored_config: authoredConfig.value,
     config: config.value,
-    session: config.value === null ? null : toSessionDto(config.value),
+    session: toSessionDto(config.value) ?? toSessionDescriptorDto(sessionDescriptor),
     evaluation_trace:
       evaluationTrace.value === null ? null : toEvaluationTraceDto(evaluationTrace.value),
     output: output.value,
@@ -288,12 +339,14 @@ export function toStepAttemptDetailResponseDto(
       authoredConfig.oversized,
       config.oversized,
       evaluationTrace.oversized,
+      stepError.oversized,
       output.oversized,
       outputs.oversized,
       response.oversized,
       error.oversized,
       gateResult.oversized,
       restartFeedback.oversized,
+      writeTruncated,
     ].filter((field): field is NonNullable<typeof field> => field !== null),
   };
 }

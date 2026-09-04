@@ -11,6 +11,7 @@ import {workflowRunAttemptDtoSchema, workflowSourceSnapshotSchema} from './workf
  * the source of truth for derived job outputs.
  */
 export const WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES = 64 * 1024;
+export const WORKFLOW_STEP_CONFIG_INLINE_MAX_BYTES = 256 * 1024;
 export const WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES = 64 * 1024;
 export const WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES = 256 * 1024;
 export const WORKFLOW_DIAGNOSTIC_RESPONSE_MAX_BYTES = 8 * 1024;
@@ -58,7 +59,11 @@ export type WorkflowDiagnosticFieldDto = z.infer<typeof workflowDiagnosticFieldS
 export const oversizedFieldDtoSchema = z.object({
   field: workflowDiagnosticFieldSchema,
   stored_bytes: z.number().int().nonnegative(),
-  reason: z.literal('legacy_value_exceeds_inline_limit'),
+  reason: z.enum([
+    'legacy_value_exceeds_inline_limit',
+    'value_exceeds_inline_limit',
+    'value_truncated_at_write_limit',
+  ]),
 });
 
 export type OversizedFieldDto = z.infer<typeof oversizedFieldDtoSchema>;
