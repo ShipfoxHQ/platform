@@ -34,6 +34,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export class PollTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly description: string;
+  readonly lastError: unknown;
+
+  constructor(params: {timeoutMs: number; description: string; lastError?: unknown}) {
+    const suffix =
+      params.lastError === undefined ? '' : `; last error: ${errorMessage(params.lastError)}`;
+    super(`Timed out after ${params.timeoutMs}ms waiting for ${params.description}${suffix}`);
+    this.name = 'PollTimeoutError';
+    this.timeoutMs = params.timeoutMs;
+    this.description = params.description;
+    this.lastError = params.lastError;
+  }
+}
+
 /**
  * Polls `probe` with exponential backoff until it returns a non-null value or the
  * budget runs out. On timeout it throws an error that ends with `describe()`, so
@@ -64,10 +80,11 @@ export async function pollUntil<T>(
 
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
-      const suffix = lastError === undefined ? '' : `; last error: ${errorMessage(lastError)}`;
-      throw new Error(
-        `Timed out after ${options.timeoutMs}ms waiting for ${options.describe()}${suffix}`,
-      );
+      throw new PollTimeoutError({
+        timeoutMs: options.timeoutMs,
+        description: options.describe(),
+        lastError,
+      });
     }
 
     await sleep(Math.min(delay, remaining), options.signal);

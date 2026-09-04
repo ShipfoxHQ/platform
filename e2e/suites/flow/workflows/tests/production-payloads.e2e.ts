@@ -3,7 +3,7 @@ import {
   type WorkflowRunDetailResponseDto,
   type WorkflowRunJobExecutionDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {createApiClient, pollUntil} from '@shipfox/e2e-core';
+import {createApiClient, PollTimeoutError, pollUntil} from '@shipfox/e2e-core';
 import {
   findListenerExecutionBySequence,
   findListenerJob,
@@ -107,12 +107,7 @@ async function assertNoListenerExecutions(params: {
       `Oversized fire unexpectedly created listener executions: ${unexpected.sequences.join(', ')}`,
     );
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith(
-        `Timed out after ${params.timeoutMs}ms waiting for no listener executions:`,
-      )
-    ) {
+    if (error instanceof PollTimeoutError) {
       return;
     }
     throw error;
