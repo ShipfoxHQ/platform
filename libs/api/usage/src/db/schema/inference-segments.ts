@@ -40,6 +40,7 @@ export const usageInferenceSegments = pgTable(
       table.workspaceId,
       table.recordedAt,
     ),
+    index('usage_inference_segments_recorded_id_idx').on(table.recordedAt, table.id),
     index('usage_inference_segments_workflow_run_idx').on(table.workflowRunId),
     index('usage_inference_segments_job_execution_idx').on(table.jobExecutionId),
     index('usage_inference_segments_step_attempt_idx').on(table.stepAttemptId),

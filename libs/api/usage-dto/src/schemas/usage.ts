@@ -3,6 +3,7 @@ import {z} from 'zod';
 const idSchema = z.string().uuid();
 const nonEmptyStringSchema = z.string().min(1);
 const dateTimeSchema = z.string().datetime();
+const usageCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 export const MAX_USAGE_REPLAY_LIMIT = 500;
 export const MAX_INFERENCE_SEGMENTS_BATCH_SIZE = 1_000;
@@ -70,12 +71,12 @@ export const inferenceSegmentInputSchema = z
     dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
     windowStart: dateTimeSchema,
     windowEnd: dateTimeSchema,
-    requestCount: z.number().int().nonnegative(),
-    inputTokens: z.number().int().nonnegative(),
-    outputTokens: z.number().int().nonnegative(),
-    cacheCreationTokens: z.number().int().nonnegative(),
-    cacheReadTokens: z.number().int().nonnegative(),
-    reasoningTokens: z.number().int().nonnegative(),
+    requestCount: usageCountSchema,
+    inputTokens: usageCountSchema,
+    outputTokens: usageCountSchema,
+    cacheCreationTokens: usageCountSchema,
+    cacheReadTokens: usageCountSchema,
+    reasoningTokens: usageCountSchema,
   })
   .strict();
 export type InferenceSegmentInputDto = z.infer<typeof inferenceSegmentInputSchema>;
@@ -139,12 +140,12 @@ export const inferenceSegmentUsageHttpSchema = z
     dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
     window_start: dateTimeSchema,
     window_end: dateTimeSchema,
-    request_count: z.number().int().nonnegative(),
-    input_tokens: z.number().int().nonnegative(),
-    output_tokens: z.number().int().nonnegative(),
-    cache_creation_tokens: z.number().int().nonnegative(),
-    cache_read_tokens: z.number().int().nonnegative(),
-    reasoning_tokens: z.number().int().nonnegative(),
+    request_count: usageCountSchema,
+    input_tokens: usageCountSchema,
+    output_tokens: usageCountSchema,
+    cache_creation_tokens: usageCountSchema,
+    cache_read_tokens: usageCountSchema,
+    reasoning_tokens: usageCountSchema,
     recorded_at: dateTimeSchema,
   })
   .strict();

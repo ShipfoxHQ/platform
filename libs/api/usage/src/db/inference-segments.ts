@@ -1,6 +1,7 @@
 import {
   type InferenceSegmentInputDto,
   type InferenceSegmentUsageDto,
+  inferenceSegmentInputSchema,
   MAX_INFERENCE_SEGMENTS_BATCH_SIZE,
   MAX_USAGE_REPLAY_LIMIT,
   USAGE_INFERENCE_SEGMENT_RECORDED,
@@ -43,6 +44,7 @@ export function recordInferenceSegments(params: {
   if (params.segments.length === 0) {
     return Promise.resolve({recorded: 0, duplicates: 0});
   }
+  const segments = params.segments.map((segment) => inferenceSegmentInputSchema.parse(segment));
 
   return db().transaction(async (tx) => {
     const events: Array<{
@@ -53,8 +55,12 @@ export function recordInferenceSegments(params: {
     let duplicates = 0;
     const recordedAt = params.now ?? new Date();
 
-    for (const segment of params.segments) {
-      await lockSegment(tx, segment.segmentKey);
+    const segmentKeys = [...new Set(segments.map((segment) => segment.segmentKey))].sort();
+    for (const segmentKey of segmentKeys) {
+      await lockSegment(tx, segmentKey);
+    }
+
+    for (const segment of segments) {
       const [existing] = await tx
         .select()
         .from(usageInferenceSegments)

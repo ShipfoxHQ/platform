@@ -196,12 +196,46 @@ describe('Usage projections', () => {
 
   it('serializes concurrent terminal deliveries and publishes one durable snapshot', async () => {
     const events = jobEvents();
+    await recordJobExecutionQueued(events.queued);
     const results = await Promise.all([
       recordJobExecutionTerminated(events.terminated),
       recordJobExecutionTerminated(events.terminated),
     ]);
 
     expect(results.filter((result) => result.published)).toHaveLength(1);
+    expect(
+      await outboxFor(
+        'usage.job_execution.recorded',
+        'jobExecutionId',
+        events.terminated.jobExecutionId,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('defers terminal publication until the queued projection fills its fields', async () => {
+    const events = jobEvents();
+
+    await expect(recordJobExecutionTerminated(events.terminated)).resolves.toMatchObject({
+      published: false,
+      deferred: true,
+    });
+    expect(
+      await outboxFor(
+        'usage.job_execution.recorded',
+        'jobExecutionId',
+        events.terminated.jobExecutionId,
+      ),
+    ).toHaveLength(0);
+
+    await expect(recordJobExecutionQueued(events.queued)).resolves.toMatchObject({
+      published: true,
+      deferred: false,
+    });
+    const row = await getJobExecutionUsage({
+      workspaceId: events.queued.workspaceId,
+      jobExecutionId: events.queued.jobExecutionId,
+    });
+    expect(row).toMatchObject({requestedLabels: ['linux'], runNumber: 2, state: 'terminated'});
     expect(
       await outboxFor(
         'usage.job_execution.recorded',
@@ -274,6 +308,8 @@ describe('Usage projections', () => {
     second.queued.projectId = first.queued.projectId;
     second.terminated.workspaceId = first.terminated.workspaceId;
     second.terminated.projectId = first.terminated.projectId;
+    await recordJobExecutionQueued(first.queued);
+    await recordJobExecutionQueued(second.queued);
     await Promise.all([
       recordJobExecutionTerminated(first.terminated),
       recordJobExecutionTerminated(second.terminated),
@@ -303,11 +339,28 @@ describe('Usage projections', () => {
     `);
     expect(Number(partitions.rows[0]?.count)).toBeGreaterThan(200);
 
-    const result = await dropExpiredUsagePartitions({
-      retentionDays: 400,
-      now: new Date('2026-09-04T00:00:00.000Z'),
+    const future = inferenceSegment();
+    await recordInferenceSegments({
+      segments: [future],
+      now: new Date('2032-02-15T00:00:00.000Z'),
     });
-    expect(result.dropped).toBeGreaterThan(0);
+    const provisioned = await dropExpiredUsagePartitions({
+      retentionDays: 100_000,
+      now: new Date('2032-02-15T00:00:00.000Z'),
+    });
+    expect(provisioned.dropped).toBe(0);
+    const futurePartition = await db().execute(sql`
+      select tableoid::regclass::text as name
+      from usage_inference_segments
+      where segment_key = ${future.segmentKey}
+    `);
+    expect(futurePartition.rows[0]?.name).toBe('usage_inference_segments_2032_02');
+
+    const result = await dropExpiredUsagePartitions({
+      retentionDays: 29,
+      now: new Date('2020-03-02T00:00:00.000Z'),
+    });
+    expect(result.dropped).toBe(2);
     expect(result.partitions.every((name) => monthlyPartitionPattern.test(name))).toBe(true);
   });
 });

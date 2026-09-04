@@ -6,7 +6,7 @@ import {
   toInferenceSegmentUsage,
 } from '#db/inference-segments.js';
 import {listJobExecutionUsage, toJobExecutionUsage} from '#db/job-executions.js';
-import {usageInferenceSegmentRecorded} from '#metrics/instance.js';
+import {addUsageMetric, usageInferenceSegmentRecorded} from '#metrics/instance.js';
 
 export function createUsageInterModulePresentation(): InterModulePresentation<
   typeof usageInterModuleContract
@@ -15,10 +15,10 @@ export function createUsageInterModulePresentation(): InterModulePresentation<
     recordInferenceSegments: async (input) => {
       const result = await recordInferenceSegments(input);
       if (result.recorded > 0) {
-        usageInferenceSegmentRecorded.add(result.recorded, {outcome: 'recorded'});
+        addUsageMetric(usageInferenceSegmentRecorded, result.recorded, 'recorded');
       }
       if (result.duplicates > 0) {
-        usageInferenceSegmentRecorded.add(result.duplicates, {outcome: 'duplicate'});
+        addUsageMetric(usageInferenceSegmentRecorded, result.duplicates, 'duplicate');
       }
       return result;
     },

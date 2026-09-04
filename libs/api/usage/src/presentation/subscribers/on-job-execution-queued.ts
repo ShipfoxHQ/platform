@@ -1,6 +1,12 @@
 import type {WorkflowsJobExecutionQueuedEventDto} from '@shipfox/api-workflows-dto';
 import {recordJobExecutionQueued} from '#db/job-executions.js';
+import {addUsageMetric, usageJobExecutionRecorded} from '#metrics/instance.js';
 
-export function onJobExecutionQueued(payload: WorkflowsJobExecutionQueuedEventDto): Promise<void> {
-  return recordJobExecutionQueued(payload);
+export async function onJobExecutionQueued(
+  payload: WorkflowsJobExecutionQueuedEventDto,
+): Promise<void> {
+  const result = await recordJobExecutionQueued(payload);
+  if (result.published) {
+    addUsageMetric(usageJobExecutionRecorded, 1, 'recorded');
+  }
 }

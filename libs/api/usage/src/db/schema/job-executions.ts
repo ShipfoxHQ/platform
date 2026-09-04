@@ -42,6 +42,10 @@ export const usageJobExecutions = pgTable(
   },
   (table) => [
     index('usage_job_executions_workspace_recorded_idx').on(table.workspaceId, table.recordedAt),
+    index('usage_job_executions_recorded_job_execution_idx').on(
+      table.recordedAt,
+      table.jobExecutionId,
+    ),
     index('usage_job_executions_workflow_run_idx').on(table.workflowRunId),
     index('usage_job_executions_job_execution_idx').on(table.jobExecutionId),
   ],

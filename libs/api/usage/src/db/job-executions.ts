@@ -42,45 +42,72 @@ export interface JobExecutionEventIdentity {
   workflowRunAttemptId: string;
 }
 
-export async function recordJobExecutionQueued(
+export function recordJobExecutionQueued(
   payload: WorkflowsJobExecutionQueuedEventDto,
-): Promise<void> {
-  await db().transaction(async (tx) => {
+): Promise<RecordJobExecutionTerminatedResult> {
+  return db().transaction(async (tx) => {
     await lockJobExecution(tx, payload.jobExecutionId);
     const current = await loadJobExecution(tx, payload.jobExecutionId);
     const identity = eventIdentity(payload);
-
-    if (!current) {
-      await tx.insert(usageJobExecutions).values({
-        ...identity,
-        workspaceId: payload.workspaceId,
-        projectId: payload.projectId,
-        definitionId: payload.definitionId ?? null,
-        jobKey: payload.jobKey ?? null,
-        runNumber: payload.runNumber ?? null,
-        requestedLabels: payload.requiredLabels,
-        queuedAt: new Date(payload.queuedAt),
-        state: 'queued',
-      });
-      return;
-    }
-
-    assertIdentity(current, identity);
-    await tx
-      .update(usageJobExecutions)
-      .set({
-        workspaceId: current.workspaceId ?? payload.workspaceId,
-        projectId: current.projectId ?? payload.projectId,
-        definitionId: current.definitionId ?? payload.definitionId ?? null,
-        jobKey: current.jobKey ?? payload.jobKey ?? null,
-        runNumber: current.runNumber ?? payload.runNumber ?? null,
-        requestedLabels: current.requestedLabels ?? payload.requiredLabels,
-        queuedAt: current.queuedAt ?? new Date(payload.queuedAt),
-        state:
-          current.state === 'running' || current.state === 'terminated' ? current.state : 'queued',
-      })
-      .where(eq(usageJobExecutions.jobExecutionId, payload.jobExecutionId));
+    const row = current
+      ? await updateQueuedJobExecution(tx, current, payload, identity)
+      : await insertQueuedJobExecution(tx, payload, identity);
+    return publishJobExecutionIfReady(tx, row);
   });
+}
+
+async function insertQueuedJobExecution(
+  tx: Transaction,
+  payload: WorkflowsJobExecutionQueuedEventDto,
+  identity: JobExecutionEventIdentity,
+): Promise<UsageJobExecutionRow> {
+  const [inserted] = await tx
+    .insert(usageJobExecutions)
+    .values({
+      ...identity,
+      workspaceId: payload.workspaceId,
+      projectId: payload.projectId,
+      definitionId: payload.definitionId ?? null,
+      jobKey: payload.jobKey ?? null,
+      runNumber: payload.runNumber ?? null,
+      requestedLabels: payload.requiredLabels,
+      queuedAt: new Date(payload.queuedAt),
+      state: 'queued',
+    })
+    .returning();
+  if (!inserted) throw new Error('Usage job execution was not inserted');
+  return inserted;
+}
+
+async function updateQueuedJobExecution(
+  tx: Transaction,
+  current: UsageJobExecutionRow,
+  payload: WorkflowsJobExecutionQueuedEventDto,
+  identity: JobExecutionEventIdentity,
+): Promise<UsageJobExecutionRow> {
+  assertIdentity(current, identity);
+  const [updated] = await tx
+    .update(usageJobExecutions)
+    .set({
+      workspaceId: current.workspaceId ?? payload.workspaceId,
+      projectId: current.projectId ?? payload.projectId,
+      definitionId: current.definitionId ?? payload.definitionId ?? null,
+      jobKey: current.jobKey ?? payload.jobKey ?? null,
+      runNumber: current.runNumber ?? payload.runNumber ?? null,
+      requestedLabels: current.requestedLabels ?? payload.requiredLabels,
+      queuedAt: current.queuedAt ?? new Date(payload.queuedAt),
+      state: queuedProjectionState(current.state),
+    })
+    .where(eq(usageJobExecutions.jobExecutionId, payload.jobExecutionId))
+    .returning();
+  if (!updated) throw new Error('Usage job execution disappeared during queueing');
+  return updated;
+}
+
+function queuedProjectionState(
+  state: UsageJobExecutionRow['state'],
+): 'queued' | 'running' | 'terminated' {
+  return state === 'running' || state === 'terminated' ? state : 'queued';
 }
 
 export function recordJobExecutionClaimed(payload: RunnerJobClaimedEvent): Promise<void> {
@@ -205,6 +232,7 @@ export async function recordJobExecutionLeaseExpired(
 
 export interface RecordJobExecutionTerminatedResult {
   published: boolean;
+  deferred: boolean;
   row: UsageJobExecutionRow;
 }
 
@@ -225,17 +253,7 @@ async function recordTerminatedInTransaction(
   const row = current
     ? await updateTerminatedJobExecution(tx, current, payload, identity, now)
     : await insertTerminatedJobExecution(tx, payload, identity, now);
-  const published = current?.recordedAt == null;
-
-  if (published) {
-    await writeOutboxEvent<UsageEventMap>(tx, usageOutbox, {
-      type: USAGE_JOB_EXECUTION_RECORDED,
-      orderingKey: row.workflowRunId,
-      payload: toRecordedJobExecution(row),
-    });
-  }
-
-  return {published, row};
+  return publishJobExecutionIfReady(tx, row);
 }
 
 async function insertTerminatedJobExecution(
@@ -276,7 +294,7 @@ async function insertTerminatedJobExecution(
       cancellationReason: payload.cancellationReason ?? null,
       durationSeconds: durationSeconds(startedAt, finishedAt),
       state: 'terminated',
-      recordedAt: now,
+      recordedAt: null,
     })
     .returning();
   if (!inserted) throw new Error('Usage job execution was not inserted');
@@ -315,12 +333,47 @@ async function updateTerminatedJobExecution(
       cancellationReason: firstValue(current.cancellationReason, payload.cancellationReason),
       durationSeconds: preferValue(current.durationSeconds, durationSeconds(startedAt, finishedAt)),
       state: 'terminated',
-      recordedAt: preferValue(current.recordedAt, now),
+      recordedAt: current.recordedAt,
     })
     .where(eq(usageJobExecutions.jobExecutionId, payload.jobExecutionId))
     .returning();
   if (!updated) throw new Error('Usage job execution disappeared during termination');
   return updated;
+}
+
+async function publishJobExecutionIfReady(
+  tx: Transaction,
+  row: UsageJobExecutionRow,
+): Promise<RecordJobExecutionTerminatedResult> {
+  if (row.state !== 'terminated' || row.recordedAt !== null) {
+    return {published: false, deferred: false, row};
+  }
+  if (!isReadyForPublication(row)) {
+    return {published: false, deferred: true, row};
+  }
+
+  const recordedAt = new Date();
+  const [recorded] = await tx
+    .update(usageJobExecutions)
+    .set({recordedAt})
+    .where(eq(usageJobExecutions.jobExecutionId, row.jobExecutionId))
+    .returning();
+  if (!recorded) throw new Error('Usage job execution disappeared during publication');
+
+  await writeOutboxEvent<UsageEventMap>(tx, usageOutbox, {
+    type: USAGE_JOB_EXECUTION_RECORDED,
+    orderingKey: recorded.workflowRunId,
+    payload: toRecordedJobExecution(recorded),
+  });
+
+  return {published: true, deferred: false, row: recorded};
+}
+
+function isReadyForPublication(row: UsageJobExecutionRow): boolean {
+  // A null queued_at means the execution was never queued. Otherwise, wait for
+  // the queued projection because it is the source of requiredLabels. runNumber
+  // is optional on older queued events and is still filled when present.
+  return row.queuedAt === null || row.requestedLabels !== null;
 }
 
 function mergeTerminatedRunnerIdentity(
@@ -352,6 +405,7 @@ export async function getJobExecutionUsage(params: {
       and(
         eq(usageJobExecutions.workspaceId, params.workspaceId),
         eq(usageJobExecutions.jobExecutionId, params.jobExecutionId),
+        isNotNull(usageJobExecutions.projectId),
       ),
     );
   return row ?? null;
@@ -368,6 +422,7 @@ export function listJobExecutionsForRun(params: {
       and(
         eq(usageJobExecutions.workspaceId, params.workspaceId),
         eq(usageJobExecutions.workflowRunId, params.workflowRunId),
+        isNotNull(usageJobExecutions.projectId),
       ),
     )
     .orderBy(asc(usageJobExecutions.queuedAt), asc(usageJobExecutions.jobExecutionId));

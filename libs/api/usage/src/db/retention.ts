@@ -24,6 +24,7 @@ export function dropExpiredUsagePartitions(
   const cutoff = new Date(now.getTime() - retentionDays * MS_PER_DAY);
 
   return db().transaction(async (tx) => {
+    await tx.execute(sql`select usage_ensure_monthly_partitions(${now})`);
     const result = await tx.execute(sql`
       select child.relname as name
       from pg_inherits
