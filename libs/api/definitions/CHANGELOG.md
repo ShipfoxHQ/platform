@@ -1,5 +1,18 @@
 # @shipfox/api-definitions
 
+## 21.2.0
+
+### Patch Changes
+
+- 41e1cfc: Surfaces precise, safe trigger event errors in the event detail callout.
+- Updated dependencies [0745878]
+- Updated dependencies [351569e]
+- Updated dependencies [41e1cfc]
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-temporal@0.5.0
+  - @shipfox/expression@2.7.0
+  - @shipfox/api-definitions-dto@21.2.0
+
 ## 21.1.0
 
 ### Patch Changes

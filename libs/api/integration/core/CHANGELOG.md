@@ -1,5 +1,31 @@
 # @shipfox/api-integration-core
 
+## 21.2.0
+
+### Minor Changes
+
+- 5e123f1: Enforce repository authorization for GitHub and Gitea checkout targets.
+
+### Patch Changes
+
+- 0427672: Enforce GitHub repository authorization and expose repository-access settings in the integration module.
+- Updated dependencies [0745878]
+- Updated dependencies [1f2c634]
+- Updated dependencies [5e123f1]
+- Updated dependencies [12cc22e]
+- Updated dependencies [8407bd1]
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-temporal@0.5.0
+  - @shipfox/api-workflows-dto@21.2.0
+  - @shipfox/api-integration-gitea@21.2.0
+  - @shipfox/api-integration-github@21.2.0
+  - @shipfox/api-integration-spi@4.1.0
+  - @shipfox/api-integration-jira@21.2.0
+  - @shipfox/api-integration-sentry@21.2.0
+  - @shipfox/api-integration-linear@21.2.0
+  - @shipfox/api-integration-slack@21.2.0
+  - @shipfox/api-integration-webhook@21.2.0
+
 ## 21.1.0
 
 ### Patch Changes

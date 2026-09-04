@@ -1,5 +1,11 @@
 # @shipfox/api-integration-spi
 
+## 4.1.0
+
+### Minor Changes
+
+- 5e123f1: Enforce repository authorization for GitHub and Gitea checkout targets.
+
 ## 4.0.0
 
 ### Major Changes

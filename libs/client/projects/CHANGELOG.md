@@ -1,5 +1,11 @@
 # @shipfox/client-projects
 
+## 35.0.0
+
+### Patch Changes
+
+- @shipfox/api-definitions-dto@21.2.0
+
 ## 34.0.0
 
 ### Patch Changes

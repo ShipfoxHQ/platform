@@ -1,5 +1,19 @@
 # @shipfox/api-workflows-dto
 
+## 21.2.0
+
+### Minor Changes
+
+- 1f2c634: Adds bounded workflow execution trigger-event list and detail reads with stable
+  pagination and size-limited payload previews. Existing execution context reads
+  continue to support historical executions.
+- 12cc22e: Adds bounded Agent Access tools for workflow execution trigger-event diagnostics.
+
+### Patch Changes
+
+- 8407bd1: Rejects oversized listener fire deliveries without suppressing matching resolve events.
+  - @shipfox/api-definitions-dto@21.2.0
+
 ## 21.1.0
 
 ### Minor Changes

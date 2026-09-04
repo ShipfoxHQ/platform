@@ -1,5 +1,18 @@
 # @shipfox/client-features
 
+## 35.0.0
+
+### Patch Changes
+
+- Updated dependencies [35fd29b]
+- Updated dependencies [7fda354]
+- Updated dependencies [8407bd1]
+- Updated dependencies [41e1cfc]
+  - @shipfox/client-workflows@35.0.0
+  - @shipfox/client-triggers@35.0.0
+  - @shipfox/client-projects@35.0.0
+  - @shipfox/client-onboarding@35.0.0
+
 ## 34.0.0
 
 ### Patch Changes
