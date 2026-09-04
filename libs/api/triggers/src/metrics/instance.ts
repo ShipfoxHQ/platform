@@ -1,17 +1,20 @@
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
 
 const meter = instanceMetrics.getMeter('triggers');
+type TriggerEventMetricOrigin = 'integration' | 'manual' | 'cron' | 'dev';
 
 export const eventReceivedCount = meter.createCounter<{
   provider: string;
+  origin: TriggerEventMetricOrigin;
 }>('triggers_event_received', {
-  description: 'Trigger events received by provider (e.g. github, gitea, sentry, manual)',
+  description: 'Trigger events received by provider and origin',
 });
 
 export const subscriptionTriggeredCount = meter.createCounter<{
   provider: string;
+  origin: TriggerEventMetricOrigin;
 }>('triggers_subscription_triggered', {
-  description: 'Subscriptions that resulted in a workflow run, by provider',
+  description: 'Subscriptions that resulted in a workflow run, by provider and origin',
 });
 
 export const listenerDeliveryRejectionsCount = meter.createCounter<{
@@ -22,9 +25,10 @@ export const listenerDeliveryRejectionsCount = meter.createCounter<{
 
 export const eventOutcomeCount = meter.createCounter<{
   provider: string;
+  origin: TriggerEventMetricOrigin;
   outcome: 'discarded' | 'routed' | 'failed' | 'errored';
 }>('triggers_event_outcome', {
-  description: 'Final outcomes of trigger events by provider and outcome',
+  description: 'Final outcomes of trigger events by provider, origin, and outcome',
 });
 
 export const cronFiredCount = meter.createCounter<{outcome: 'fired' | 'errored'}>(

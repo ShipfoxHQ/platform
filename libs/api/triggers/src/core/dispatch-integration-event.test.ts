@@ -79,6 +79,7 @@ function projectMismatch() {
 
 interface DispatchOverrides {
   eventRef?: string;
+  origin?: 'integration' | 'manual' | 'cron' | 'dev';
   workspaceId?: string;
   provider?: string;
   source?: string;
@@ -93,6 +94,7 @@ function dispatch(overrides: DispatchOverrides = {}): Promise<void> {
   return dispatchIntegrationEvent({
     workflows,
     eventRef: overrides.eventRef ?? crypto.randomUUID(),
+    ...(overrides.origin === undefined ? {} : {origin: overrides.origin}),
     provider: overrides.provider ?? overrides.source ?? 'github',
     source: overrides.source ?? 'github',
     event: overrides.event ?? 'push',
@@ -921,6 +923,17 @@ describe('dispatchIntegrationEvent trigger history', () => {
     expect(event.matchedCount).toBe(0);
     expect(event.processedAt).toBeInstanceOf(Date);
     expect(await decisionsForEvent(event.id)).toHaveLength(0);
+  });
+
+  test('records an explicit dev origin', async () => {
+    const workspaceId = crypto.randomUUID();
+    const eventRef = crypto.randomUUID();
+
+    await dispatch({workspaceId, eventRef, origin: 'dev'});
+
+    const event = await receivedEvent(eventRef);
+    if (!event) throw new Error('received event not found');
+    expect(event.origin).toBe('dev');
   });
 
   test('records a routed event with a triggered decision per matched subscription', async () => {

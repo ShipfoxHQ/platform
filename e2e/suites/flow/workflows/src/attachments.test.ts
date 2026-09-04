@@ -12,6 +12,9 @@ describe('failure attachments', () => {
     expect(boundedDiagnosticValue({payload: 'x'.repeat(16 * 1024 + 1)})).toEqual({
       payload: {__e2e_value_omitted__: true, serialized_utf8_bytes: 16 * 1024 + 3},
     });
+    expect(boundedDiagnosticValue({message: 'x'.repeat(16 * 1024 + 1)})).toEqual({
+      message: {__e2e_value_omitted__: true, serialized_utf8_bytes: 16 * 1024 + 1},
+    });
     expect(boundedDiagnosticValue({message: 'small', circular})).toEqual({
       message: 'small',
       circular: {self: {__e2e_value_omitted__: true, reason: 'circular'}},

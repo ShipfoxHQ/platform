@@ -10,6 +10,7 @@ import {
   INTEGRATION_EVENT_RECEIVED,
   type IntegrationsEventMap,
 } from '@shipfox/api-integration-core-dto';
+import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import {
   WORKFLOWS_JOB_ACTIVATED,
@@ -20,7 +21,7 @@ import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-modul
 import {type ShipfoxModule, subscriberFactory} from '@shipfox/node-module';
 import {db, migrationsPath, triggersOutbox} from '#db/index.js';
 import {registerTriggersServiceMetrics} from '#metrics/index.js';
-import {createTriggersE2eRoutes, type GetTriggersE2eConnection} from '#presentation/e2e-routes.js';
+import {createTriggersE2eRoutes} from '#presentation/e2e-routes.js';
 import {createTriggerRoutes} from '#presentation/index.js';
 import {createTriggersInterModulePresentation} from '#presentation/inter-module.js';
 import {
@@ -84,20 +85,21 @@ export interface CreateTriggersModuleOptions {
   workflows: WorkflowsModuleClient;
   definitions: DefinitionsInterModuleClient;
   projects: ProjectsModuleClient;
-  getIntegrationConnectionById: GetTriggersE2eConnection;
+  /** Enables the E2E synthetic dispatch route when supplied by the composition root. */
+  integrations?: IntegrationsModuleClient | undefined;
 }
 
 export function createTriggersModule({
   workflows,
   definitions,
   projects,
-  getIntegrationConnectionById,
+  integrations,
 }: CreateTriggersModuleOptions): ShipfoxModule {
   return {
     name: 'triggers',
     database: {db, migrationsPath, databaseNamespace: 'triggers'},
     routes: createTriggerRoutes(workflows, definitions, projects),
-    e2eRoutes: [createTriggersE2eRoutes({workflows, getIntegrationConnectionById})],
+    e2eRoutes: [createTriggersE2eRoutes({workflows, integrations})],
     metrics: registerTriggersServiceMetrics,
     interModulePresentations: [createTriggersInterModulePresentation()],
     publishers: [{name: 'triggers', table: triggersOutbox, db}],

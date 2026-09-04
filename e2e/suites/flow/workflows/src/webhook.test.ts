@@ -47,7 +47,10 @@ describe('webhook helpers', () => {
       2,
       'get',
       expect.stringContaining('cursor=cursor-1'),
+      {signal: expect.any(AbortSignal)},
     );
-    expect(requestJson).toHaveBeenLastCalledWith('get', `/trigger-events/${detail.id}`);
+    expect(requestJson).toHaveBeenLastCalledWith('get', `/trigger-events/${detail.id}`, {
+      signal: expect.any(AbortSignal),
+    });
   });
 });

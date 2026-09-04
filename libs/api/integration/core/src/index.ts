@@ -262,7 +262,6 @@ export interface WebhookDeliverySource {
 
 export interface IntegrationsContext {
   module: ShipfoxModule;
-  getIntegrationConnectionById: GetIntegrationConnectionByIdFn;
   registry: IntegrationProviderRegistry;
   capabilities: {
     sourceControl: IntegrationSourceControlService;
@@ -355,7 +354,12 @@ export async function createIntegrationsContext(
   const module: ShipfoxModule = {
     name: 'integrations',
     interModulePresentations: [
-      createIntegrationsInterModulePresentation({registry, sourceControl, repositoryAuthorizer}),
+      createIntegrationsInterModulePresentation({
+        registry,
+        sourceControl,
+        getIntegrationConnectionById: resolveIntegrationConnectionById,
+        repositoryAuthorizer,
+      }),
     ],
     startupTasks: runStartupTasks,
     database: [
@@ -402,7 +406,6 @@ export async function createIntegrationsContext(
 
   return {
     module,
-    getIntegrationConnectionById: resolveIntegrationConnectionById,
     registry,
     capabilities: {sourceControl, repositoryAuthorizer},
     sourceControl,

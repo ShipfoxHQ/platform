@@ -81,6 +81,7 @@ async function assertNoListenerExecutions(params: {
   timeoutMs: number;
 }): Promise<void> {
   let diagnostic = 'no bounded workflow observation observed';
+  let observedSuccessfully = false;
   try {
     const unexpected = await pollUntil(
       {
@@ -96,6 +97,7 @@ async function assertNoListenerExecutions(params: {
           token: params.token,
         });
         const executions = listenerExecutions(observation);
+        observedSuccessfully = true;
         diagnostic = `listener execution count=${executions.length}`;
         return executions.length === 0
           ? null
@@ -106,7 +108,7 @@ async function assertNoListenerExecutions(params: {
       `Oversized fire unexpectedly created listener executions: ${unexpected.sequences.join(', ')}`,
     );
   } catch (error) {
-    if (error instanceof PollTimeoutError) {
+    if (error instanceof PollTimeoutError && observedSuccessfully) {
       return;
     }
     throw error;

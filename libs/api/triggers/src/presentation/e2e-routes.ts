@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import type {IntegrationsModuleClient} from '@shipfox/api-integration-core-dto/inter-module';
 import {
   e2eDispatchListenerEventBodySchema,
   e2eDispatchListenerEventResponseSchema,
@@ -11,19 +12,6 @@ import {hasJobListenerSubscriptions} from '#db/job-listener-subscriptions.js';
 
 const listenerReadinessParamsSchema = z.object({jobId: z.string().uuid()});
 const listenerReadinessResponseSchema = z.object({ready: z.boolean()});
-
-export interface TriggersE2eConnection {
-  id: string;
-  workspaceId: string;
-  provider: string;
-  slug: string;
-  displayName: string;
-  lifecycleStatus: 'active' | 'disabled' | 'error';
-}
-
-export type GetTriggersE2eConnection = (
-  connectionId: string,
-) => Promise<TriggersE2eConnection | undefined>;
 
 const listenerReadinessRoute = defineRoute({
   method: 'GET',
@@ -45,7 +33,7 @@ const listenerReadinessRoute = defineRoute({
  */
 function createDispatchListenerEventRoute(params: {
   workflows: WorkflowsModuleClient;
-  getIntegrationConnectionById: GetTriggersE2eConnection;
+  integrations: IntegrationsModuleClient;
 }) {
   return defineRoute({
     method: 'POST',
@@ -57,7 +45,9 @@ function createDispatchListenerEventRoute(params: {
       response: {202: e2eDispatchListenerEventResponseSchema},
     },
     handler: async (request, reply) => {
-      const connection = await params.getIntegrationConnectionById(request.body.connection_id);
+      const connection = await params.integrations.resolveConnectionById({
+        connectionId: request.body.connection_id,
+      });
       if (!connection) {
         throw new ClientError(
           'Integration connection not found',
@@ -114,10 +104,20 @@ function createDispatchListenerEventRoute(params: {
 
 export function createTriggersE2eRoutes(params: {
   workflows: WorkflowsModuleClient;
-  getIntegrationConnectionById: GetTriggersE2eConnection;
+  integrations?: IntegrationsModuleClient | undefined;
 }): RouteGroup {
   return {
     prefix: '/triggers',
-    routes: [listenerReadinessRoute, createDispatchListenerEventRoute(params)],
+    routes: [
+      listenerReadinessRoute,
+      ...(params.integrations === undefined
+        ? []
+        : [
+            createDispatchListenerEventRoute({
+              workflows: params.workflows,
+              integrations: params.integrations,
+            }),
+          ]),
+    ],
   };
 }

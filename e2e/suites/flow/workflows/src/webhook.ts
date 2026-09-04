@@ -88,6 +88,7 @@ export async function waitForTriggerEvent(params: {
   timeoutMs: number;
 }): Promise<TriggerEventDetailResponseDto> {
   const client = createApiClient({token: params.token});
+  const requestSignal = AbortSignal.timeout(params.timeoutMs);
   let lastObserved = 'no matching trigger event observed';
 
   return await pollUntil<TriggerEventDetailResponseDto>(
@@ -112,6 +113,7 @@ export async function waitForTriggerEvent(params: {
         const events = await client.requestJson<TriggerEventListResponseDto>(
           'get',
           `/trigger-events?${search}`,
+          {signal: requestSignal},
         );
         page += 1;
         lastObserved = `page=${page}, count=${events.trigger_events.length}, deliveryId=${params.deliveryId}`;
@@ -122,6 +124,7 @@ export async function waitForTriggerEvent(params: {
           return await client.requestJson<TriggerEventDetailResponseDto>(
             'get',
             `/trigger-events/${event.id}`,
+            {signal: requestSignal},
           );
         }
         if (events.next_cursor === null) return null;

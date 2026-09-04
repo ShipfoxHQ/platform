@@ -95,6 +95,18 @@ describe('pollUntil', () => {
     });
   });
 
+  test('times out with the description when no probe error was observed', async () => {
+    const result = pollUntil(
+      {
+        describe: () => 'resource to appear',
+        timeoutMs: 0,
+      },
+      () => Promise.resolve(null),
+    );
+
+    await expect(result).rejects.toThrow('Timed out after 0ms waiting for resource to appear');
+  });
+
   test('stops when the abort signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();

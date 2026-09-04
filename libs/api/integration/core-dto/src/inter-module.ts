@@ -7,6 +7,14 @@ const provider = z.string().min(1);
 const capability = z.enum(['source_control', 'agent_tools']);
 const safeRef = z.string().refine(isSafeRefInput, 'Ref contains a control character');
 const connection = z.object({id, provider, slug: z.string().min(1)});
+const connectionById = z.object({
+  id,
+  workspaceId: id,
+  provider,
+  slug: z.string().min(1),
+  displayName: z.string(),
+  lifecycleStatus: z.enum(['active', 'disabled', 'error']),
+});
 const repository = z.object({
   externalRepositoryId: z.string(),
   owner: z.string(),
@@ -179,6 +187,10 @@ export const integrationsInterModuleContract = defineInterModuleContract({
     resolveConnection: {
       input: z.object({workspaceId: id, slug: z.string().min(1)}),
       output: connection.nullable(),
+    },
+    resolveConnectionById: {
+      input: z.object({connectionId: id}),
+      output: connectionById.nullable(),
     },
     resolveTriggerReference: {
       input: z.object({workspaceId: id, connectionId: id, payload: z.unknown()}),
