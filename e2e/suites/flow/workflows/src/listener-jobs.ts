@@ -175,7 +175,7 @@ export async function cleanupListenerCase(
     source: testCase.resolveDiagnostics.source,
     workspaceId: testCase.workspaceId,
   }).catch(() => undefined);
-  await attachLocalRunnerLog(testCase.attach, testCase.runnerLogFile, {maxBytes: 64 * 1024});
+  await attachLocalRunnerLog(testCase.attach, testCase.runnerLogFile);
 }
 
 export async function stopRunner(testCase: ListenerCase | undefined): Promise<void> {

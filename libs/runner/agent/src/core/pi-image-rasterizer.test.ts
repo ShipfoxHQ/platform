@@ -554,6 +554,40 @@ describe('worker lifecycle', () => {
     ).toHaveLength(34);
   });
 
+  it('expires a queued render at its deadline without replacing busy workers', async () => {
+    vi.useFakeTimers();
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(() => undefined);
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+    const activeRenders = [
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+    ];
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(workers).toHaveLength(2);
+
+    const queued = rasterizer.rasterize({base64: encodedSvg('<rect />'), deadlineMs: 10});
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(queued).resolves.toMatchObject({
+      outcome: 'omitted',
+      reason: 'result_budget_exhausted',
+    });
+    expect(workers).toHaveLength(2);
+    expect(workers.every((worker) => !worker.terminated)).toBe(true);
+
+    await rasterizer.close();
+    await expect(Promise.all(activeRenders)).resolves.toMatchObject([
+      {outcome: 'omitted', reason: 'rasterizer_unavailable'},
+      {outcome: 'omitted', reason: 'rasterizer_unavailable'},
+    ]);
+  });
+
   it('does not create a worker when the render deadline is already exhausted', async () => {
     const workers: FakeRenderWorker[] = [];
     const rasterizer = createPiSvgRasterizer({

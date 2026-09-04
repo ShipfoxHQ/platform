@@ -19,7 +19,7 @@ export interface DispatchIntegrationEventParams {
   workflows: WorkflowsModuleClient;
   eventRef: string;
   /** History origin; ordinary integration deliveries use the default. */
-  origin?: TriggerEventOrigin | undefined;
+  origin?: Exclude<TriggerEventOrigin, 'cron'> | undefined;
   workspaceId: string;
   provider: string;
   source: string;

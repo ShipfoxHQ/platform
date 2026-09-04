@@ -5,6 +5,7 @@ import {db} from '#db/db.js';
 import {triggersDecisions} from '#db/schema/decisions.js';
 import {triggersReceivedEvents} from '#db/schema/received-events.js';
 import {jobListenerSubscriptionFactory, triggerSubscriptionFactory} from '#test/index.js';
+import type {DispatchIntegrationEventParams} from './dispatch-integration-event.js';
 
 const runWorkflow = vi.fn();
 const deliverEventToListener = vi.fn();
@@ -79,7 +80,7 @@ function projectMismatch() {
 
 interface DispatchOverrides {
   eventRef?: string;
-  origin?: 'integration' | 'manual' | 'cron' | 'dev';
+  origin?: DispatchIntegrationEventParams['origin'];
   workspaceId?: string;
   provider?: string;
   source?: string;

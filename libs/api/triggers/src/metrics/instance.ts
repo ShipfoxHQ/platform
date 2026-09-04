@@ -1,7 +1,8 @@
 import {instanceMetrics} from '@shipfox/node-opentelemetry';
+import type {TriggerEventOrigin} from '#core/entities/received-event.js';
 
 const meter = instanceMetrics.getMeter('triggers');
-type TriggerEventMetricOrigin = 'integration' | 'manual' | 'cron' | 'dev';
+type TriggerEventMetricOrigin = Exclude<TriggerEventOrigin, 'cron'>;
 
 export const eventReceivedCount = meter.createCounter<{
   provider: string;
