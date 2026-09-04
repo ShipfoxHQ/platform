@@ -1,3 +1,4 @@
+import {runAnnotationEntryFixture} from '#test/fixtures/workflow-run.js';
 import {
   buildRunAnnotationList,
   highestRunAnnotationSeverity,
@@ -245,22 +246,17 @@ function annotationEntry(
   const testJob = record.jobId === TEST_JOB_ID;
   const secondExecution = record.jobExecutionId === TEST_EXECUTION_TWO_ID;
   const jobPosition = record.jobId === BUILD_JOB_ID ? 0 : Number.MAX_SAFE_INTEGER;
-  return {
-    annotation: record,
+  return runAnnotationEntryFixture(record, {
     jobName: testJob ? 'test' : 'build',
     jobPosition: testJob ? 1 : jobPosition,
     executionSequence: secondExecution ? 2 : 1,
     executionLabel: testJob ? `execution #${secondExecution ? 2 : 1}` : null,
     stepLabel: testJob ? 'run tests' : 'compile',
-    attemptLabel: 'attempt 1',
     origin: {
-      jobId: record.jobId,
-      jobExecutionId: record.jobExecutionId,
-      stepId: record.originStepId,
       stepAttemptId: BUILD_ATTEMPT_ID,
     },
     ...overrides,
-  };
+  });
 }
 
 function annotationEntries(records: RunAnnotationRecord[]): RunAnnotationEntry[] {

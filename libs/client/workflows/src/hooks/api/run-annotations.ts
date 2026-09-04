@@ -5,21 +5,17 @@ import {
 import {checkedApiRequest} from '@shipfox/client-api';
 import {
   type InfiniteData,
-  infiniteQueryOptions,
   type UseInfiniteQueryOptions,
   useInfiniteQuery,
 } from '@tanstack/react-query';
-import {useMemo} from 'react';
+import {useEffect, useMemo} from 'react';
 import {
   type RunAnnotationEntry,
   type RunAnnotationSummary,
   summarizeRunAnnotations,
 } from '#core/run-annotation.js';
 import {type RunAnnotationPage, toRunAnnotationPage} from './run-annotation-mapper.js';
-import {
-  WORKFLOW_RESOURCE_ACTIVE_POLL_MS,
-  WORKFLOW_RESOURCE_STALE_TIME_MS,
-} from './workflow-resource-query.js';
+import {paginatedWorkflowResourceQueryOptions} from './workflow-resource-query.js';
 
 export const runAnnotationsQueryKeys = {
   all: ['run-annotations'] as const,
@@ -71,6 +67,8 @@ export interface RunAnnotationsQueryInput {
   enabled?: boolean | undefined;
   /** Poll while the run attempt is non-terminal, then settle. */
   live?: boolean | undefined;
+  /** Fetch every page for consumers that need an exact run-wide aggregate. */
+  loadAllPages?: boolean | undefined;
 }
 
 export function runAnnotationsQueryOptions({
@@ -81,15 +79,12 @@ export function runAnnotationsQueryOptions({
 }: RunAnnotationsQueryInput): RunAnnotationsQueryOptions {
   const enabled = Boolean(workflowRunId) && runAttempt !== undefined && enabledOption;
 
-  // Polling stops once the reader has paged past the first page: the cursor bounding page 2 was
-  // computed from page 1's last row, so a refetch that shifts that boundary can drop a range of
-  // annotations into a between-pages gap.
-  return infiniteQueryOptions({
+  return paginatedWorkflowResourceQueryOptions({
     queryKey: workflowRunId
       ? runAnnotationsQueryKeys.list(workflowRunId, runAttempt)
       : ([...runAnnotationsQueryKeys.all, 'list'] as const),
     enabled,
-    initialPageParam: undefined as string | undefined,
+    live,
     queryFn: ({pageParam, signal}) =>
       listRunAnnotations({
         workflowRunId: workflowRunId ?? '',
@@ -97,15 +92,6 @@ export function runAnnotationsQueryOptions({
         cursor: pageParam,
         signal,
       }),
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: WORKFLOW_RESOURCE_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
-    refetchInterval: (query) => {
-      if (!live || query.state.error !== null) return false;
-      const pages = query.state.data?.pages;
-      return pages && pages.length > 1 ? false : WORKFLOW_RESOURCE_ACTIVE_POLL_MS;
-    },
-    refetchIntervalInBackground: false,
   });
 }
 
@@ -127,6 +113,19 @@ export interface RunAnnotationsQueryResult {
 export function useRunAnnotationsQuery(input: RunAnnotationsQueryInput): RunAnnotationsQueryResult {
   const query = useInfiniteQuery(runAnnotationsQueryOptions(input));
   const pages = query.data?.pages;
+
+  useEffect(() => {
+    if (!input.loadAllPages || !query.hasNextPage || query.isFetchingNextPage || query.isError) {
+      return;
+    }
+    void query.fetchNextPage();
+  }, [
+    input.loadAllPages,
+    query.fetchNextPage,
+    query.hasNextPage,
+    query.isError,
+    query.isFetchingNextPage,
+  ]);
 
   const entries = useMemo(
     () => (pages ? pages.flatMap((page) => page.entries) : undefined),

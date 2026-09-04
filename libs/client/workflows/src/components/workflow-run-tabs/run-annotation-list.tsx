@@ -45,11 +45,12 @@ export interface DerivedRunAnnotation {
 }
 
 /**
- * How many annotations render at once.
+ * How many rows from each independently loaded resource render at once.
  *
  * Each server resource pages independently and every row mounts a Markdown pipeline, so the
- * fetch budget is not a render budget. The window grows on demand and another server page only
- * loads once the reader has actually seen everything already fetched.
+ * fetch budget is not a render budget. Each window grows on demand and another server page only
+ * loads once the reader has actually seen everything already fetched. Keeping the windows
+ * separate prevents a newly arriving explanation from evicting an annotation already on screen.
  */
 const RENDER_WINDOW = 25;
 
@@ -77,16 +78,16 @@ export function RunAnnotationList({
   filtered,
   onClearFilters,
 }: RunAnnotationListProps) {
-  const [visibleCount, setVisibleCount] = useState(RENDER_WINDOW);
+  const [visibleEntryCount, setVisibleEntryCount] = useState(RENDER_WINDOW);
+  const [visibleExplanationCount, setVisibleExplanationCount] = useState(RENDER_WINDOW);
   const resolvedEntries = entries ?? [];
   const resolvedDerivedAnnotations = derivedAnnotations ?? [];
   const isWaitingForContent =
     (query.isPending && entries === undefined) ||
     (jobExplanationsQuery.isPending && derivedAnnotations === undefined);
 
-  const visibleDerivedAnnotations = resolvedDerivedAnnotations.slice(0, visibleCount);
-  const annotationWindow = Math.max(0, visibleCount - visibleDerivedAnnotations.length);
-  const visibleEntries = resolvedEntries.slice(0, annotationWindow);
+  const visibleDerivedAnnotations = resolvedDerivedAnnotations.slice(0, visibleExplanationCount);
+  const visibleEntries = resolvedEntries.slice(0, visibleEntryCount);
   const totalCount = resolvedEntries.length + resolvedDerivedAnnotations.length;
   const hiddenCount = totalCount - visibleDerivedAnnotations.length - visibleEntries.length;
   const hasContent = totalCount > 0;
@@ -97,7 +98,7 @@ export function RunAnnotationList({
     jobExplanationsQuery.isError;
   return (
     <>
-      <RunAnnotationLiveRegion entries={resolvedEntries} />
+      {entries === undefined ? null : <RunAnnotationLiveRegion entries={entries} />}
       {query.isError ? (
         <RunAnnotationResourceError
           query={query}
@@ -134,7 +135,16 @@ export function RunAnnotationList({
         totalCount={totalCount}
         query={query}
         jobExplanationsQuery={jobExplanationsQuery}
-        onShowMore={() => setVisibleCount((current) => current + RENDER_WINDOW)}
+        onShowMore={() => {
+          const explanationsToReveal = Math.min(
+            RENDER_WINDOW,
+            Math.max(0, resolvedDerivedAnnotations.length - visibleExplanationCount),
+          );
+          setVisibleExplanationCount((current) => current + explanationsToReveal);
+          setVisibleEntryCount(
+            (current) => current + Math.max(0, RENDER_WINDOW - explanationsToReveal),
+          );
+        }}
       />
     </>
   );
@@ -406,6 +416,7 @@ function RunAnnotationResourceError({
             type="button"
             size="2xs"
             variant="secondary"
+            aria-label={`Retry loading ${subject}`}
             className="[@media(pointer:coarse)]:min-h-44"
             isLoading={query.isFetching}
             onClick={() => {

@@ -20,6 +20,11 @@ import type {
 } from '@shipfox/api-workflows-dto';
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import type {
+  RunAnnotationEntry,
+  RunAnnotationOrigin,
+  RunAnnotationRecord,
+} from '#core/run-annotation.js';
+import type {
   Job,
   Step,
   StepAttempt,
@@ -51,6 +56,38 @@ let jobSummarySequence = 0;
 let jobExecutionSequence = 0;
 let stepSequence = 0;
 let attemptSequence = 0;
+
+type RunAnnotationEntryOverrides = Partial<Omit<RunAnnotationEntry, 'annotation' | 'origin'>> & {
+  origin?: Partial<RunAnnotationOrigin> | null | undefined;
+};
+
+/** An enriched annotation entry with server-owned provenance and focused per-case overrides. */
+export function runAnnotationEntryFixture(
+  annotation: RunAnnotationRecord,
+  overrides: RunAnnotationEntryOverrides = {},
+): RunAnnotationEntry {
+  const {origin: originOverride, ...entryOverrides} = overrides;
+  return {
+    annotation,
+    jobName: 'build',
+    jobPosition: 0,
+    executionSequence: 1,
+    executionLabel: null,
+    stepLabel: 'compile',
+    attemptLabel: `attempt ${annotation.originStepAttempt}`,
+    origin:
+      originOverride === null
+        ? null
+        : {
+            jobId: annotation.jobId,
+            jobExecutionId: annotation.jobExecutionId,
+            stepId: annotation.originStepId,
+            stepAttemptId: STEP_ID,
+            ...originOverride,
+          },
+    ...entryOverrides,
+  };
+}
 
 export type JobDtoOverrides = Partial<Omit<WorkflowRunJobDetailDto, 'job_executions'>> & {
   job_executions?: WorkflowRunJobDetailDto['job_executions'];

@@ -3,11 +3,11 @@ import type {Meta, StoryObj} from '@storybook/react';
 import type {ReactNode} from 'react';
 import {
   buildRunAnnotationList,
-  type RunAnnotationEntry,
   type RunAnnotationRecord,
   type RunAnnotationStyle,
   summarizeRunAnnotations,
 } from '#core/run-annotation.js';
+import {runAnnotationEntryFixture} from '#test/fixtures/workflow-run.js';
 import {RunAnnotationCountChip} from './run-annotation-count-chip.js';
 import {
   type DerivedRunAnnotation,
@@ -341,7 +341,7 @@ function annotation(
   };
 }
 
-function annotationEntry(annotation: RunAnnotationRecord): RunAnnotationEntry {
+function annotationEntry(annotation: RunAnnotationRecord) {
   const testJob = annotation.jobId === TEST_JOB_ID;
   let jobName = testJob ? 'test' : 'build';
   let stepLabel = testJob ? 'vitest' : 'run smoke checks';
@@ -349,19 +349,12 @@ function annotationEntry(annotation: RunAnnotationRecord): RunAnnotationEntry {
     jobName = 'Hello world on Anthropic models with Claude';
     stepLabel = UNNAMED_AGENT_STEP;
   }
-  return {
-    annotation,
+  return runAnnotationEntryFixture(annotation, {
     jobName,
     jobPosition: testJob ? 1 : 0,
-    executionSequence: 1,
-    executionLabel: null,
     stepLabel,
-    attemptLabel: 'attempt 1',
     origin: {
-      jobId: annotation.jobId,
-      jobExecutionId: annotation.jobExecutionId,
-      stepId: annotation.originStepId,
       stepAttemptId: testJob ? '66666666-6666-4666-8666-00000000000c' : BUILD_ATTEMPT_ID,
     },
-  };
+  });
 }

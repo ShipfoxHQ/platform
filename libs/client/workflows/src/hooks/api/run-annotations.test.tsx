@@ -6,8 +6,15 @@ import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, cleanup, renderHook, waitFor} from '@testing-library/react';
 import type {ReactNode} from 'react';
-import {useRunAnnotationsQuery} from './run-annotations.js';
-import {useRunJobExplanationsQuery} from './run-job-explanations.js';
+import {runAnnotationsQueryOptions, useRunAnnotationsQuery} from './run-annotations.js';
+import {
+  runJobExplanationsQueryOptions,
+  useRunJobExplanationsQuery,
+} from './run-job-explanations.js';
+import {
+  WORKFLOW_RESOURCE_ACTIVE_POLL_MS,
+  WORKFLOW_RESOURCE_ERROR_POLL_MS,
+} from './workflow-resource-query.js';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const JOB_ID = '44444444-4444-4444-8444-00000000000b';
@@ -68,7 +75,39 @@ describe('run annotation resource hooks', () => {
     );
     expect(result.current.annotations.summary).toMatchObject({total: 2, truncated: false});
   });
+
+  test.each([
+    ['annotations', runAnnotationsQueryOptions],
+    ['job explanations', runJobExplanationsQueryOptions],
+  ] as const)('keeps a recoverable first-page polling policy for %s', (_name, optionsFor) => {
+    const options = optionsFor({workflowRunId: RUN_ID, runAttempt: 2, live: true});
+
+    expect(refetchInterval(options, 1, null)).toBe(WORKFLOW_RESOURCE_ACTIVE_POLL_MS);
+    expect(refetchInterval(options, 1, new Error('Unavailable'))).toBe(
+      WORKFLOW_RESOURCE_ERROR_POLL_MS,
+    );
+    expect(refetchInterval(options, 2, null)).toBe(false);
+    expect(refetchOnWindowFocus(options, 2)).toBe(false);
+  });
 });
+
+function refetchInterval(
+  options: {refetchInterval?: unknown},
+  pageCount: number,
+  error: Error | null,
+) {
+  if (typeof options.refetchInterval !== 'function') return options.refetchInterval;
+  return options.refetchInterval({
+    state: {data: {pages: Array.from({length: pageCount}, () => ({}))}, error},
+  } as never);
+}
+
+function refetchOnWindowFocus(options: {refetchOnWindowFocus?: unknown}, pageCount: number) {
+  if (typeof options.refetchOnWindowFocus !== 'function') return options.refetchOnWindowFocus;
+  return options.refetchOnWindowFocus({
+    state: {data: {pages: Array.from({length: pageCount}, () => ({}))}},
+  } as never);
+}
 
 function renderWithQueryClient<T>(callback: () => T) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});

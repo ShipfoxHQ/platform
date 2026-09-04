@@ -22,6 +22,7 @@ const RUN_ID = '66666666-6666-4666-8666-666666666666';
 const PROJECT_ID = '44444444-4444-4444-8444-444444444444';
 const BUILD_JOB_ID = '77777777-7777-4777-8777-777777777777';
 const DEPLOY_JOB_ID = '88888888-8888-4888-8888-888888888888';
+const ARCHIVED_JOB_ID = '88888888-8888-4888-8888-000000000003';
 const BUILD_EXECUTION_ID = '99999999-9999-4999-8999-000000000001';
 const BUILD_STEP_ID = '55555555-5555-4555-8555-000000000001';
 const BUILD_ATTEMPT_ID = '66666666-6666-4666-8666-000000000001';
@@ -191,12 +192,25 @@ describe('WorkflowRunView', () => {
   });
 
   test('shows a failed annotations read as an error, never as an empty run', async () => {
+    const user = userEvent.setup();
     const detail = workflowRunViewDetailDto();
     configureApiClient({
       fetchImpl: vi.fn((input: RequestInfo | URL) => {
         const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
         if (path === `/workflows/runs/${RUN_ID}/annotations`) {
           return Promise.resolve(jsonResponse({code: 'internal'}, {status: 500}));
+        }
+        if (path === '/annotations/summary') {
+          return Promise.resolve(
+            jsonResponse({
+              total: 3,
+              error: 2,
+              warning: 1,
+              info: 0,
+              success: 0,
+              step_counts: [],
+            }),
+          );
         }
         return Promise.resolve(jsonResponse(runResourceResponse(path, detail)));
       }),
@@ -205,7 +219,11 @@ describe('WorkflowRunView', () => {
     renderView({tab: 'annotations'});
 
     expect(await screen.findByText('Could not load annotations.')).toBeVisible();
-    expect(screen.getByRole('button', {name: 'Retry'})).toBeVisible();
+    expect(screen.getByRole('button', {name: 'Retry loading annotations'})).toBeVisible();
+    expect(screen.getByText('3 annotations')).toBeVisible();
+    await user.click(screen.getByRole('combobox', {name: 'Filter annotations by job'}));
+    expect(await screen.findByRole('option', {name: 'build'})).toBeInTheDocument();
+    expect(screen.getByRole('option', {name: 'deploy'})).toBeInTheDocument();
     expect(screen.queryByText('This run has no annotations to show.')).not.toBeInTheDocument();
   });
 
@@ -229,6 +247,61 @@ describe('WorkflowRunView', () => {
     );
     expect(explanation).toHaveTextContent('Skipped before an execution was created.');
     expect(explanation).toHaveTextContent(CONDITION_REJECTED_PATTERN);
+  });
+
+  test('filters to a job that exists only in job explanations', async () => {
+    configureRunFetch([], {}, {}, [
+      {
+        job_id: ARCHIVED_JOB_ID,
+        job_label: 'archived deploy',
+        job_position: 3,
+        status: 'skipped',
+        status_reason: 'condition_rejected',
+        evaluation_trace: null,
+      },
+    ]);
+
+    renderView({tab: 'annotations', selection: {jobId: ARCHIVED_JOB_ID}});
+
+    expect(
+      await screen.findByRole('combobox', {name: 'Filter annotations by job'}),
+    ).toHaveTextContent('archived deploy');
+    const explanation = await screen.findByRole('heading', {
+      level: 3,
+      name: 'archived deploy',
+    });
+    expect(explanation.closest('li')).toHaveTextContent('Skipped before an execution was created.');
+  });
+
+  test('loads the next job-explanation page from the shared control', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = configureRunFetch([], {}, {}, [], {
+      cursor: 'jobs-page-2',
+      items: [
+        {
+          job_id: ARCHIVED_JOB_ID,
+          job_label: 'archived deploy',
+          job_position: 3,
+          status: 'failed',
+          status_reason: 'unknown',
+          evaluation_trace: null,
+        },
+      ],
+    });
+
+    renderView({tab: 'annotations'});
+    await user.click(await screen.findByRole('button', {name: 'Load more annotations'}));
+
+    expect(
+      await screen.findByRole('heading', {level: 3, name: 'archived deploy'}),
+    ).toBeInTheDocument();
+    expect(
+      requestUrls(fetchImpl).some(
+        (url) =>
+          url.pathname === `/workflows/runs/${RUN_ID}/job-explanations` &&
+          url.searchParams.get('cursor') === 'jobs-page-2',
+      ),
+    ).toBe(true);
   });
 
   test('opens annotations without loading the legacy full run tree', async () => {
@@ -403,9 +476,11 @@ function configureRunFetch(
   runOverrides: Partial<WorkflowRunDetailResponseDto> = {},
   annotationPageOverrides: Partial<{next_cursor: string | null}> = {},
   explanations: WorkflowRunJobExplanationDto[] = [],
+  nextExplanationPage?: {cursor: string; items: WorkflowRunJobExplanationDto[]} | undefined,
 ) {
   const fetchImpl = vi.fn((input: RequestInfo | URL) => {
-    const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
+    const url = new URL(requestUrl(input), 'https://api.example.test');
+    const path = url.pathname;
     const detail = workflowRunViewDetailDto(runOverrides);
     if (path === `/workflows/runs/${RUN_ID}/annotations`) {
       return Promise.resolve(
@@ -417,7 +492,9 @@ function configureRunFetch(
       );
     }
     if (path === `/workflows/runs/${RUN_ID}/job-explanations`) {
-      return Promise.resolve(jsonResponse({items: explanations, next_cursor: null}));
+      return Promise.resolve(
+        jsonResponse(jobExplanationsPage(url, explanations, nextExplanationPage)),
+      );
     }
     if (path === '/annotations/summary') {
       return Promise.resolve(jsonResponse(annotationSummaryDto(annotations)));
@@ -447,6 +524,23 @@ function configureRunFetch(
     fetchImpl,
   });
   return fetchImpl;
+}
+
+function jobExplanationsPage(
+  url: URL,
+  firstPage: WorkflowRunJobExplanationDto[],
+  nextPage: {cursor: string; items: WorkflowRunJobExplanationDto[]} | undefined,
+) {
+  if (nextPage && url.searchParams.get('cursor') === nextPage.cursor) {
+    return {items: nextPage.items, next_cursor: null};
+  }
+  return {items: firstPage, next_cursor: nextPage?.cursor ?? null};
+}
+
+function requestUrls(fetchImpl: ReturnType<typeof vi.fn>): URL[] {
+  return fetchImpl.mock.calls.map(
+    ([input]) => new URL(requestUrl(input as RequestInfo | URL), 'https://api.example.test'),
+  );
 }
 
 function annotationDto(overrides: Partial<AnnotationDto> & {id: string}): AnnotationDto {

@@ -22,8 +22,8 @@ const ANNOTATION_ROW_CLASS =
   'items-start justify-start gap-cluster hover:bg-background-neutral-base';
 
 /**
- * The contexts the server mints itself, each rebuilt exactly as its producer builds it, with the
- * heading to use when the job that would normally name the row cannot be resolved.
+ * The contexts the server mints itself, each rebuilt exactly as its producer builds it. The
+ * server-provided emitting job names these rows.
  *
  * These are routing keys rather than something a reader chose, so they never become the heading.
  * Rebuilt whole rather than matched by prefix: `context` is caller-chosen with no reserved

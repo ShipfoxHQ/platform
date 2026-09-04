@@ -2,10 +2,10 @@ import {act, screen, within} from '@testing-library/react';
 import {useState} from 'react';
 import {
   buildRunAnnotationList,
-  type RunAnnotationEntry,
   type RunAnnotationRecord,
   type RunAnnotationStyle,
 } from '#core/run-annotation.js';
+import {runAnnotationEntryFixture} from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {
   type DerivedRunAnnotation,
@@ -22,6 +22,7 @@ const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 const SHOW_MORE_PATTERN = /Show \d+ more of \d+/;
 const OPEN_STEP_PATTERN = /Open step/;
+const NEW_ANNOTATION_PATTERN = /new annotation/u;
 
 describe('RunAnnotationList', () => {
   test('heads a row with the block the emitting step named', async () => {
@@ -67,6 +68,27 @@ describe('RunAnnotationList', () => {
     });
 
     expect(await screen.findByText('A new annotation was added to this run.')).toBeInTheDocument();
+  });
+
+  test('does not announce the first loaded page as newly added', async () => {
+    let updateEntries: (entries: RunAnnotationRecord[]) => void = () => undefined;
+    function Harness() {
+      const [entries, setEntries] = useState<RunAnnotationRecord[] | undefined>(undefined);
+      updateEntries = setEntries;
+      return renderListElement(entries, {
+        derivedAnnotations: [],
+        query: listQuery({isPending: entries === undefined}),
+      });
+    }
+
+    renderWithRouter(<Harness />);
+    await screen.findByLabelText('Loading annotations');
+    act(() => {
+      updateEntries([annotation({id: 'a1', sequence: 1})]);
+    });
+
+    await screen.findByRole('heading', {level: 3, name: 'default'});
+    expect(screen.queryByText(NEW_ANNOTATION_PATTERN)).not.toBeInTheDocument();
   });
 
   test('leaves a step-chosen context that only looks minted as the heading', async () => {
@@ -118,7 +140,7 @@ describe('RunAnnotationList', () => {
     ]);
   });
 
-  test('counts a derived row in the total the render window reports', async () => {
+  test('counts a derived row in the total the independent render windows report', async () => {
     const entries = Array.from({length: 26}, (_unused, index) =>
       annotation({
         id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, '0')}`,
@@ -130,8 +152,34 @@ describe('RunAnnotationList', () => {
     renderList(entries, {derivedAnnotations: [derived({id: 'd1', jobName: 'deploy production'})]});
 
     expect(await screen.findByRole('button', {name: SHOW_MORE_PATTERN})).toHaveTextContent(
-      'Show 2 more of 27',
+      'Show 1 more of 27',
     );
+  });
+
+  test('keeps visible annotations mounted when explanations arrive', async () => {
+    const entries = Array.from({length: 30}, (_unused, index) =>
+      annotation({
+        id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, '0')}`,
+        context: `context-${index}`,
+        sequence: index + 1,
+      }),
+    );
+    let updateExplanations: (entries: readonly DerivedRunAnnotation[]) => void = () => undefined;
+    function Harness() {
+      const [explanations, setExplanations] = useState<readonly DerivedRunAnnotation[]>([]);
+      updateExplanations = setExplanations;
+      return renderListElement(entries, {derivedAnnotations: explanations});
+    }
+
+    renderWithRouter(<Harness />);
+    await screen.findByRole('heading', {level: 3, name: 'context-24'});
+
+    act(() => {
+      updateExplanations([derived({id: 'd1', jobName: 'deploy production'})]);
+    });
+
+    expect(screen.getByRole('heading', {level: 3, name: 'deploy production'})).toBeInTheDocument();
+    expect(screen.getByRole('heading', {level: 3, name: 'context-24'})).toBeInTheDocument();
   });
 
   test('links a row back to the step that emitted it', async () => {
@@ -161,6 +209,21 @@ describe('RunAnnotationList', () => {
     expect(screen.getByText('Could not load job explanations.')).toBeInTheDocument();
     expect(screen.queryByText('This run has no annotations to show.')).not.toBeInTheDocument();
   });
+
+  test('names each resource retry button', async () => {
+    renderList([], {
+      derivedAnnotations: [],
+      query: listQuery({isError: true, error: new Error('Unavailable')}),
+      jobExplanationsQuery: listQuery({isError: true, error: new Error('Unavailable')}),
+    });
+
+    expect(
+      await screen.findByRole('button', {name: 'Retry loading annotations'}),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {name: 'Retry loading job explanations'}),
+    ).toBeInTheDocument();
+  });
 });
 
 function renderList(
@@ -181,7 +244,7 @@ function renderList(
 }
 
 function renderListElement(
-  annotations: RunAnnotationRecord[],
+  annotations: RunAnnotationRecord[] | undefined,
   {
     derivedAnnotations,
     query = listQuery(),
@@ -196,7 +259,11 @@ function renderListElement(
     <RunAnnotationList
       query={query}
       jobExplanationsQuery={jobExplanationsQuery}
-      entries={buildRunAnnotationList({entries: annotations.map(annotationEntry)})}
+      entries={
+        annotations
+          ? buildRunAnnotationList({entries: annotations.map(annotationEntry)})
+          : undefined
+      }
       derivedAnnotations={derivedAnnotations}
       workspaceSlug="acme"
       projectSlug="platform"
@@ -247,23 +314,12 @@ function derived(overrides: Partial<DerivedRunAnnotation> & {id: string}): Deriv
   };
 }
 
-function annotationEntry(annotation: RunAnnotationRecord): RunAnnotationEntry {
+function annotationEntry(annotation: RunAnnotationRecord) {
   const missingJob = annotation.jobId === MISSING_JOB_ID;
-  return {
-    annotation,
+  return runAnnotationEntryFixture(annotation, {
     jobName: missingJob ? 'archived job' : 'build',
     jobPosition: missingJob ? 1 : 0,
-    executionSequence: 1,
-    executionLabel: null,
     stepLabel: 'run smoke checks',
-    attemptLabel: 'attempt 1',
-    origin: missingJob
-      ? null
-      : {
-          jobId: annotation.jobId,
-          jobExecutionId: annotation.jobExecutionId,
-          stepId: annotation.originStepId,
-          stepAttemptId: BUILD_ATTEMPT_ID,
-        },
-  };
+    origin: missingJob ? null : {stepAttemptId: BUILD_ATTEMPT_ID},
+  });
 }

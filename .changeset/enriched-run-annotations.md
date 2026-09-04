@@ -2,4 +2,4 @@
 "@shipfox/client-workflows": minor
 ---
 
-Load enriched run annotations and no-execution job explanations from their bounded workflow APIs.
+Loads enriched run annotations and no-execution job explanations from the required bounded workflow APIs.

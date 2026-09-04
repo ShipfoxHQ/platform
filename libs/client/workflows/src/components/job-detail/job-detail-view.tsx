@@ -159,6 +159,7 @@ export function JobDetailView({
   const annotations = useRunAnnotationsQuery({
     workflowRunId,
     runAttempt: detailData?.runAttempt.attempt,
+    loadAllPages: true,
   });
   const jobAnnotationSummary = summarizeLoadedJobAnnotations(annotations, jobId);
   const inspectorResetKey = `${jobId}:${search.jobExecutionId ?? ''}`;

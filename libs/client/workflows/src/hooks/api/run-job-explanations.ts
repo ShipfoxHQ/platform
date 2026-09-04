@@ -5,17 +5,13 @@ import {
 import {checkedApiRequest} from '@shipfox/client-api';
 import {
   type InfiniteData,
-  infiniteQueryOptions,
   type UseInfiniteQueryOptions,
   useInfiniteQuery,
 } from '@tanstack/react-query';
 import {useMemo} from 'react';
 import type {RunJobExplanation} from '#core/run-annotation.js';
 import {type RunJobExplanationPage, toRunJobExplanationPage} from './run-annotation-mapper.js';
-import {
-  WORKFLOW_RESOURCE_ACTIVE_POLL_MS,
-  WORKFLOW_RESOURCE_STALE_TIME_MS,
-} from './workflow-resource-query.js';
+import {paginatedWorkflowResourceQueryOptions} from './workflow-resource-query.js';
 
 export const runJobExplanationsQueryKeys = {
   all: ['run-job-explanations'] as const,
@@ -77,12 +73,12 @@ export function runJobExplanationsQueryOptions({
 }: RunJobExplanationsQueryInput): RunJobExplanationsQueryOptions {
   const enabled = Boolean(workflowRunId) && runAttempt !== undefined && enabledOption;
 
-  return infiniteQueryOptions({
+  return paginatedWorkflowResourceQueryOptions({
     queryKey: workflowRunId
       ? runJobExplanationsQueryKeys.list(workflowRunId, runAttempt)
       : ([...runJobExplanationsQueryKeys.all, 'list'] as const),
     enabled,
-    initialPageParam: undefined as string | undefined,
+    live,
     queryFn: ({pageParam, signal}) =>
       listRunJobExplanations({
         workflowRunId: workflowRunId ?? '',
@@ -90,15 +86,6 @@ export function runJobExplanationsQueryOptions({
         cursor: pageParam,
         signal,
       }),
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    staleTime: WORKFLOW_RESOURCE_STALE_TIME_MS,
-    refetchOnWindowFocus: true,
-    refetchInterval: (query) => {
-      if (!live || query.state.error !== null) return false;
-      const pages = query.state.data?.pages;
-      return pages && pages.length > 1 ? false : WORKFLOW_RESOURCE_ACTIVE_POLL_MS;
-    },
-    refetchIntervalInBackground: false,
   });
 }
 

@@ -1160,6 +1160,7 @@ function RunAnnotationsSection({
     [annotationEntries, explanations, run],
   );
   const selectedJob = jobs.find((job) => job.id === selectedJobId);
+  const effectiveJobId = selectedJob?.id;
 
   const entries = useMemo(
     () =>
@@ -1167,10 +1168,10 @@ function RunAnnotationsSection({
         ? buildRunAnnotationList({
             entries: annotationEntries,
             severity,
-            jobId: selectedJobId,
+            jobId: effectiveJobId,
           })
         : undefined,
-    [annotationEntries, selectedJobId, severity],
+    [annotationEntries, effectiveJobId, severity],
   );
   const derivedAnnotations = useMemo<readonly DerivedRunAnnotation[] | undefined>(() => {
     if (!explanations) return undefined;
@@ -1178,7 +1179,7 @@ function RunAnnotationsSection({
       .filter((explanation) => {
         const style = explanation.status === 'failed' ? 'error' : 'warning';
         return (
-          (!selectedJobId || selectedJobId === explanation.jobId) &&
+          (!effectiveJobId || effectiveJobId === explanation.jobId) &&
           matchesDerivedAnnotationFilters(style, selection)
         );
       })
@@ -1194,7 +1195,7 @@ function RunAnnotationsSection({
         (left, right) =>
           left.jobPosition - right.jobPosition || left.jobId.localeCompare(right.jobId),
       );
-  }, [explanations, selectedJobId, selection]);
+  }, [effectiveJobId, explanations, selection]);
   const annotationTotal = Math.max(annotationSummary?.total ?? 0, annotationEntries?.length ?? 0);
   const hasKnownDiagnostics =
     annotationTotal > 0 ||
@@ -1241,7 +1242,7 @@ function RunAnnotationsSection({
             workflowRunId={run.id}
             runAttempt={run.runAttempt.attempt}
             // A run with no annotations at all offers no filter to clear, whatever the URL says.
-            filtered={Boolean((severity || selectedJobId) && hasKnownDiagnostics)}
+            filtered={Boolean((severity || effectiveJobId) && hasKnownDiagnostics)}
             filteredJobName={selectedJob?.name}
             filteredSeverity={severity}
             onClearFilters={onClearAnnotationFilters}
