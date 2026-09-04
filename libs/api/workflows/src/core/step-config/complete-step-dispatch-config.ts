@@ -124,17 +124,20 @@ function completeToolConfig(params: {
   const baseWith = toolConfig.with;
   toolConfig.with = mergeToolWith(baseWith, toolPlan?.with, params, 'tool.with');
   const method = toolConfig.method;
-  const input = toolConfig.with ?? {};
-  const schema = withoutInjectedMethod(toolConfig.input_schema);
+  const input =
+    method === undefined
+      ? (toolConfig.with ?? {})
+      : {...(toolConfig.with as Record<string, unknown> | undefined), method};
   const ajv = new Ajv({
     strict: true,
+    strictRequired: false,
     coerceTypes: false,
     useDefaults: false,
     removeAdditional: false,
   });
   let valid = false;
   try {
-    const validate = ajv.compile(schema as AnySchema);
+    const validate = ajv.compile(toolConfig.input_schema as AnySchema);
     valid = validate(input) === true;
   } catch (error) {
     throw new ToolConfigInvalidError(
@@ -142,9 +145,7 @@ function completeToolConfig(params: {
     );
   }
   if (!valid) throw new ToolConfigInvalidError(`Tool input is invalid: ${ajv.errorsText()}`);
-  if (method !== undefined) {
-    toolConfig.with = {...(toolConfig.with as Record<string, unknown>), method};
-  }
+  if (method !== undefined) toolConfig.with = input;
   params.config.tool = toolConfig;
 }
 
@@ -202,17 +203,6 @@ function isFieldTemplate(value: unknown): value is readonly ResolvedFieldSegment
         (segment.kind === 'literal' || segment.kind === 'deferred'),
     )
   );
-}
-
-function withoutInjectedMethod(schema: unknown): unknown {
-  if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) return schema;
-  const copy = {...(schema as Record<string, unknown>)};
-  if (copy.properties && typeof copy.properties === 'object' && !Array.isArray(copy.properties)) {
-    copy.properties = {...(copy.properties as Record<string, unknown>)};
-    delete (copy.properties as Record<string, unknown>).method;
-  }
-  if (Array.isArray(copy.required)) copy.required = copy.required.filter((key) => key !== 'method');
-  return copy;
 }
 
 function completeCheckoutConfig(params: {
