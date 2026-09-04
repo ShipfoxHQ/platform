@@ -159,6 +159,21 @@ describe('assembleWorkflowRunContext', () => {
     expect(evaluateWorkflowExpression(expression, context)).toBe(true);
   });
 
+  it('rehydrates a later run attempt as a CEL integer', () => {
+    const context = assembleWorkflowRunContext({
+      run: {...run, currentAttempt: 2},
+      triggerPayload: {source: 'manual', event: 'fire', subscriptionId: 'sub-1', userId: 'user-1'},
+    });
+
+    expect(context.run).toMatchObject({number: 1n, attempt: 2n});
+    expect(
+      evaluateWorkflowExpression(
+        createWorkflowExpression({source: 'run.attempt == 2', check: {mode: 'syntax'}}),
+        context,
+      ),
+    ).toBe(true);
+  });
+
   it.each([
     {
       source: 'manual' as const,
@@ -497,8 +512,8 @@ describe('assembleJobActivationContext', () => {
 describe('listener filter snapshots', () => {
   const run = {
     id: 'run-1',
-    number: 1,
-    currentAttempt: 1,
+    number: 7,
+    currentAttempt: 2,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -801,7 +816,7 @@ describe('listener filter snapshots', () => {
         {
           source: 'github',
           event: 'pull_request',
-          filter: 'jobs.build.executions[0].index == 0 && run.number == 1',
+          filter: 'jobs.build.executions[0].index == 0 && run.number == 7',
         },
       ],
       until: null,
@@ -824,8 +839,8 @@ describe('listener filter snapshots', () => {
     const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown; attempt: unknown};
 
     expect(typeof jobs.build?.executions[0]?.index).toBe('number');
-    expect(typeof snapshotRun.number).toBe('number');
-    expect(typeof snapshotRun.attempt).toBe('number');
+    expect(snapshotRun.number).toBe(7);
+    expect(snapshotRun.attempt).toBe(2);
     expect(() => JSON.stringify(matcher?.filter_snapshot)).not.toThrow();
   });
 });

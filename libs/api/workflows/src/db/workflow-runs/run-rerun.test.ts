@@ -45,7 +45,10 @@ describe('workflow run queries', () => {
       return buildModel({
         runName: `Run ${template('inputs.env')}`,
         jobs: {
-          build: {steps: [{run: 'echo build'}]},
+          build: {
+            runnerTemplates: [template('run.attempt == 1 ? "attempt-1" : "attempt-2"')],
+            steps: [{run: 'echo build'}],
+          },
           test: {needs: 'build', steps: [{run: 'echo test'}]},
           deploy: {needs: 'test', steps: [{run: 'echo deploy'}]},
           notify: {steps: [{run: 'echo notify'}]},
@@ -613,6 +616,12 @@ describe('workflow run queries', () => {
       expect(second.currentAttempt).toBe(2);
       expect(second.id).toBe(source.id);
       expect(third).toMatchObject({id: source.id, currentAttempt: 3});
+
+      const secondJobs = await getJobsByWorkflowRunId(second.id);
+      const secondBuild = secondJobs.find((job) => job.key === 'build');
+      if (!secondBuild) throw new Error('Missing second-attempt build job');
+      const [secondBuildExecution] = await getJobExecutionsByJobId(secondBuild.id);
+      expect(secondBuildExecution?.runner).toEqual(['attempt-2', 'ubuntu-latest']);
 
       const sourceContext = assembleWorkflowRunContext({
         run: source,
