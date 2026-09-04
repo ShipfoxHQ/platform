@@ -556,7 +556,45 @@ describe('completeStepDispatchConfig', () => {
     });
   });
 
-  it('validates fully resolved inputs with the server-owned method', async () => {
+  it('rejects a deferred non-object input before injecting the selected method', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'get',
+          input_schema: {
+            type: 'object',
+            properties: {method: {const: 'get'}},
+            required: ['method'],
+            additionalProperties: false,
+          },
+        },
+      },
+      configPlan: {
+        tool: {
+          with: plannedField(template('steps.build.outputs.count')).segments,
+        },
+      },
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context: {
+          ...context,
+          values: {steps: {build: {outputs: {count: 42}}}},
+        },
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+    });
+  });
+
+  it('forwards the server-owned method for fully resolved inputs', async () => {
     const pending = step({
       type: 'tool',
       config: {
@@ -598,6 +636,38 @@ describe('completeStepDispatchConfig', () => {
           method: 'get_status',
           input_schema: methodConditionedToolInputSchema(),
           with: {owner: 'ShipfoxHQ', repo: 'shipfox', pull_number: 1},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+    });
+  });
+
+  it('rejects selected methods that are absent from the provider input schema', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          method: 'search',
+          input_schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {query: {type: 'string'}},
+            required: ['query'],
+          },
+          with: {query: 'open issues'},
         },
       },
       configPlan: null,
@@ -708,6 +778,33 @@ describe('completeStepDispatchConfig', () => {
       });
 
     await expect(act()).rejects.toBeInstanceOf(ToolConfigInvalidError);
+  });
+
+  it('wraps provider input schema compilation failures', async () => {
+    const pending = step({
+      type: 'tool',
+      config: {
+        tool: {
+          input_schema: {required: ['query']},
+          with: {query: 'open issues'},
+        },
+      },
+      configPlan: null,
+    });
+
+    const act = () =>
+      completeStepDispatchConfig({
+        step: pending,
+        context,
+        resolveAgentDefaults,
+        definitionId: 'def-1',
+      });
+
+    await expect(act()).rejects.toMatchObject({
+      name: 'ToolConfigInvalidError',
+      code: 'tool_config_invalid',
+      message: expect.stringContaining('Tool input schema is invalid:'),
+    });
   });
 
   it('rejects invalid resolved working directories', async () => {

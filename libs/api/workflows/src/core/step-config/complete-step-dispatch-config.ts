@@ -124,10 +124,14 @@ function completeToolConfig(params: {
   const baseWith = toolConfig.with;
   toolConfig.with = mergeToolWith(baseWith, toolPlan?.with, params, 'tool.with');
   const method = toolConfig.method;
-  const input =
-    method === undefined
-      ? (toolConfig.with ?? {})
-      : {...(toolConfig.with as Record<string, unknown> | undefined), method};
+  const input = toolConfig.with ?? {};
+  if (method !== undefined && (typeof input !== 'object' || Array.isArray(input))) {
+    throw new ToolConfigInvalidError(
+      'Tool input is invalid: expected an object when a method is selected',
+    );
+  }
+  const inputWithMethod =
+    method === undefined ? input : {...(input as Record<string, unknown>), method};
   const ajv = new Ajv({
     strict: true,
     strictRequired: false,
@@ -138,14 +142,14 @@ function completeToolConfig(params: {
   let valid = false;
   try {
     const validate = ajv.compile(toolConfig.input_schema as AnySchema);
-    valid = validate(input) === true;
+    valid = validate(inputWithMethod) === true;
   } catch (error) {
     throw new ToolConfigInvalidError(
       `Tool input schema is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (!valid) throw new ToolConfigInvalidError(`Tool input is invalid: ${ajv.errorsText()}`);
-  if (method !== undefined) toolConfig.with = input;
+  if (method !== undefined) toolConfig.with = inputWithMethod;
   params.config.tool = toolConfig;
 }
 
