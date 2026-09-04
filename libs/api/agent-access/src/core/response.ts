@@ -46,6 +46,13 @@ export interface ReducePagedAgentAccessResponseParams {
   maxBytes?: number | undefined;
 }
 
+interface PagedResponseFitState {
+  emptyCandidate: AgentAccessEnvelopeDto;
+  emptyResult: Record<string, unknown>;
+  candidateBytes: readonly number[];
+  itemCursors: readonly string[];
+}
+
 /**
  * Fits a paged success response without reusing a producer cursor that points past dropped rows.
  * The cursor is always rebuilt from the final retained item.
@@ -60,31 +67,66 @@ export function reducePagedAgentAccessResponse(
     return agentAccessError('content-too-large');
   }
 
-  const itemCounts =
-    params.items.length === 0
-      ? [0]
-      : Array.from(
-          {length: Math.max(0, params.items.length - 1)},
-          (_, index) => params.items.length - index - 1,
-        );
-  for (const itemCount of itemCounts) {
-    const retained = params.items.slice(0, itemCount);
-    const last = retained.at(-1);
-    const nextCursor = last === undefined ? null : params.cursorForItem(last, itemCount - 1);
-    const candidate: AgentAccessEnvelopeDto = {
-      ...params.envelope,
+  const producerResult = params.envelope.result;
+  const fitState = buildPagedResponseFitState(params, producerResult, initialBytes);
+  const itemCount = largestFittingItemCount(fitState.candidateBytes, params.items.length, maxBytes);
+  if (itemCount !== undefined) {
+    const nextCursor = itemCount === 0 ? null : fitState.itemCursors[itemCount - 1];
+    if (nextCursor === undefined && itemCount > 0) return agentAccessError('content-too-large');
+    return {
+      ...fitState.emptyCandidate,
       result: {
-        ...params.envelope.result,
-        [params.itemKey]: retained,
-        next_cursor: nextCursor,
+        ...fitState.emptyResult,
+        [params.itemKey]: params.items.slice(0, itemCount),
+        next_cursor: nextCursor ?? null,
       },
-      response_truncated: true,
-      response_total_bytes: initialBytes,
     };
-    if (serializedAgentAccessEnvelopeByteLength(candidate) <= maxBytes) return candidate;
   }
 
   return agentAccessError('content-too-large');
+}
+
+function buildPagedResponseFitState(
+  params: ReducePagedAgentAccessResponseParams,
+  producerResult: Record<string, unknown>,
+  initialBytes: number,
+): PagedResponseFitState {
+  const emptyResult = {...producerResult, [params.itemKey]: [], next_cursor: null};
+  const emptyCandidate: AgentAccessEnvelopeDto = {
+    ...params.envelope,
+    result: emptyResult,
+    response_truncated: true,
+    response_total_bytes: initialBytes,
+  };
+  const emptyCandidateBytes = serializedAgentAccessEnvelopeByteLength(emptyCandidate);
+  const nullCursorBytes = serializedJsonByteLength(null);
+  const candidateBytes: number[] = [emptyCandidateBytes];
+  const itemCursors: string[] = [];
+  let retainedItemBytes = 0;
+
+  for (const [index, item] of params.items.entries()) {
+    retainedItemBytes += serializedJsonByteLength(item) + (index === 0 ? 0 : 1);
+    const cursor = params.cursorForItem(item, index);
+    itemCursors.push(cursor);
+    candidateBytes.push(
+      emptyCandidateBytes + retainedItemBytes + serializedJsonByteLength(cursor) - nullCursorBytes,
+    );
+  }
+
+  return {emptyCandidate, emptyResult, candidateBytes, itemCursors};
+}
+
+function largestFittingItemCount(
+  candidateBytes: readonly number[],
+  itemCount: number,
+  maxBytes: number,
+): number | undefined {
+  const minimumItemCount = itemCount === 0 ? 0 : 1;
+  for (let count = itemCount; count >= minimumItemCount; count -= 1) {
+    const candidateByteLength = candidateBytes[count];
+    if (candidateByteLength !== undefined && candidateByteLength <= maxBytes) return count;
+  }
+  return undefined;
 }
 
 export function fitAgentAccessResponseToCeiling(
@@ -98,4 +140,10 @@ export function fitAgentAccessResponseToCeiling(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function serializedJsonByteLength(value: unknown): number {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error('Agent-access value is not serializable');
+  return utf8Encoder.encode(serialized).byteLength;
 }
