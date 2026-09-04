@@ -10,6 +10,12 @@ import {
   PI_SVG_LICENSE_ASSET_FILENAME,
   PI_SVG_RASTERIZATION_LIMITS,
 } from './pi-svg-render-config.js';
+import type {
+  SvgRenderWorkerFailureReason,
+  SvgRenderWorkerRenderResponse,
+  SvgRenderWorkerRequest,
+  SvgRenderWorkerStartupResponse,
+} from './pi-svg-render-protocol.js';
 
 export {PI_SVG_RASTERIZATION_LIMITS} from './pi-svg-render-config.js';
 
@@ -56,17 +62,6 @@ export type SvgRasterizationResult =
       durationMs: number;
     };
 
-type WorkerFailureReason =
-  | 'external_resource'
-  | 'output_too_large'
-  | 'rasterizer_unavailable'
-  | 'render_error'
-  | 'unsafe_svg'
-  | 'protocol_failure';
-type WorkerResponse =
-  | {type: 'rendered'; requestId: number; png: ArrayBuffer}
-  | {type: 'failed'; requestId: number; reason: WorkerFailureReason};
-type WorkerMessage = {type: 'render'; requestId: number; svg: ArrayBuffer};
 type RenderWorker = Pick<Worker, 'on' | 'postMessage' | 'removeAllListeners' | 'terminate'> & {
   unref?: () => void;
 };
@@ -86,6 +81,7 @@ type RenderTask = {
 
 type WorkerSlot = {
   worker: RenderWorker | undefined;
+  ready: boolean;
   task: RenderTask | undefined;
   timer: ReturnType<typeof setTimeout> | undefined;
   replacing: boolean;
@@ -125,10 +121,9 @@ export async function assertPiImageRasterizerAvailable(): Promise<void> {
   const rasterizer = createPiSvgRasterizer({workerUrl: PRODUCTION_WORKER_URL});
   try {
     const withoutText = await rasterizer.rasterize({base64: smokeSvgBase64(false)});
+    assertSmokeRenderConverted('without text', withoutText);
     const withText = await rasterizer.rasterize({base64: smokeSvgBase64(true)});
-    if (withoutText.outcome !== 'converted' || withText.outcome !== 'converted') {
-      throw new Error('Pi SVG rasterizer smoke render was omitted');
-    }
+    assertSmokeRenderConverted('with text', withText);
     if (Buffer.from(withoutText.png).equals(Buffer.from(withText.png))) {
       throw new Error('Pi SVG rasterizer smoke render did not retain text');
     }
@@ -198,6 +193,7 @@ class SvgRenderPool {
     {length: PI_SVG_RASTERIZATION_LIMITS.maxWorkers},
     () => ({
       worker: undefined,
+      ready: false,
       task: undefined,
       timer: undefined,
       replacing: false,
@@ -226,7 +222,8 @@ class SvgRenderPool {
         resolve({ok: false, reason: 'rasterizer_unavailable'});
         return;
       }
-      if (this.queue.length >= PI_SVG_RASTERIZATION_LIMITS.maxQueuedRenders) {
+      const queuedBeyondInitializingWorkers = this.queue.length - this.initializingWorkerCount();
+      if (queuedBeyondInitializingWorkers >= PI_SVG_RASTERIZATION_LIMITS.maxQueuedRenders) {
         resolve({ok: false, reason: 'pool_saturated'});
         return;
       }
@@ -275,7 +272,13 @@ class SvgRenderPool {
     if (this.closed) return;
     while (this.queue.length > 0) {
       const slot = this.availableSlot();
-      if (slot === undefined) return;
+      if (slot === undefined) {
+        if (this.initializingWorkerCount() >= this.queue.length) return;
+        const emptySlot = this.emptySlot();
+        if (emptySlot === undefined) return;
+        this.startWorker(emptySlot);
+        continue;
+      }
       const task = this.queue.shift();
       if (task === undefined) return;
       if (task.queueTimer !== undefined) clearTimeout(task.queueTimer);
@@ -285,7 +288,37 @@ class SvgRenderPool {
   }
 
   private availableSlot(): WorkerSlot | undefined {
-    return this.slots.find((slot) => !slot.replacing && slot.task === undefined);
+    return this.slots.find((slot) => !slot.replacing && slot.ready && slot.task === undefined);
+  }
+
+  private emptySlot(): WorkerSlot | undefined {
+    return this.slots.find((slot) => !slot.replacing && slot.worker === undefined);
+  }
+
+  private initializingWorkerCount(): number {
+    return this.slots.filter((slot) => !slot.replacing && slot.worker !== undefined && !slot.ready)
+      .length;
+  }
+
+  private startWorker(slot: WorkerSlot): void {
+    try {
+      const worker = this.workerFactory(this.workerUrl);
+      slot.worker = worker;
+      slot.ready = false;
+      attachWorker(this, slot, worker);
+      slot.timer = setTimeout(
+        () => this.failWorkerStartup(slot, worker),
+        PI_SVG_RASTERIZATION_LIMITS.resultBudgetMs,
+      );
+    } catch {
+      this.resolveNextQueuedTask({ok: false, reason: 'render_error'});
+    }
+  }
+
+  private failWorkerStartup(slot: WorkerSlot, worker: RenderWorker): void {
+    if (slot.worker !== worker || slot.ready) return;
+    this.replaceWorker(slot, worker);
+    this.drain();
   }
 
   private dispatch(slot: WorkerSlot, task: RenderTask): void {
@@ -296,17 +329,11 @@ class SvgRenderPool {
       return;
     }
 
-    let worker = slot.worker;
-    if (worker === undefined) {
-      try {
-        worker = this.workerFactory(this.workerUrl);
-        attachWorker(this, slot, worker);
-        slot.worker = worker;
-      } catch {
-        task.resolve({ok: false, reason: 'render_error'});
-        this.drain();
-        return;
-      }
+    const worker = slot.worker;
+    if (worker === undefined || !slot.ready) {
+      task.resolve({ok: false, reason: 'render_error'});
+      this.drain();
+      return;
     }
 
     slot.task = task;
@@ -318,7 +345,7 @@ class SvgRenderPool {
     );
 
     const svg = arrayBufferOf(task.bytes);
-    const message: WorkerMessage = {type: 'render', requestId: task.id, svg};
+    const message: SvgRenderWorkerRequest = {type: 'render', requestId: task.id, svg};
     try {
       worker.postMessage(message, [svg]);
     } catch {
@@ -366,7 +393,10 @@ class SvgRenderPool {
 
   private replaceWorker(slot: WorkerSlot, worker: RenderWorker): void {
     if (slot.worker !== worker) return;
+    if (slot.timer !== undefined) clearTimeout(slot.timer);
+    slot.timer = undefined;
     slot.worker = undefined;
+    slot.ready = false;
     slot.replacing = true;
     const termination = terminateWorker(worker);
     slot.termination = termination;
@@ -374,21 +404,20 @@ class SvgRenderPool {
       if (slot.termination === termination) slot.termination = undefined;
       slot.replacing = false;
       if (this.closed) return;
-      try {
-        const replacement = this.workerFactory(this.workerUrl);
-        attachWorker(this, slot, replacement);
-        slot.worker = replacement;
-      } catch {
-        slot.worker = undefined;
-      }
       this.drain();
     });
   }
 
   handleWorkerMessage(slot: WorkerSlot, worker: RenderWorker, value: unknown): void {
+    if (slot.worker !== worker) return;
+    if (!slot.ready) {
+      this.handleWorkerStartupMessage(slot, worker, value);
+      return;
+    }
+
     const task = slot.task;
-    if (task === undefined || slot.worker !== worker) return;
-    if (!isWorkerResponse(value) || value.requestId !== task.id) {
+    if (task === undefined) return;
+    if (!isWorkerRenderResponse(value) || value.requestId !== task.id) {
       this.finishTask(slot, worker, task, {ok: false, reason: 'render_error'}, true);
       return;
     }
@@ -428,7 +457,32 @@ class SvgRenderPool {
     );
   }
 
+  private handleWorkerStartupMessage(slot: WorkerSlot, worker: RenderWorker, value: unknown): void {
+    if (isWorkerStartupResponse(value) && value.type === 'ready') {
+      if (slot.timer !== undefined) clearTimeout(slot.timer);
+      slot.timer = undefined;
+      slot.ready = true;
+      this.drain();
+      return;
+    }
+    this.failNextQueuedTaskWithoutAlternative(
+      slot,
+      isWorkerStartupResponse(value) && value.type === 'initialization_failed'
+        ? 'rasterizer_unavailable'
+        : 'render_error',
+    );
+    this.replaceWorker(slot, worker);
+    this.drain();
+  }
+
   handleWorkerError(slot: WorkerSlot, worker: RenderWorker): void {
+    if (slot.worker !== worker) return;
+    if (!slot.ready) {
+      this.failNextQueuedTaskWithoutAlternative(slot, 'rasterizer_unavailable');
+      this.replaceWorker(slot, worker);
+      this.drain();
+      return;
+    }
     const task = slot.task;
     if (task === undefined) {
       this.replaceWorker(slot, worker);
@@ -439,6 +493,12 @@ class SvgRenderPool {
 
   handleWorkerExit(slot: WorkerSlot, worker: RenderWorker): void {
     if (slot.worker !== worker) return;
+    if (!slot.ready) {
+      this.failNextQueuedTaskWithoutAlternative(slot, 'rasterizer_unavailable');
+      this.replaceWorker(slot, worker);
+      this.drain();
+      return;
+    }
     const task = slot.task;
     if (task === undefined) {
       this.replaceWorker(slot, worker);
@@ -461,8 +521,39 @@ class SvgRenderPool {
       this.queue.splice(index, 1);
       task.queueTimer = undefined;
       task.resolve({ok: false, reason: 'result_budget_exhausted'});
+      this.discardSurplusInitializingWorkers();
       this.drain();
     }, remainingMs);
+  }
+
+  private discardSurplusInitializingWorkers(): void {
+    let surplus = this.initializingWorkerCount() - this.queue.length;
+    if (surplus <= 0) return;
+    for (const slot of this.slots) {
+      const worker = slot.worker;
+      if (surplus <= 0) return;
+      if (slot.replacing || worker === undefined || slot.ready) continue;
+      this.replaceWorker(slot, worker);
+      surplus -= 1;
+    }
+  }
+
+  private resolveNextQueuedTask(result: PoolResult): void {
+    const task = this.queue.shift();
+    if (task === undefined) return;
+    if (task.queueTimer !== undefined) clearTimeout(task.queueTimer);
+    task.queueTimer = undefined;
+    task.resolve(result);
+  }
+
+  private failNextQueuedTaskWithoutAlternative(
+    failedSlot: WorkerSlot,
+    reason: SvgRasterizationReason,
+  ): void {
+    const hasAlternativeWorker = this.slots.some(
+      (slot) => slot !== failedSlot && slot.worker !== undefined,
+    );
+    if (!hasAlternativeWorker) this.resolveNextQueuedTask({ok: false, reason});
   }
 }
 
@@ -488,7 +579,13 @@ function ignoreWorkerError(): void {
   return;
 }
 
-function isWorkerResponse(value: unknown): value is WorkerResponse {
+function isWorkerStartupResponse(value: unknown): value is SvgRenderWorkerStartupResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const type = (value as {type?: unknown}).type;
+  return type === 'ready' || type === 'initialization_failed';
+}
+
+function isWorkerRenderResponse(value: unknown): value is SvgRenderWorkerRenderResponse {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as {
     type?: unknown;
@@ -505,25 +602,26 @@ function isWorkerResponse(value: unknown): value is WorkerResponse {
     return false;
   }
   if (candidate.type === 'rendered') return candidate.png instanceof ArrayBuffer;
-  return (
-    candidate.reason === 'external_resource' ||
-    candidate.reason === 'output_too_large' ||
-    candidate.reason === 'rasterizer_unavailable' ||
-    candidate.reason === 'render_error' ||
-    candidate.reason === 'unsafe_svg' ||
-    candidate.reason === 'protocol_failure'
-  );
+  return isWorkerFailureReason(candidate.reason);
 }
 
-function shouldReplaceAfterFailure(reason: WorkerFailureReason): boolean {
-  return (
-    reason === 'rasterizer_unavailable' ||
-    reason === 'render_error' ||
-    reason === 'protocol_failure'
-  );
+const WORKER_FAILURE_REASONS = {
+  external_resource: true,
+  output_too_large: true,
+  protocol_failure: true,
+  render_error: true,
+  unsafe_svg: true,
+} satisfies Record<SvgRenderWorkerFailureReason, true>;
+
+function isWorkerFailureReason(value: unknown): value is SvgRenderWorkerFailureReason {
+  return typeof value === 'string' && Object.hasOwn(WORKER_FAILURE_REASONS, value);
 }
 
-function mapWorkerFailure(reason: WorkerFailureReason): SvgRasterizationReason {
+function shouldReplaceAfterFailure(reason: SvgRenderWorkerFailureReason): boolean {
+  return reason === 'render_error' || reason === 'protocol_failure';
+}
+
+function mapWorkerFailure(reason: SvgRenderWorkerFailureReason): SvgRasterizationReason {
   return reason === 'protocol_failure' ? 'render_error' : reason;
 }
 
@@ -573,6 +671,16 @@ function omitted(
     ...(inputBytes === undefined ? {} : {inputBytes}),
     durationMs: durationSince(startedAt),
   };
+}
+
+function assertSmokeRenderConverted(
+  label: string,
+  result: SvgRasterizationResult,
+): asserts result is Extract<SvgRasterizationResult, {outcome: 'converted'}> {
+  if (result.outcome === 'converted') return;
+  throw new Error(
+    `Pi SVG rasterizer smoke render ${label} was omitted: ${result.reason} after ${result.durationMs}ms`,
+  );
 }
 
 function durationSince(startedAt: number): number {

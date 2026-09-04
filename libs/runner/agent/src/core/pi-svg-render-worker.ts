@@ -2,6 +2,11 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {parentPort} from 'node:worker_threads';
 import {type CustomFontsOptions, initWasm, Resvg} from '@resvg/resvg-wasm';
+import type {
+  SvgRenderWorkerRenderResponse,
+  SvgRenderWorkerRequest,
+  SvgRenderWorkerResponse,
+} from './pi-svg-render-protocol.js';
 
 const sourceExtension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
 const {validatePngOutput} = await import(`./pi-png.${sourceExtension}`);
@@ -21,26 +26,26 @@ let fontBuffers: Uint8Array[] | undefined;
 let fontFamily: string | undefined;
 let initialization: Promise<void> | undefined;
 
-type RenderRequest = {type: 'render'; requestId: number; svg: ArrayBuffer};
-type WorkerFailureReason =
-  | 'external_resource'
-  | 'output_too_large'
-  | 'rasterizer_unavailable'
-  | 'render_error'
-  | 'unsafe_svg'
-  | 'protocol_failure';
-type RenderResponse =
-  | {type: 'rendered'; requestId: number; png: ArrayBuffer}
-  | {type: 'failed'; requestId: number; reason: WorkerFailureReason};
-
 if (parentPort === null) throw new Error('SVG render worker has no parent port');
 const port = parentPort;
 
-port.on('message', (message: unknown) => {
-  void handleMessage(message);
-});
+await startWorker();
 
-async function handleMessage(message: unknown): Promise<void> {
+async function startWorker(): Promise<void> {
+  try {
+    await initializeRenderer();
+  } catch {
+    post({type: 'initialization_failed'});
+    return;
+  }
+
+  port.on('message', (message: unknown) => {
+    handleMessage(message);
+  });
+  post({type: 'ready'});
+}
+
+function handleMessage(message: unknown): void {
   const requestId = requestIdOf(message);
   if (!isRenderRequest(message)) {
     post({type: 'failed', requestId, reason: 'protocol_failure'});
@@ -55,13 +60,6 @@ async function handleMessage(message: unknown): Promise<void> {
   }
 
   try {
-    await initializeRenderer();
-  } catch {
-    post({type: 'failed', requestId, reason: 'rasterizer_unavailable'});
-    return;
-  }
-
-  try {
     const response = renderSvg(requestId, svg);
     if (response.type === 'rendered') port.postMessage(response, [response.png]);
     else post(response);
@@ -70,7 +68,7 @@ async function handleMessage(message: unknown): Promise<void> {
   }
 }
 
-function renderSvg(requestId: number, svg: Uint8Array): RenderResponse {
+function renderSvg(requestId: number, svg: Uint8Array): SvgRenderWorkerRenderResponse {
   const renderer = new Resvg(svg, {
     font: fontOptions(),
   });
@@ -167,7 +165,10 @@ function fontOptions(): CustomFontsOptions {
   };
 }
 
-function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): RenderResponse {
+function renderPng(
+  requestId: number,
+  renderer: InstanceType<typeof Resvg>,
+): SvgRenderWorkerRenderResponse {
   const rendered = renderer.render();
   try {
     const png = rendered.asPng();
@@ -181,9 +182,9 @@ function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): Ren
   }
 }
 
-function isRenderRequest(value: unknown): value is RenderRequest {
+function isRenderRequest(value: unknown): value is SvgRenderWorkerRequest {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<RenderRequest>;
+  const candidate = value as Partial<SvgRenderWorkerRequest>;
   return (
     candidate.type === 'render' &&
     typeof candidate.requestId === 'number' &&
@@ -201,6 +202,6 @@ function requestIdOf(value: unknown): number {
     : 0;
 }
 
-function post(response: RenderResponse): void {
+function post(response: SvgRenderWorkerResponse): void {
   port.postMessage(response);
 }
