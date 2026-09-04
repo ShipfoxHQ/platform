@@ -27,8 +27,8 @@ import {
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
-import {createUsageModule} from '@shipfox/api-usage';
 import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
+import {createUsageModule} from '@shipfox/api-usage';
 import {type CreateWorkflowsModuleOptions, createWorkflowsModule} from '@shipfox/api-workflows';
 import {
   type WorkflowsModuleClient,

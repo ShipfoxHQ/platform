@@ -10,8 +10,8 @@ import {
   type SecretsInterModuleClient,
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
-import {usageInterModuleContract} from '@shipfox/api-usage-dto/inter-module';
 import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
+import {usageInterModuleContract} from '@shipfox/api-usage-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {
   type WorkspacesInterModuleClient,
