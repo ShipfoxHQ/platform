@@ -373,6 +373,7 @@ describe('integration source-control service', () => {
       ref: repository.defaultBranch,
     }));
     const resolveRepositoryAuthorization = vi.fn();
+    const recordRepositoryAuthorizationMetric = vi.fn();
     const service = createService(
       {createCheckoutSpec},
       {
@@ -381,6 +382,7 @@ describe('integration source-control service', () => {
           enabled: true,
           resolveRepositoryAuthorization,
         },
+        recordRepositoryAuthorizationMetric,
       },
     );
 
@@ -394,6 +396,34 @@ describe('integration source-control service', () => {
 
     expect(resolveRepositoryAuthorization).not.toHaveBeenCalled();
     expect(createCheckoutSpec).toHaveBeenCalledOnce();
+    expect(recordRepositoryAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'gitea',
+      mode: 'selected',
+      decision: 'not-enforced',
+      denial_reason: 'none',
+    });
+  });
+
+  it('records a not-enforced checkout metric when no authorizer is configured', async () => {
+    const createCheckoutSpec = vi.fn(async () => ({
+      repositoryUrl: repository.cloneUrl,
+      ref: repository.defaultBranch,
+    }));
+    const recordRepositoryAuthorizationMetric = vi.fn();
+    const service = createService({createCheckoutSpec}, {recordRepositoryAuthorizationMetric});
+
+    await service.createCheckoutSpec({
+      workspaceId,
+      connectionId: connection.id,
+      externalRepositoryId: repository.externalRepositoryId,
+    });
+
+    expect(recordRepositoryAuthorizationMetric).toHaveBeenCalledWith({
+      provider: 'gitea',
+      mode: 'selected',
+      decision: 'not-enforced',
+      denial_reason: 'none',
+    });
   });
 
   it('authorizes checkout independently of the provider tool authorization state', async () => {
@@ -500,6 +530,40 @@ describe('integration source-control service', () => {
       repository: {kind: 'name', owner: 'acme', name: 'platform'},
       capability: 'checkout',
     });
+    expect(createCheckoutCredentials).not.toHaveBeenCalled();
+  });
+
+  it('authorizes checkout credentials independently of the provider tool authorization state', async () => {
+    const createCheckoutCredentials = vi.fn(async () => ({
+      username: 'x-access-token',
+      token: 'secret',
+      expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+    }));
+    const resolveRepositoryAuthorization = vi.fn().mockResolvedValue({
+      authorized: false,
+      reason: 'repository_not_granted',
+    } as const);
+    const service = createService(
+      {createCheckoutCredentials},
+      {
+        providerRepositoryAuthorization: 'unclassified',
+        repositoryAuthorizer: {
+          enabled: true,
+          resolveRepositoryAuthorization,
+        },
+      },
+    );
+
+    await expect(
+      service.createCheckoutCredentials({
+        workspaceId,
+        connectionId: connection.id,
+        externalRepositoryId: repository.externalRepositoryId,
+        permissions: {contents: 'read'},
+      }),
+    ).rejects.toBeInstanceOf(IntegrationRepositoryAuthorizationError);
+
+    expect(resolveRepositoryAuthorization).toHaveBeenCalledOnce();
     expect(createCheckoutCredentials).not.toHaveBeenCalled();
   });
 

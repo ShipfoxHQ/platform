@@ -313,6 +313,12 @@ async function authorizeCheckoutTarget(params: {
     params.repositoryAuthorizer === undefined ||
     params.checkoutRepositoryAuthorization !== 'enforced'
   ) {
+    recordCheckoutAuthorizationMetric(params.recordRepositoryAuthorizationMetric, {
+      provider: params.connection.provider,
+      mode: params.connection.repositoryAccessMode,
+      decision: 'not-enforced',
+      denial_reason: 'none',
+    });
     return target;
   }
 

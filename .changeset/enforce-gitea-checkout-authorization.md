@@ -1,8 +1,8 @@
 ---
-"@shipfox/api-integration-core": patch
+"@shipfox/api-integration-core": minor
 "@shipfox/api-integration-gitea": patch
 "@shipfox/api-integration-github": patch
-"@shipfox/api-integration-spi": patch
+"@shipfox/api-integration-spi": minor
 ---
 
-Enforce repository authorization for GitHub and Gitea checkout targets while keeping tool authorization classification separate.
+Enforce repository authorization for GitHub and Gitea checkout targets.
