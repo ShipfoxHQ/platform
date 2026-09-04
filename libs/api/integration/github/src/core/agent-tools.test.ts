@@ -2149,6 +2149,11 @@ describe('github agent tool catalog', () => {
               {
                 id: 'PRRT_kwDOExample',
                 isResolved: false,
+                path: 'src/index.ts',
+                line: 42,
+                diffSide: 'RIGHT',
+                startLine: 40,
+                startDiffSide: 'RIGHT',
                 comments: {
                   nodes: [
                     {
@@ -2158,6 +2163,7 @@ describe('github agent tool catalog', () => {
                       author: {login: 'reviewer'},
                       path: 'src/index.ts',
                       line: 42,
+                      startLine: 40,
                     },
                   ],
                 },
@@ -2192,10 +2198,17 @@ describe('github agent tool catalog', () => {
       {owner: 'shipfox', repo: 'platform', pullNumber: 2, after: 'cursor-1'},
     );
     const query = graphql.mock.calls[0]?.[0];
+    const selectedFields = String(query)
+      .split('\n')
+      .map((line) => line.trim());
     expect(query).toContain('isResolved');
     expect(query).toContain('author');
     expect(query).toContain('path');
     expect(query).toContain('line');
+    expect(query).toContain('diffSide');
+    expect(query).toContain('startDiffSide');
+    expect(selectedFields).not.toContain('side');
+    expect(selectedFields).not.toContain('startSide');
     expect(result).toEqual({
       content: [{type: 'text', text: JSON.stringify(data)}],
       structuredContent: data,

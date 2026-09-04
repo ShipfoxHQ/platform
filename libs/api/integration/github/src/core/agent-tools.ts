@@ -98,6 +98,11 @@ const GET_PULL_REQUEST_REVIEW_THREADS_QUERY = `
           nodes {
             id
             isResolved
+            path
+            line
+            diffSide
+            startLine
+            startDiffSide
             comments(first: 100) {
               nodes {
                 id
@@ -108,9 +113,7 @@ const GET_PULL_REQUEST_REVIEW_THREADS_QUERY = `
                 }
                 path
                 line
-                side
                 startLine
-                startSide
                 createdAt
                 updatedAt
                 url
