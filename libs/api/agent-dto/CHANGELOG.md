@@ -1,5 +1,11 @@
 # @shipfox/api-agent-dto
 
+## 21.1.0
+
+### Minor Changes
+
+- f534da6: Snapshots renewable inference eligibility at job claim and rejects runtime credentials after cancellation or attempt replacement.
+
 ## 21.0.0
 
 ### Minor Changes

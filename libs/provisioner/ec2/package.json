@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/provisioner-ec2-provider",
   "license": "MIT",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

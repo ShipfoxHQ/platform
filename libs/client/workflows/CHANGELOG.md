@@ -1,5 +1,22 @@
 # @shipfox/client-workflows
 
+## 34.0.0
+
+### Minor Changes
+
+- bb78c6b: Adds lazy source, context, and step diagnostics to workflow run views.
+
+### Patch Changes
+
+- 01af160: Separates execution payload limits from diagnostic read limits and bounds oversized workflow failures.
+- Updated dependencies [01af160]
+- Updated dependencies [8a98a87]
+- Updated dependencies [6fac62f]
+  - @shipfox/api-workflows-dto@21.1.0
+  - @shipfox/client-shell@32.0.0
+  - @shipfox/client-projects@34.0.0
+  - @shipfox/client-triggers@34.0.0
+
 ## 33.0.0
 
 ### Minor Changes

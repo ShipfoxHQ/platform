@@ -1,5 +1,13 @@
 # @shipfox/api-agent-access-dto
 
+## 21.1.0
+
+### Minor Changes
+
+- a0791a3: Adds a `get_step_logs` tool that reads a log tail for one exact workflow step attempt, or the first failed step attempts in a workflow run.
+- 661868a: Adds bounded workflow traversal tools to Agent Access.
+- 6d94ffc: Preserves structured workflow values in lazy Agent Access diagnostics.
+
 ## 21.0.0
 
 ### Minor Changes

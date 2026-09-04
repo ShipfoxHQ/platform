@@ -1,5 +1,18 @@
 # @shipfox/runner-protocol
 
+## 0.2.34
+
+### Patch Changes
+
+- Updated dependencies [01af160]
+- Updated dependencies [be1c862]
+- Updated dependencies [f534da6]
+- Updated dependencies [8a98a87]
+- Updated dependencies [6fac62f]
+  - @shipfox/api-workflows-dto@21.1.0
+  - @shipfox/api-runners-dto@21.1.0
+  - @shipfox/api-agent-dto@21.1.0
+
 ## 0.2.33
 
 ### Patch Changes
