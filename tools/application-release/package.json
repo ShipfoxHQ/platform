@@ -29,7 +29,8 @@
   },
   "dependencies": {
     "ajv": "catalog:",
-    "ajv-formats": "catalog:"
+    "ajv-formats": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@shipfox/biome": "workspace:*",
@@ -38,7 +39,6 @@
     "@shipfox/ts-config": "workspace:*",
     "@shipfox/typescript": "workspace:*",
     "@types/node": "catalog:",
-    "tsx": "catalog:",
-    "yaml": "catalog:"
+    "tsx": "catalog:"
   }
 }

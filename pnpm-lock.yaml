@@ -8133,6 +8133,9 @@ importers:
       ajv-formats:
         specifier: 'catalog:'
         version: 3.0.1(ajv@8.20.0)
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
     devDependencies:
       '@shipfox/biome':
         specifier: workspace:*
@@ -8155,9 +8158,6 @@ importers:
       tsx:
         specifier: 'catalog:'
         version: 4.22.4
-      yaml:
-        specifier: 'catalog:'
-        version: 2.9.0
 
   tools/architecture-policy:
     devDependencies:
