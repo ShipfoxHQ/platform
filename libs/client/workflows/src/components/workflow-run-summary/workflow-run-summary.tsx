@@ -1,6 +1,7 @@
 import {useAuthState} from '@shipfox/client-shell/runtime';
 import {TriggerSourceIcon} from '@shipfox/client-triggers';
 import {MetadataSeparator} from '@shipfox/client-ui';
+import {type RunUsage, RunUsageSummary} from '@shipfox/client-usage';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
 import {
@@ -53,6 +54,7 @@ export interface WorkflowRunSummaryProps {
   rerunPending?: boolean | undefined;
   onRerun?: ((mode: WorkflowRunRerunMode) => void) | undefined;
   latestAttempt?: number | undefined;
+  usage?: RunUsage | undefined;
 }
 
 export function WorkflowRunSummary({
@@ -64,6 +66,7 @@ export function WorkflowRunSummary({
   rerunPending = false,
   onRerun,
   latestAttempt,
+  usage,
 }: WorkflowRunSummaryProps) {
   const headingId = useId();
   const status = getWorkflowStatusVisual(run.runAttempt.status);
@@ -227,10 +230,21 @@ export function WorkflowRunSummary({
                 />
               </>
             ) : null}
+            <WorkflowRunUsageMetadata runId={run.id} usage={usage} />
           </div>
         </div>
       </section>
     </TimeTickerProvider>
+  );
+}
+
+function WorkflowRunUsageMetadata({runId, usage}: {runId: string; usage: RunUsage | undefined}) {
+  if (!usage) return null;
+  return (
+    <>
+      <MetadataSeparator />
+      <RunUsageSummary runId={runId} usage={usage} />
+    </>
   );
 }
 

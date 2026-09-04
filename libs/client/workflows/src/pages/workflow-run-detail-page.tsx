@@ -3,6 +3,7 @@ import {type WorkflowRunsSearch, workflowRunTab} from '#routes/inputs.js';
 
 interface WorkflowRunDetailPageProps {
   projectId: string;
+  workspaceId?: string | undefined;
   workspaceSlug: string;
   projectSlug: string;
   workflowRunId?: string | undefined;
@@ -11,6 +12,7 @@ interface WorkflowRunDetailPageProps {
 
 export function WorkflowRunDetailPage({
   projectId,
+  workspaceId,
   workspaceSlug,
   projectSlug,
   workflowRunId,
@@ -20,6 +22,7 @@ export function WorkflowRunDetailPage({
     <div data-workflow-page-root="run-detail" className="flex min-h-0 flex-1 overflow-hidden">
       <WorkflowRunView
         projectId={projectId}
+        workspaceId={workspaceId}
         workspaceSlug={workspaceSlug}
         projectSlug={projectSlug}
         workflowRunId={workflowRunId}

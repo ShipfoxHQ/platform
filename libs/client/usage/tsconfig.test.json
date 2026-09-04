@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "composite": false,
+    "emitDeclarationOnly": false
+  },
+  "include": [
+    "src",
+    "test",
+    "../.storybook/workspace-source.ts",
+    "vitest.config.ts",
+    "node_modules/@shipfox/vitest/globals.d.ts"
+  ],
+  "exclude": ["**/*.stories.tsx"]
+}

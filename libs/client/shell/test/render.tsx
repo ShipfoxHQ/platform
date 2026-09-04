@@ -8,6 +8,10 @@ import {assembleRouteTree, type ResolveRouteImpl} from '#runtime/assemble-route-
 import {type AuthStateValue, authStateAtom} from '#runtime/auth.js';
 import {ChromeProvider, type ChromeSlots} from '#runtime/chrome-context.js';
 import {type ClientAnalytics, ClientAnalyticsProvider} from '#runtime/client-analytics.js';
+import {
+  type ClientUsagePricing,
+  ClientUsagePricingProvider,
+} from '#runtime/client-usage-pricing.js';
 import {ShellProviderStack} from '#runtime/provider-stack.js';
 import {navigationEntries, settingsEntries} from '#runtime/registries.js';
 import type {WorkspaceSetupGate} from '#runtime/workspace-setup.js';
@@ -20,6 +24,7 @@ export async function renderComposedShell({
   chrome: chromeOverrides,
   workspaceSetup,
   clientAnalytics,
+  usagePricing,
 }: {
   auth?: AuthStateValue;
   features: readonly ClientFeature[];
@@ -28,6 +33,7 @@ export async function renderComposedShell({
   chrome?: Partial<ChromeSlots>;
   workspaceSetup?: WorkspaceSetupGate;
   clientAnalytics?: ClientAnalytics;
+  usagePricing?: ClientUsagePricing;
 }): Promise<{
   router: unknown;
   queryClient: QueryClient;
@@ -72,14 +78,16 @@ export async function renderComposedShell({
   render(
     <ChromeProvider chrome={chrome}>
       <ClientAnalyticsProvider {...(clientAnalytics ? {analytics: clientAnalytics} : {})}>
-        <ShellProviderStack
-          features={features}
-          queryClient={queryClient}
-          store={store}
-          auth={{effects: false}}
-        >
-          <RouterProvider router={router} />
-        </ShellProviderStack>
+        <ClientUsagePricingProvider {...(usagePricing ? {usagePricing} : {})}>
+          <ShellProviderStack
+            features={features}
+            queryClient={queryClient}
+            store={store}
+            auth={{effects: false}}
+          >
+            <RouterProvider router={router} />
+          </ShellProviderStack>
+        </ClientUsagePricingProvider>
       </ClientAnalyticsProvider>
     </ChromeProvider>,
   );

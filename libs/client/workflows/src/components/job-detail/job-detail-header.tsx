@@ -1,3 +1,5 @@
+import type {JobExecutionUsage} from '@shipfox/client-usage';
+import {JobUsageCells} from '@shipfox/client-usage';
 import {Icon} from '@shipfox/react-ui/icon';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
@@ -34,6 +36,7 @@ export interface JobDetailHeaderProps {
   executionCount?: BoundedExecutionCount | undefined;
   executionCountVisible?: boolean | undefined;
   executionDisplayStatus?: JobExecutionDisplayStatus | undefined;
+  usage?: JobExecutionUsage | undefined;
 }
 
 export function JobDetailHeader({
@@ -49,6 +52,7 @@ export function JobDetailHeader({
   executionCount,
   executionCountVisible,
   executionDisplayStatus,
+  usage,
 }: JobDetailHeaderProps) {
   const selectedStatus = selectedExecutionStatus(job, selectedJobExecution, executionDisplayStatus);
   const jobStatus = getWorkflowStatusVisual(selectedStatus);
@@ -93,6 +97,7 @@ export function JobDetailHeader({
                   <JobDurationMeta execution={selectedJobExecution} kind="run" />
                 </>
               ) : null}
+              <JobUsageCells usage={usage} />
               <RunAnnotationCountChip
                 summary={annotationSummary}
                 workspaceSlug={workspaceSlug}

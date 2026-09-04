@@ -18,6 +18,7 @@ import type {ClientFeature} from '#contract.js';
 import {useAuthState} from './auth.js';
 import {ChromeProvider, type ChromeSlots} from './chrome-context.js';
 import {type ClientAnalytics, ClientAnalyticsProvider} from './client-analytics.js';
+import {type ClientUsagePricing, ClientUsagePricingProvider} from './client-usage-pricing.js';
 import {ShellProviderStack} from './provider-stack.js';
 import type {WorkspaceSetupGate} from './workspace-setup.js';
 
@@ -27,12 +28,14 @@ export function composeClientApp({
   chrome,
   workspaceSetup,
   clientAnalytics,
+  usagePricing,
 }: {
   features: readonly ClientFeature[];
   router: AnyRouter;
   chrome?: ChromeSlots;
   workspaceSetup?: WorkspaceSetupGate;
   clientAnalytics?: ClientAnalytics;
+  usagePricing?: ClientUsagePricing;
 }) {
   const composition = composeClientFeatures(features);
   const config = loadConfig(composition.configShape, {
@@ -64,19 +67,21 @@ export function composeClientApp({
         <StrictMode>
           <ChromeProvider chrome={chrome}>
             <ClientAnalyticsProvider {...(clientAnalytics ? {analytics: clientAnalytics} : {})}>
-              <ShellProviderStack
-                features={features}
-                queryClient={queryClient}
-                store={createStore()}
-              >
-                <RoutedApp
-                  router={router}
+              <ClientUsagePricingProvider {...(usagePricing ? {usagePricing} : {})}>
+                <ShellProviderStack
+                  features={features}
                   queryClient={queryClient}
-                  workspaceSetup={workspaceSetup}
-                  projectSlugResolver={chrome?.projectSlugResolver}
-                />
-                <Toaster />
-              </ShellProviderStack>
+                  store={createStore()}
+                >
+                  <RoutedApp
+                    router={router}
+                    queryClient={queryClient}
+                    workspaceSetup={workspaceSetup}
+                    projectSlugResolver={chrome?.projectSlugResolver}
+                  />
+                  <Toaster />
+                </ShellProviderStack>
+              </ClientUsagePricingProvider>
             </ClientAnalyticsProvider>
           </ChromeProvider>
         </StrictMode>,

@@ -3,6 +3,7 @@
 
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
+import {StepInferenceTable, useJobExecutionUsageQuery} from '@shipfox/client-usage';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button, IconButton} from '@shipfox/react-ui/button';
 import {
@@ -108,6 +109,7 @@ interface JobDetailData {
 }
 
 export interface JobDetailViewProps {
+  workspaceId?: string | undefined;
   workspaceSlug: string;
   projectSlug: string;
   workflowRunId: string;
@@ -121,6 +123,7 @@ export interface JobDetailViewProps {
 }
 
 export function JobDetailView({
+  workspaceId,
   workspaceSlug,
   projectSlug,
   workflowRunId,
@@ -154,6 +157,11 @@ export function JobDetailView({
     selectedJobResources.detailPresentation,
   );
   const hasLoadedData = detailData !== undefined;
+  const usageQuery = useJobDetailUsageQuery({
+    workspaceId,
+    detailData,
+    search,
+  });
   // Reuse the run workspace's bounded annotation read for the job header chip. The separate
   // summary query below stays counts-only and is scoped to the inspector's selected execution.
   const annotations = useRunAnnotationsQuery({
@@ -228,6 +236,14 @@ export function JobDetailView({
     showRetargetNotice,
     succeededSummary,
   } = detailState;
+  const stepLabels = new Map(
+    (selectedJobExecution?.steps ?? []).map((step) => [step.id, step.name] as const),
+  );
+  const stepAttemptLabels = new Map(
+    (selectedJobExecution?.steps ?? []).flatMap((step) =>
+      step.attempts.map((attempt) => [attempt.id, String(attempt.attempt)] as const),
+    ),
+  );
 
   function selectExecution(jobExecutionId: string) {
     onSelectionChange({
@@ -310,6 +326,7 @@ export function JobDetailView({
                 executionCount={detailData.executionCount}
                 executionCountVisible={detailData.executionCountVisible}
                 executionDisplayStatus={detailData.executionDisplayStatus}
+                usage={usageQuery.data}
                 jobContext={
                   selectedJobExecution ? (
                     <JobContextPanel
@@ -320,6 +337,15 @@ export function JobDetailView({
                   ) : undefined
                 }
               />
+              {usageQuery.data ? (
+                <div className="px-row pb-row">
+                  <StepInferenceTable
+                    usage={usageQuery.data}
+                    stepLabels={stepLabels}
+                    stepAttemptLabels={stepAttemptLabels}
+                  />
+                </div>
+              ) : null}
               <Panel data-job-log-panel className="min-w-0">
                 <JobLogPanelHeader
                   stepLabel={expandedLogSelection?.stepLabel}
@@ -516,6 +542,29 @@ function normalizeJobDetailData(
         executionDisplayStatus: undefined,
       }
     : undefined;
+}
+
+function useJobDetailUsageQuery({
+  workspaceId,
+  detailData,
+  search,
+}: {
+  workspaceId: string | undefined;
+  detailData: JobDetailData | undefined;
+  search: WorkflowJobSearch;
+}) {
+  const usageExecutionId = detailData
+    ? resolveWorkflowJobSelection({job: detailData.job, selection: search}).jobExecution?.id
+    : undefined;
+  const usageExecution = detailData?.job.jobExecutions.find(
+    (execution) => execution.id === usageExecutionId,
+  );
+  return useJobExecutionUsageQuery({
+    workspaceId,
+    jobExecutionId: usageExecutionId,
+    enabled: usageExecutionId !== undefined,
+    polling: usageExecution ? !isTerminalJobExecutionStatus(usageExecution.status) : false,
+  });
 }
 
 function useSelectedJobDetailPresentation({
