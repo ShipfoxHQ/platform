@@ -36,6 +36,7 @@ import {
   type Step,
   StepAttempt,
   type StepAttemptSession,
+  type StepError,
   type StepGateResult,
   toWorkflowRunOverviewExecutionDuration,
   type WorkflowExecutionEvent,
@@ -648,27 +649,34 @@ export function toStep(dto: WorkflowRunStepDetailDto): Step {
     evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
     agentConfig: toAgentStepConfig(dto),
     toolConfig: toToolStepConfig(dto),
-    error: dto.error
-      ? {
-          message: dto.error.message,
-          ...(dto.error.code === undefined ? {} : {code: dto.error.code}),
-          ...(dto.error.managed_provider_id === undefined
-            ? {}
-            : {managedProviderId: dto.error.managed_provider_id}),
-          ...(dto.error.field === undefined ? {} : {field: dto.error.field}),
-          ...(dto.error.source === undefined ? {} : {source: dto.error.source}),
-          exitCode: dto.error.exit_code ?? null,
-          signal: dto.error.signal,
-          reason: dto.error.reason,
-          agentConfigIssue: dto.error.agent_config_issue,
-          category: dto.error.category,
-        }
-      : null,
+    error: toStepError(dto.error),
     position: dto.position,
     currentAttempt: dto.current_attempt,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     attempts: dto.attempts.map((attempt) => toStepAttempt(attempt, dto.job_execution_id)),
+  };
+}
+
+function toStepError(error: WorkflowRunStepDetailDto['error']): StepError | null {
+  if (!error) return null;
+  return {
+    message: error.message,
+    ...(error.code === undefined ? {} : {code: error.code}),
+    ...(error.managed_provider_id === undefined
+      ? {}
+      : {managedProviderId: error.managed_provider_id}),
+    ...(error.field === undefined ? {} : {field: error.field}),
+    ...(error.source === undefined ? {} : {source: error.source}),
+    ...(error.retryable === undefined ? {} : {retryable: error.retryable}),
+    ...(error.limit_bytes === undefined ? {} : {limitBytes: error.limit_bytes}),
+    ...(error.measured_bytes === undefined ? {} : {measuredBytes: error.measured_bytes}),
+    ...(error.overshoot_bytes === undefined ? {} : {overshootBytes: error.overshoot_bytes}),
+    exitCode: error.exit_code ?? null,
+    signal: error.signal,
+    reason: error.reason,
+    agentConfigIssue: error.agent_config_issue,
+    category: error.category,
   };
 }
 

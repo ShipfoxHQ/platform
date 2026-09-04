@@ -77,6 +77,10 @@ export interface StepError {
   managedProviderId?: string | undefined;
   field?: string | undefined;
   source?: string | undefined;
+  retryable?: boolean | undefined;
+  limitBytes?: number | undefined;
+  measuredBytes?: number | undefined;
+  overshootBytes?: number | undefined;
   exitCode: number | null;
   signal: string | undefined;
   reason: StepErrorReason | undefined;

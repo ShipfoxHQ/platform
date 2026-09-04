@@ -7,6 +7,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@shipfox/react-ui/dropdown-menu';
 import {useIsTextTruncated} from '@shipfox/react-ui/hooks';
@@ -336,7 +337,11 @@ function WorkflowRunActionSlot({
           Re-run jobs
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-320">
+        <DropdownMenuLabel className="whitespace-normal px-row py-row text-xs font-normal leading-18 text-foreground-neutral-muted">
+          Re-running failed jobs preserves this attempt&apos;s inputs and successful job outputs.
+          Re-run all jobs to recompute them.
+        </DropdownMenuLabel>
         <DropdownMenuItem disabled={rerunPending} onSelect={() => onRerun('all')}>
           Re-run all jobs
         </DropdownMenuItem>

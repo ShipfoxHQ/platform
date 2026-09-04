@@ -15,6 +15,9 @@ const MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION =
   'A materialized job output could not be persisted: it exceeded a size or entry cap, contained a non-JSON-safe value, or referenced an unresolved value. Check the output mapping and values before re-running the workflow.';
 const OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION =
   'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
+const LEGACY_TRIGGER_PAYLOAD_FAILURE_DESCRIPTION =
+  'The trigger events for this execution exceeded a legacy payload limit. Re-running failed jobs preserves the same events, so reduce the listener batch or start a new run from a smaller event payload.';
+const LEGACY_DIAGNOSTIC_FIELD_RE = /^Workflow diagnostic field "([^"]+)"/u;
 
 export function outputFailureDescriptionForExecution(
   jobExecution: JobExecution,
@@ -102,13 +105,10 @@ export function emptyStateForJob(
   }
 
   if (displayStatus === 'failed') {
+    const reason = jobExecution.statusReason ?? job.statusReason;
     return {
-      title: 'Job failed before its first step started',
-      description: preStepFailureDescription(
-        jobExecution.statusReason ?? job.statusReason,
-        runner,
-        jobExecution.statusReasonMessage,
-      ),
+      title: preStepFailureTitle(reason, jobExecution.statusReasonMessage),
+      description: preStepFailureDescription(reason, runner, jobExecution.statusReasonMessage),
       status: displayStatus,
     };
   }
@@ -231,6 +231,9 @@ function preStepFailureDescription(
     case 'step_failed':
       return `The execution failed before step details were recorded.${runnerCopy} Review run annotations before re-running the workflow.`;
     case 'output_too_large':
+      if (legacyDiagnosticField(statusReasonMessage) === 'trigger_events') {
+        return LEGACY_TRIGGER_PAYLOAD_FAILURE_DESCRIPTION;
+      }
       return statusReasonMessage || OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION;
     case 'output_invalid':
       return statusReasonMessage || MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION;
@@ -248,6 +251,22 @@ function preStepFailureDescription(
     default:
       return `The execution ended because ${humanizeFailureReason(reason)}.${runnerCopy} Resolve that condition before re-running the workflow.`;
   }
+}
+
+function preStepFailureTitle(reason: string | null, statusReasonMessage: string | null): string {
+  if (
+    reason === 'output_too_large' &&
+    legacyDiagnosticField(statusReasonMessage) === 'trigger_events'
+  ) {
+    return 'Trigger events exceeded a legacy payload limit';
+  }
+  return 'Job failed before its first step started';
+}
+
+function legacyDiagnosticField(message: string | null): string | undefined {
+  if (!message) return undefined;
+  const match = LEGACY_DIAGNOSTIC_FIELD_RE.exec(message);
+  return match?.[1];
 }
 
 function humanizeFailureReason(reason: string): string {
@@ -282,17 +301,43 @@ export function toSelectedAttemptError(
 
   const stringFields = selectedErrorStringFields(error);
   const managedProviderId = selectedManagedProviderId(error);
+  const sizeFields = selectedErrorSizeFields(error);
+  const retryable = typeof error.retryable === 'boolean' ? error.retryable : undefined;
 
   return {
     message: typeof error.message === 'string' ? error.message : '',
     ...stringFields,
+    ...sizeFields,
     ...(managedProviderId === undefined ? {} : {managedProviderId}),
+    ...(retryable === undefined ? {} : {retryable}),
     exitCode: exitCode === null || typeof exitCode === 'number' ? exitCode : null,
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason: resolvedReason,
     agentConfigIssue,
     category: deriveStepErrorCategory(step.type, resolvedReason),
   };
+}
+
+function selectedErrorSizeFields(
+  error: Record<string, unknown>,
+): Pick<StepError, 'limitBytes' | 'measuredBytes' | 'overshootBytes'> {
+  const limitBytes = selectedPositiveNumber(error, 'limitBytes', 'limit_bytes');
+  const measuredBytes = selectedPositiveNumber(error, 'measuredBytes', 'measured_bytes');
+  const overshootBytes = selectedPositiveNumber(error, 'overshootBytes', 'overshoot_bytes');
+  return {
+    ...(limitBytes === undefined ? {} : {limitBytes}),
+    ...(measuredBytes === undefined ? {} : {measuredBytes}),
+    ...(overshootBytes === undefined ? {} : {overshootBytes}),
+  };
+}
+
+function selectedPositiveNumber(
+  error: Record<string, unknown>,
+  camelCaseKey: string,
+  snakeCaseKey: string,
+): number | undefined {
+  const value = error[camelCaseKey] ?? error[snakeCaseKey];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function selectedErrorStringFields(

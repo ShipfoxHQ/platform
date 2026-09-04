@@ -105,6 +105,26 @@ describe('toSelectedAttemptError', () => {
 
     expect(error).toMatchObject({reason, category: 'user'});
   });
+
+  test('preserves structured payload limits from a historical attempt', () => {
+    const error = toSelectedAttemptError({type: 'run'} as Step, {
+      message: 'Resolved configuration exceeds execution payload limit',
+      reason: 'execution_payload_too_large',
+      field: 'resolved_config',
+      retryable: false,
+      limitBytes: 65_536,
+      measured_bytes: 75_644,
+      overshootBytes: 10_108,
+    });
+
+    expect(error).toMatchObject({
+      field: 'resolved_config',
+      retryable: false,
+      limitBytes: 65_536,
+      measuredBytes: 75_644,
+      overshootBytes: 10_108,
+    });
+  });
 });
 
 describe('skippedJobDescription', () => {
@@ -176,6 +196,55 @@ describe('materialized output failure descriptions', () => {
 
     expect(emptyStateForJob(job, execution)).toMatchObject({
       description: 'Job outputs cannot define more than 10 entries (found 11)',
+    });
+  });
+
+  test('identifies a legacy trigger payload failure before the first step', () => {
+    const job = workflowJob({
+      status: 'failed',
+      status_reason: 'output_too_large',
+      job_executions: [
+        workflowJobExecutionDto({
+          status: 'failed',
+          status_reason: 'output_too_large',
+          status_reason_message:
+            'Workflow diagnostic field "trigger_events" measured 97834 bytes, exceeding the 65536 byte limit.',
+          steps: [],
+        }),
+      ],
+    });
+    const execution = job.jobExecutions[0];
+    if (!execution) throw new Error('Expected a job execution');
+
+    const emptyState = emptyStateForJob(job, execution);
+    expect(emptyState).toMatchObject({
+      title: 'Trigger events exceeded a legacy payload limit',
+      description:
+        'The trigger events for this execution exceeded a legacy payload limit. Re-running failed jobs preserves the same events, so reduce the listener batch or start a new run from a smaller event payload.',
+    });
+    expect(emptyState?.description).not.toContain('job output');
+  });
+
+  test('keeps bounded fallback copy for old output failures without a message', () => {
+    const job = workflowJob({
+      status: 'failed',
+      status_reason: 'output_too_large',
+      job_executions: [
+        workflowJobExecutionDto({
+          status: 'failed',
+          status_reason: 'output_too_large',
+          status_reason_message: null,
+          steps: [],
+        }),
+      ],
+    });
+    const execution = job.jobExecutions[0];
+    if (!execution) throw new Error('Expected a job execution');
+
+    expect(emptyStateForJob(job, execution)).toMatchObject({
+      title: 'Job failed before its first step started',
+      description:
+        'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.',
     });
   });
 

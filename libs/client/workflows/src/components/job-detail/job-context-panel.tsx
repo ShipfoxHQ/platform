@@ -283,6 +283,7 @@ function ContextUnavailableFields({
           key={field.field}
           field={field.field}
           storedBytes={field.storedBytes}
+          reason={field.reason}
         />
       ))}
       <DiagnosticUnavailableAnnouncement count={fields.length} />

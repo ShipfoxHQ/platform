@@ -22,7 +22,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip
 import {Code, Text} from '@shipfox/react-ui/typography';
 import {cn, formatDuration} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
-import type {ReactNode} from 'react';
+import {type ReactNode, useId} from 'react';
 import type {
   EvaluationTraceEntry,
   JobStatusReason,
@@ -122,6 +122,7 @@ function StepFailureCallout({
   workflowRunId,
   runAttempt,
   onViewLogs,
+  onViewConfiguration,
 }: {
   step: Step;
   attempt: StepAttempt;
@@ -131,13 +132,16 @@ function StepFailureCallout({
   workflowRunId: string;
   runAttempt: number;
   onViewLogs: (() => void) | undefined;
+  onViewConfiguration: (() => void) | undefined;
 }) {
   const reason = error?.reason ?? step.statusReason ?? 'unknown';
-  const toolGuidance = toolFailureGuidance(reason, step, attempt, error);
-  const title = toolGuidance?.title ?? failureTitle(reason);
-  const description = toolGuidance?.description ?? failureDescription(reason, step, error);
+  const guidance =
+    workflowPayloadFailureGuidance(reason, error) ??
+    toolFailureGuidance(reason, step, attempt, error);
+  const title = guidance?.title ?? failureTitle(reason);
+  const description = guidance?.description ?? failureDescription(reason, step, error);
   const failureCode = step.type === 'tool' ? (error?.code ?? reason) : reason;
-  const sourceLink = sourceLinkForFailure(reason) && step.sourceLocation;
+  const showSourceLink = Boolean(sourceLinkForFailure(reason) && step.sourceLocation);
 
   if (step.type === 'agent' && reason === 'agent_config_invalid') {
     return (
@@ -160,50 +164,116 @@ function StepFailureCallout({
         <CalloutTitle>{title}</CalloutTitle>
         <CalloutDescription>
           <div className="flex min-w-0 flex-wrap items-center gap-x-inline gap-y-tight">
-            <div className="flex min-w-0 flex-col gap-tight">
+            <div className="flex min-w-0 flex-1 flex-col gap-tight">
               <span>{description}</span>
-              {error?.message ? (
-                <span className="text-foreground-neutral-muted">{error.message}</span>
-              ) : null}
+              <FailureMessage reason={reason} message={error?.message} />
+              <WorkflowPayloadSizeDetails reason={reason} error={error} />
             </div>
             <Code as="span" variant="label" className="text-tag-error-text">
               {failureCode}
             </Code>
-            {sourceLink ? (
-              <Link
-                to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
-                params={{workspaceSlug, projectSlug, workflowRunId}}
-                search={
-                  workflowRunSearchParams(
-                    {tab: 'source'},
-                    {stepId: step.id, stepAttemptId: attempt.id, runAttempt},
-                  ) as never
-                }
-                className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
-              >
-                View in source
-              </Link>
-            ) : null}
-            {toolGuidance?.recoveryLabel ? (
-              <Link
-                to="/w/$workspaceSlug/settings/integrations"
-                params={{workspaceSlug}}
-                className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
-              >
-                {toolGuidance.recoveryLabel}
-              </Link>
-            ) : null}
+            <FailureRecoveryLinks
+              showSourceLink={showSourceLink}
+              recoveryLabel={guidance?.recoveryLabel}
+              step={step}
+              attempt={attempt}
+              workspaceSlug={workspaceSlug}
+              projectSlug={projectSlug}
+              workflowRunId={workflowRunId}
+              runAttempt={runAttempt}
+            />
           </div>
         </CalloutDescription>
       </CalloutContent>
-      {step.type === 'tool' && onViewLogs ? (
-        <CalloutActions>
-          <Button type="button" size="2xs" variant="secondary" onClick={onViewLogs}>
-            View invocation log
-          </Button>
-        </CalloutActions>
-      ) : null}
+      <StepFailureActions
+        onViewConfiguration={onViewConfiguration}
+        onViewLogs={step.type === 'tool' ? onViewLogs : undefined}
+      />
     </Callout>
+  );
+}
+
+function FailureMessage({
+  reason,
+  message,
+}: {
+  reason: string | JobStatusReason;
+  message: string | undefined;
+}) {
+  if (!message || isWorkflowPayloadFailure(reason)) return null;
+  return <span className="text-foreground-neutral-muted">{message}</span>;
+}
+
+function FailureRecoveryLinks({
+  showSourceLink,
+  recoveryLabel,
+  step,
+  attempt,
+  workspaceSlug,
+  projectSlug,
+  workflowRunId,
+  runAttempt,
+}: {
+  showSourceLink: boolean;
+  recoveryLabel: string | undefined;
+  step: Step;
+  attempt: StepAttempt;
+  workspaceSlug: string;
+  projectSlug: string;
+  workflowRunId: string;
+  runAttempt: number;
+}) {
+  return (
+    <>
+      {showSourceLink ? (
+        <Link
+          to="/w/$workspaceSlug/p/$projectSlug/runs/$workflowRunId"
+          params={{workspaceSlug, projectSlug, workflowRunId}}
+          search={
+            workflowRunSearchParams(
+              {tab: 'source'},
+              {stepId: step.id, stepAttemptId: attempt.id, runAttempt},
+            ) as never
+          }
+          className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
+        >
+          View in source
+        </Link>
+      ) : null}
+      {recoveryLabel ? (
+        <Link
+          to="/w/$workspaceSlug/settings/integrations"
+          params={{workspaceSlug}}
+          className="font-medium text-foreground-highlight-interactive underline-offset-2 hover:underline"
+        >
+          {recoveryLabel}
+        </Link>
+      ) : null}
+    </>
+  );
+}
+
+function StepFailureActions({
+  onViewConfiguration,
+  onViewLogs,
+}: {
+  onViewConfiguration: (() => void) | undefined;
+  onViewLogs: (() => void) | undefined;
+}) {
+  if (!onViewConfiguration && !onViewLogs) return null;
+  return (
+    <CalloutActions>
+      {onViewConfiguration ? (
+        <Button type="button" size="2xs" variant="secondary" onClick={onViewConfiguration}>
+          View configuration
+        </Button>
+      ) : null}
+      {onViewLogs ? (
+        <Button type="button" size="2xs" variant="secondary" onClick={onViewLogs}>
+          View invocation log
+        </Button>
+      ) : null}
+    </CalloutActions>
   );
 }
 
@@ -236,6 +306,18 @@ function StepInspector({
 }) {
   const detail = query.data;
   const hasAnnotations = annotationCount !== undefined && annotationCount > 0;
+  const configurationSectionId = useId();
+  const hasConfigurationDetail = Boolean(
+    detail && inspectorHasInputValues(detail.authoredConfig, detail.config),
+  );
+  const onViewConfiguration =
+    hasConfigurationDetail && isConfigurationPayloadFailure(error)
+      ? () => {
+          const section = document.getElementById(configurationSectionId);
+          section?.scrollIntoView?.({behavior: 'smooth', block: 'nearest'});
+          section?.focus({preventScroll: true});
+        }
+      : undefined;
 
   return (
     <div className="flex min-w-0 flex-col gap-section">
@@ -249,6 +331,7 @@ function StepInspector({
           workflowRunId={workflowRunId}
           runAttempt={runAttempt}
           onViewLogs={onViewLogs}
+          onViewConfiguration={onViewConfiguration}
         />
       ) : null}
       <InspectorQueryContent
@@ -258,6 +341,7 @@ function StepInspector({
         attempt={attempt}
         showFailure={showFailure}
         hasAnnotations={hasAnnotations}
+        configurationSectionId={configurationSectionId}
       />
       {hasAnnotations ? (
         <Link
@@ -283,6 +367,7 @@ function InspectorQueryContent({
   attempt,
   showFailure,
   hasAnnotations,
+  configurationSectionId,
 }: {
   query: ReturnType<typeof useStepAttemptDetailQuery>;
   detail: ReturnType<typeof useStepAttemptDetailQuery>['data'];
@@ -290,6 +375,7 @@ function InspectorQueryContent({
   attempt: StepAttempt;
   showFailure: boolean;
   hasAnnotations: boolean;
+  configurationSectionId: string;
 }) {
   if (query.isPending) return <InspectorLoading />;
   if (query.isError && detail === undefined) {
@@ -330,6 +416,7 @@ function InspectorQueryContent({
         attempt={attempt}
         showFailure={showFailure}
         hasAnnotations={hasAnnotations}
+        configurationSectionId={configurationSectionId}
       />
     </div>
   );
@@ -366,12 +453,14 @@ function InspectorDetailContent({
   attempt,
   showFailure,
   hasAnnotations,
+  configurationSectionId,
 }: {
   detail: NonNullable<ReturnType<typeof useStepAttemptDetailQuery>['data']>;
   step: Step;
   attempt: StepAttempt;
   showFailure: boolean;
   hasAnnotations: boolean;
+  configurationSectionId: string;
 }) {
   const trace = detail.evaluationTrace ?? null;
   const resolvedConfig = detail.config ?? null;
@@ -392,10 +481,15 @@ function InspectorDetailContent({
     <div className="flex min-w-0 flex-col gap-group">
       {detail.session ? <SessionChip session={detail.session} /> : null}
       {isToolStep ? (
-        <ToolStepDetails detail={detail} attempt={presentedAttempt} showFailure={showFailure} />
+        <ToolStepDetails
+          detail={detail}
+          attempt={presentedAttempt}
+          showFailure={showFailure}
+          configurationSectionId={configurationSectionId}
+        />
       ) : null}
       {!isToolStep && hasInputValues ? (
-        <InspectorSection title="Inputs">
+        <InspectorSection title="Inputs" id={configurationSectionId}>
           <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={resolvedConfig} />
         </InspectorSection>
       ) : null}
@@ -441,6 +535,7 @@ function UnavailableDiagnosticsSection({
           key={`${field.field}-${field.storedBytes}`}
           field={field.field}
           storedBytes={field.storedBytes}
+          reason={field.reason}
         />
       ))}
       <DiagnosticUnavailableAnnouncement count={fields.length} />
@@ -513,17 +608,19 @@ function ToolStepDetails({
   detail,
   attempt,
   showFailure,
+  configurationSectionId,
 }: {
   detail: StepAttemptDetail;
   attempt: StepAttempt;
   showFailure: boolean;
+  configurationSectionId: string;
 }) {
   const result = toolResult(attempt);
   const mappedOutputs = toolMappedOutputs(attempt);
   return (
     <>
       {countConfigValues(detail.authoredConfig) > 0 ? (
-        <InspectorSection title="Authored configuration">
+        <InspectorSection title="Authored configuration" id={configurationSectionId}>
           <ConfigCode authoredConfig={detail.authoredConfig} resolvedConfig={null} />
         </InspectorSection>
       ) : null}
@@ -739,9 +836,22 @@ function SessionChip({session}: {session: NonNullable<StepAttemptDetail['session
   );
 }
 
-function InspectorSection({title, children}: {title: string; children: ReactNode}) {
+function InspectorSection({
+  title,
+  children,
+  id,
+}: {
+  title: string;
+  children: ReactNode;
+  id?: string | undefined;
+}) {
   return (
-    <section className="flex min-w-0 flex-col gap-inline" aria-label={title}>
+    <section
+      id={id}
+      tabIndex={id ? -1 : undefined}
+      className="flex min-w-0 flex-col gap-inline rounded-6 focus:outline-none focus:ring-2 focus:ring-border-interactive-base focus:ring-offset-4"
+      aria-label={title}
+    >
       <Text size="xs" bold className="text-foreground-neutral-base">
         {title}
       </Text>
@@ -1013,13 +1123,13 @@ function failureDescription(
   }
 }
 
-interface ToolFailureGuidance {
+interface FailureGuidance {
   title: string;
   description: string;
   recoveryLabel?: string | undefined;
 }
 
-const TOOL_FAILURE_GUIDANCE_BY_CODE: Readonly<Record<string, ToolFailureGuidance>> = {
+const TOOL_FAILURE_GUIDANCE_BY_CODE: Readonly<Record<string, FailureGuidance>> = {
   'access-denied': {
     title: 'Tool access was denied',
     description:
@@ -1034,7 +1144,7 @@ const TOOL_FAILURE_GUIDANCE_BY_CODE: Readonly<Record<string, ToolFailureGuidance
   },
 };
 
-const SUCCESSFUL_TOOL_OUTPUT_FAILURE_GUIDANCE: ToolFailureGuidance = {
+const SUCCESSFUL_TOOL_OUTPUT_FAILURE_GUIDANCE: FailureGuidance = {
   title: 'Tool call succeeded, but the step failed',
   description:
     'The integration returned a result, but Shipfox could not map or store it because it did not satisfy the output contract or size limit. The full result remains available in the invocation log.',
@@ -1045,12 +1155,141 @@ function toolFailureGuidance(
   step: Step,
   attempt: StepAttempt,
   error: StepError | null,
-): ToolFailureGuidance | null {
+): FailureGuidance | null {
   if (step.type !== 'tool') return null;
   if (toolCallSucceededBeforeFailure(reason, attempt)) {
     return SUCCESSFUL_TOOL_OUTPUT_FAILURE_GUIDANCE;
   }
   return error?.code ? (TOOL_FAILURE_GUIDANCE_BY_CODE[error.code] ?? null) : null;
+}
+
+function isWorkflowPayloadFailure(reason: string | JobStatusReason): boolean {
+  return (
+    reason === 'execution_payload_too_large' ||
+    reason === 'step_result_too_large' ||
+    reason === 'diagnostic_too_large'
+  );
+}
+
+function isConfigurationPayloadFailure(error: StepError | null): boolean {
+  if (error?.reason !== 'execution_payload_too_large') return false;
+  return (
+    error.field === 'authored_config' ||
+    error.field === 'resolved_config' ||
+    error.field === 'config_plan' ||
+    error.field === 'condition'
+  );
+}
+
+function workflowPayloadFailureGuidance(
+  reason: string | JobStatusReason,
+  error: StepError | null,
+): FailureGuidance | null {
+  const fieldLabel = workflowPayloadFieldLabel(error?.field);
+  if (reason === 'execution_payload_too_large') {
+    if (error?.field === 'listener_batch') {
+      return {
+        title: 'Trigger events exceed the execution limit',
+        description:
+          'Adjust the listener batch or source event before starting a new run. Re-running failed jobs preserves the same trigger events.',
+      };
+    }
+    return {
+      title: `${fieldLabel} exceeds the execution limit`,
+      description:
+        "Reduce the authored value or its upstream input before starting a new run. Re-running failed jobs preserves this attempt's inputs; re-running all jobs can recompute upstream outputs.",
+    };
+  }
+  if (reason === 'step_result_too_large') {
+    const resultFieldLabel = error?.field ? workflowPayloadFieldLabel(error.field) : 'Step result';
+    return {
+      title: `${resultFieldLabel} exceeds the step result limit`,
+      description:
+        "Reduce the user-controlled result before re-running. Re-running failed jobs preserves this attempt's inputs.",
+    };
+  }
+  if (reason === 'diagnostic_too_large') {
+    return {
+      title: 'Step details could not be recorded',
+      description:
+        'The workflow outcome was preserved, but this server could not retain all troubleshooting details. Review the bounded details available below.',
+    };
+  }
+  return null;
+}
+
+function WorkflowPayloadSizeDetails({
+  reason,
+  error,
+}: {
+  reason: string | JobStatusReason;
+  error: StepError | null;
+}) {
+  if (!isWorkflowPayloadFailure(reason) || !error) return null;
+  const measuredBytes = validByteCount(error.measuredBytes);
+  const limitBytes = validByteCount(error.limitBytes);
+  if (!error.field && measuredBytes === null && limitBytes === null) return null;
+
+  return (
+    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-inline gap-y-tight text-xs text-foreground-neutral-muted">
+      {error.field ? (
+        <>
+          <dt>Affected value</dt>
+          <dd className="text-foreground-neutral-base">{workflowPayloadFieldLabel(error.field)}</dd>
+        </>
+      ) : null}
+      {measuredBytes !== null ? (
+        <>
+          <dt>Measured</dt>
+          <dd className="font-code text-foreground-neutral-base">
+            {measuredBytes.toLocaleString()} bytes
+          </dd>
+        </>
+      ) : null}
+      {limitBytes !== null ? (
+        <>
+          <dt>Limit</dt>
+          <dd className="font-code text-foreground-neutral-base">
+            {limitBytes.toLocaleString()} bytes
+          </dd>
+        </>
+      ) : null}
+    </dl>
+  );
+}
+
+function validByteCount(value: number | undefined): number | null {
+  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function workflowPayloadFieldLabel(field: string | undefined): string {
+  switch (field) {
+    case 'authored_config':
+      return 'Authored configuration';
+    case 'resolved_config':
+      return 'Resolved configuration';
+    case 'config_plan':
+      return 'Configuration plan';
+    case 'condition':
+      return 'Condition input';
+    case 'listener_batch':
+    case 'trigger_events':
+      return 'Trigger events';
+    case 'response':
+      return 'Response';
+    case 'output':
+      return 'Step output';
+    case 'outputs':
+      return 'Outputs';
+    case 'error':
+      return 'Failure details';
+    case 'gate_result':
+      return 'Gate result';
+    case 'restart_feedback':
+      return 'Restart feedback';
+    default:
+      return 'Workflow value';
+  }
 }
 
 function sourceLinkForFailure(reason: string | JobStatusReason): boolean {

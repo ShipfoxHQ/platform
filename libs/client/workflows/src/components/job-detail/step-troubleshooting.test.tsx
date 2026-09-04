@@ -32,6 +32,7 @@ const ATTEMPT_ID = '66666666-6666-4666-8666-666666666666';
 const EXECUTION_ID = '77777777-7777-4777-8777-777777777777';
 const INSPECTOR_TRIGGER_NAME = 'Open inspector';
 const INVOCATION_LOG_DESCRIPTION = /The full result remains available in the invocation log\./u;
+const REDUCE_DIAGNOSTIC_COPY = /reduce.*diagnostic/iu;
 
 describe('StepInspectorSheet', () => {
   afterEach(() => {
@@ -224,12 +225,12 @@ describe('StepInspectorSheet', () => {
               {
                 field: 'output',
                 stored_bytes: 300_000,
-                reason: 'legacy_value_exceeds_inline_limit',
+                reason: 'value_exceeds_inline_limit',
               },
               {
                 field: 'evaluation_trace',
                 stored_bytes: 70_000,
-                reason: 'legacy_value_exceeds_inline_limit',
+                reason: 'value_truncated_at_write_limit',
               },
             ],
           }),
@@ -241,10 +242,82 @@ describe('StepInspectorSheet', () => {
     await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
 
     const unavailable = await screen.findByRole('region', {name: 'Unavailable diagnostics'});
-    expect(unavailable).toHaveTextContent('Resolved configuration unavailable');
-    expect(unavailable).toHaveTextContent('Step output unavailable');
-    expect(unavailable).toHaveTextContent('Evaluation unavailable');
+    expect(unavailable).toHaveTextContent('Resolved configuration is unavailable in this view');
+    expect(unavailable).toHaveTextContent(
+      'This value was recorded by an older server and exceeds the display limit.',
+    );
+    expect(unavailable).toHaveTextContent('Step output exceeds the display limit');
+    expect(unavailable).toHaveTextContent(
+      'The complete value is preserved for workflow execution but is not shown here.',
+    );
+    expect(unavailable).toHaveTextContent('Evaluation was not fully recorded');
+    expect(unavailable).toHaveTextContent(
+      'Shipfox preserved the workflow outcome and omitted the oversized detail.',
+    );
     expect(unavailable).toHaveTextContent('300,000 bytes');
+  });
+
+  it('explains deterministic payload failures and opens bounded configuration detail', async () => {
+    const user = userEvent.setup();
+    const largeAuthoredValue = 'x'.repeat(75_644);
+    configureApiClient({
+      fetchImpl: vi.fn(async () =>
+        jsonResponse(
+          stepDetailResponse({
+            authored_config: {prompt: largeAuthoredValue},
+            config: {prompt: largeAuthoredValue},
+          }),
+        ),
+      ),
+    });
+
+    await renderPanel({
+      entry: stepEntry('execution_payload_too_large', undefined, {
+        field: 'resolved_config',
+        retryable: false,
+        limit_bytes: 65_536,
+        measured_bytes: 75_644,
+        overshoot_bytes: 10_108,
+      }),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(
+      await screen.findByText('Resolved configuration exceeds the execution limit'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Affected value')).toBeInTheDocument();
+    expect(screen.getByText(`${(75_644).toLocaleString()} bytes`)).toBeInTheDocument();
+    expect(screen.getByText(`${(65_536).toLocaleString()} bytes`)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Reduce the authored value or its upstream input before starting a new run. Re-running failed jobs preserves this attempt's inputs; re-running all jobs can recompute upstream outputs.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Agent dispatch failed')).toBeNull();
+
+    const inputs = await screen.findByRole('region', {name: 'Inputs'});
+    expect(within(inputs).getByRole('tab', {name: 'Authored configuration'})).toBeInTheDocument();
+    expect(within(inputs).getByRole('tab', {name: 'Resolved configuration'})).toBeInTheDocument();
+    await user.click(screen.getByRole('button', {name: 'View configuration'}));
+    expect(inputs).toHaveFocus();
+  });
+
+  it('does not ask users to reduce an internal diagnostic', async () => {
+    const user = userEvent.setup();
+    configureApiClient({
+      fetchImpl: vi.fn(() => new Promise<Response>(() => undefined)),
+    });
+
+    await renderPanel({entry: stepEntry('diagnostic_too_large')});
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Step details could not be recorded')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The workflow outcome was preserved, but this server could not retain all troubleshooting details. Review the bounded details available below.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(REDUCE_DIAGNOSTIC_COPY)).toBeNull();
   });
 
   it('shows the session descriptor without transcript data', async () => {
@@ -682,6 +755,7 @@ function PanelHarness({
 function stepEntry(
   reason: StepErrorReason = 'agent_invocation_failed',
   code?: string,
+  errorOverrides: Partial<NonNullable<WorkflowRunStepDetailDto['error']>> = {},
 ): StepListEntryModel {
   const jobId = '44444444-4444-4444-8444-444444444444';
   const job = workflowJob({
@@ -702,7 +776,12 @@ function stepEntry(
             status: 'failed',
             type: 'agent',
             config: {run: 'pnpm test'},
-            error: {message: 'Agent dispatch failed', reason, ...(code ? {code} : {})},
+            error: {
+              message: 'Agent dispatch failed',
+              reason,
+              ...(code ? {code} : {}),
+              ...errorOverrides,
+            },
             evaluation_trace: [
               {
                 expression: 'inputs.message',
