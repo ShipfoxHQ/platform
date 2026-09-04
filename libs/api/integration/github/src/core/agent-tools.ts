@@ -1464,6 +1464,9 @@ function validateReviewWriteArguments(arguments_: Record<string, unknown>): stri
 
 function validateSubmitPendingArguments(arguments_: Record<string, unknown>): string | undefined {
   if (arguments_.event === undefined) return 'Parameter event is required for submit_pending';
+  if (arguments_.commit_id !== undefined) {
+    return 'Parameter commit_id is not accepted by submit_pending; it applies to create';
+  }
   const body = arguments_.body;
   if (arguments_.event !== 'APPROVE' && (typeof body !== 'string' || body.trim().length === 0)) {
     return 'Parameter body is required for submit_pending unless event is APPROVE';

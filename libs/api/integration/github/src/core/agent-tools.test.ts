@@ -1383,13 +1383,13 @@ describe('github agent tool catalog', () => {
     expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {checks: 'read'});
   });
 
-  it('requests contents read alongside pull requests read for pull request diffs', async () => {
+  it('requests contents read for pull request diffs', async () => {
     const request = vi.fn(() => Promise.resolve({data: 'diff --git a/file b/file'}));
     const getInstallationAccessToken = vi.fn(() =>
       Promise.resolve({
         token: 'installation-token',
         expiresAt: new Date(),
-        permissions: {contents: 'read' as const, pull_requests: 'read' as const},
+        permissions: {contents: 'read' as const},
       }),
     );
     const pullRequestRead = githubAgentToolCatalog.find(
@@ -1416,10 +1416,7 @@ describe('github agent tool catalog', () => {
       }),
     ).resolves.toMatchObject({structuredContent: {result: 'diff --git a/file b/file'}});
 
-    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {
-      contents: 'read',
-      pull_requests: 'read',
-    });
+    expect(getInstallationAccessToken).toHaveBeenCalledWith(1, undefined, {contents: 'read'});
   });
 
   it('denies a pull request diff when the token lacks contents read', async () => {
@@ -1454,7 +1451,7 @@ describe('github agent tool catalog', () => {
       content: [
         {
           type: 'text',
-          text: 'GitHub installation token is missing permission for this operation: pull_request_read requires pull_requests: read, contents: read',
+          text: 'GitHub installation token is missing permission for this operation: pull_request_read requires contents: read',
         },
       ],
       structuredContent: {code: 'access-denied'},
@@ -3031,6 +3028,11 @@ describe('github agent tool catalog', () => {
       label: 'submit_pending with a comment event and no body',
       callArguments: {method: 'submit_pending', event: 'REQUEST_CHANGES'},
       message: 'Parameter body is required for submit_pending unless event is APPROVE',
+    },
+    {
+      label: 'submit_pending with a commit id',
+      callArguments: {method: 'submit_pending', event: 'APPROVE', commit_id: 'a'.repeat(40)},
+      message: 'Parameter commit_id is not accepted by submit_pending; it applies to create',
     },
     {
       label: 'delete_pending with review fields',

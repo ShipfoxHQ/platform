@@ -77,10 +77,7 @@ const scopes = {
     {permission: 'pull_requests', access: 'write'},
   ],
   pullRequestsRead: [{permission: 'pull_requests', access: 'read'}],
-  pullRequestDiffRead: [
-    {permission: 'pull_requests', access: 'read'},
-    {permission: 'contents', access: 'read'},
-  ],
+  contentsRead: [{permission: 'contents', access: 'read'}],
   pullRequestsWrite: [{permission: 'pull_requests', access: 'write'}],
   actionsRead: [{permission: 'actions', access: 'read'}],
   actionsWrite: [{permission: 'actions', access: 'write'}],
@@ -240,14 +237,14 @@ const pullRequestReadMethods = [
     false,
     scopes.pullRequestsRead,
   ),
-  // The diff media type reads file contents, which GitHub gates on contents read even though
-  // the route alone accepts pull requests read. A narrowed token without it gets a 403.
+  // The diff media type reads file contents, which GitHub gates on contents read. GitHub also
+  // documents contents read as sufficient for the route on its own, so nothing else is declared.
   method(
     'get_diff',
     'Get the diff for a specific pull request.',
     'read',
     false,
-    scopes.pullRequestDiffRead,
+    scopes.contentsRead,
   ),
   method(
     'get_status',
@@ -867,7 +864,7 @@ export const githubAgentToolCatalog = [
           ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'],
           'Review action. Required by submit_pending; not accepted by create or delete_pending',
         ),
-        commit_id: stringSchema('SHA of the commit to review. Only used by create'),
+        commit_id: stringSchema('SHA of the commit to review. Only accepted by create'),
       },
       ['method', 'pull_number'],
     ),
