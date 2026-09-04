@@ -447,7 +447,11 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     messages?.close();
     signal.removeEventListener('abort', abortQuery);
     claudeQuery?.close();
-    await credentialBroker?.close();
+    try {
+      await credentialBroker?.close();
+    } catch (error) {
+      logger().warn({err: error}, 'Failed to remove Claude credential broker');
+    }
     if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
 }

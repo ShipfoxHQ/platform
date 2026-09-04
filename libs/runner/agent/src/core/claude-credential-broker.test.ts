@@ -172,4 +172,30 @@ describe('Claude renewable credential broker and helper', () => {
       await rm(root, {recursive: true, force: true});
     }
   });
+
+  it('removes the per-step socket when the step aborts', async () => {
+    const source: InferenceCredentialSource = {
+      resolve: vi.fn().mockResolvedValue({token: 'jwt-1', generation: 'generation-1'}),
+      close: vi.fn(),
+    };
+    const root = await mkdtemp(join(tmpdir(), 'shipfox-claude-credential-'));
+    const controller = new AbortController();
+    const broker = createClaudeCredentialBroker({
+      credentialSource: source,
+      signal: controller.signal,
+      socketDirectory: root,
+    });
+
+    try {
+      await broker.start();
+      await expect(stat(broker.socketPath)).resolves.toBeDefined();
+      controller.abort();
+      await vi.waitFor(() =>
+        expect(stat(broker.socketPath)).rejects.toMatchObject({code: 'ENOENT'}),
+      );
+    } finally {
+      await broker.close();
+      await rm(root, {recursive: true, force: true});
+    }
+  });
 });

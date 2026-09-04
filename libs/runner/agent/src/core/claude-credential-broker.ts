@@ -112,6 +112,9 @@ export function createClaudeCredentialBroker(options: {
           ownerCreated = true;
         }
         await transport.start();
+        if (closed || options.signal.aborted) {
+          throw new CredentialSocketError('Claude credential broker is closed', 'ECANCELED');
+        }
         started = true;
       } catch (error) {
         await transport.close().catch(() => undefined);

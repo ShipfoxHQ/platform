@@ -458,6 +458,7 @@ describe('claudeHarnessAdapter', () => {
   });
 
   it('uses the renewable Claude helper without passing static auth to the child', async () => {
+    const previousApiKey = process.env.ANTHROPIC_API_KEY;
     const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
     process.env.ANTHROPIC_API_KEY = 'parent-api-key';
     process.env.ANTHROPIC_AUTH_TOKEN = 'parent-auth-token';
@@ -481,6 +482,8 @@ describe('claudeHarnessAdapter', () => {
         }),
       );
     } finally {
+      if (previousApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previousApiKey;
       if (previousAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
       else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
     }
