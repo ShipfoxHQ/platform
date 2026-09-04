@@ -14,6 +14,12 @@ export const subscriptionTriggeredCount = meter.createCounter<{
   description: 'Subscriptions that resulted in a workflow run, by provider',
 });
 
+export const listenerDeliveryRejectionsCount = meter.createCounter<{
+  reason: 'payload_too_large';
+}>('triggers_listener_delivery_rejections', {
+  description: 'Listener delivery rejections by bounded reason',
+});
+
 export const eventOutcomeCount = meter.createCounter<{
   provider: string;
   outcome: 'discarded' | 'routed' | 'failed' | 'errored';

@@ -9,11 +9,15 @@ const findMatchingJobListenerSubscriptions = vi.fn();
 const listenerTriggered = vi.fn();
 const listenerFilterErrored = vi.fn();
 const listenerDispatchErrored = vi.fn();
+const listenerDeliveryRejected = vi.fn();
 const loggerWarn = vi.fn();
+const listenerDeliveryRejectionsCount = vi.hoisted(() => ({add: vi.fn()}));
 
 vi.mock('@shipfox/node-opentelemetry', () => ({
   logger: () => ({warn: loggerWarn}),
 }));
+
+vi.mock('#metrics/instance.js', () => ({listenerDeliveryRejectionsCount}));
 
 vi.mock('#db/job-listener-subscriptions.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#db/job-listener-subscriptions.js')>();
@@ -74,6 +78,7 @@ function buildHistory(): TriggerHistoryRecorder {
     listenerTriggered,
     listenerFilterErrored,
     listenerDispatchErrored,
+    listenerDeliveryRejected,
     discarded: vi.fn(),
     routed: vi.fn(),
     failed: vi.fn(),
@@ -89,6 +94,8 @@ describe('routeEventToJobListeners', () => {
     listenerTriggered.mockReset();
     listenerFilterErrored.mockReset();
     listenerDispatchErrored.mockReset();
+    listenerDeliveryRejected.mockReset();
+    listenerDeliveryRejectionsCount.add.mockReset();
     loggerWarn.mockReset();
     deliverEventToListener.mockResolvedValue({buffered: true, skipped: false});
     resolveWorkflowRunTriggerReference.mockResolvedValue(null);
@@ -275,6 +282,44 @@ describe('routeEventToJobListeners', () => {
 
     expect(result).toMatchObject({
       engagedCount: 0,
+      matchedJobCount: 1,
+      acceptedJobCount: 0,
+      deliveredCount: 0,
+      transientErrored: false,
+    });
+  });
+
+  it('records rejected deliveries without signaling listener execution', async () => {
+    const workspaceId = crypto.randomUUID();
+    const subscription = await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'pull_request_review',
+    });
+    deliverEventToListener.mockResolvedValueOnce({
+      buffered: false,
+      skipped: false,
+      rejection: {
+        reason: 'payload-too-large',
+        eventId: crypto.randomUUID(),
+        measuredBytes: 786_433,
+        limitBytes: 786_432,
+      },
+    });
+
+    const result = await route({workspaceId});
+
+    expect(listenerDeliveryRejected).toHaveBeenCalledTimes(1);
+    expect(listenerDeliveryRejected).toHaveBeenCalledWith(
+      expect.objectContaining({id: subscription.id}),
+      'payload-too-large',
+    );
+    expect(listenerTriggered).not.toHaveBeenCalled();
+    expect(listenerDeliveryRejectionsCount.add).toHaveBeenCalledWith(1, {
+      reason: 'payload_too_large',
+    });
+    expect(result).toMatchObject({
+      engagedCount: 1,
       matchedJobCount: 1,
       acceptedJobCount: 0,
       deliveredCount: 0,

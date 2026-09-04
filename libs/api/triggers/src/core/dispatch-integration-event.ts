@@ -34,7 +34,8 @@ export interface DispatchIntegrationEventParams {
 // and re-thrown so the outbox
 // replays the whole event and converges (succeeded siblings dedup on the idempotency key). The
 // event reaches a terminal outcome only when no transient error remains: `routed` if any run
-// was created or any listening job matched, `discarded` if nothing matched, otherwise `errored`.
+// was created or any listening job accepted a delivery, `discarded` if nothing matched, otherwise
+// `errored`.
 // History is best-effort; the thrown transient error, not the recorded outcome, drives the retry.
 export async function dispatchIntegrationEvent(
   params: DispatchIntegrationEventParams,

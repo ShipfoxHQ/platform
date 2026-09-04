@@ -13,6 +13,7 @@ export {
   type DeliverEventToListenerParams,
   type DeliverEventToListenerResult,
   deliverEventToListener,
+  type ListenerDeliveryRejection,
 } from './job-listener-events.js';
 export type {
   ActivateJobListenerParams,

@@ -14,6 +14,7 @@ import {
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
+  upsertListenerDeliveryRejectedDecision,
   upsertListenerDispatchErrorDecision,
   upsertListenerFilterErrorDecision,
   upsertListenerTriggeredDecision,
@@ -55,6 +56,10 @@ export interface TriggerHistoryRecorder {
   listenerTriggered(subscription: JobListenerSubscription): Promise<void>;
   listenerFilterErrored(subscription: JobListenerSubscription, reason: string): Promise<void>;
   listenerDispatchErrored(subscription: JobListenerSubscription, reason: string): Promise<void>;
+  listenerDeliveryRejected(
+    subscription: JobListenerSubscription,
+    reason: 'payload-too-large',
+  ): Promise<void>;
   discarded(): Promise<void>;
   routed(matchedCount: number): Promise<void>;
   failed(matchedCount: number): Promise<void>;
@@ -152,6 +157,12 @@ export async function beginTriggerHistory(
       record(
         'listener-dispatch-error-decision',
         (id) => upsertListenerDispatchErrorDecision({receivedEventId: id, subscription, reason}),
+        subscription.id,
+      ),
+    listenerDeliveryRejected: (subscription, reason) =>
+      record(
+        'listener-rejected-decision',
+        (id) => upsertListenerDeliveryRejectedDecision({receivedEventId: id, subscription, reason}),
         subscription.id,
       ),
     discarded: () => record('discard-event', (id) => markReceivedEventDiscarded(id)),

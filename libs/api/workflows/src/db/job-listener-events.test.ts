@@ -1,12 +1,15 @@
+import {WEBHOOK_MAX_RAW_BODY_BYTES} from '@shipfox/api-integration-core-dto';
 import {WORKFLOWS_JOB_EVENT_DELIVERED} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
+import {diagnosticValueByteLength} from '#core/diagnostics.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
+import {MAX_LISTENER_FIRE_EVENT_BYTES} from '#core/listener-event-batching.js';
 import {db} from '#db/db.js';
 import {jobListenerEvents} from '#db/schema/job-listener-events.js';
 import {jobs} from '#db/schema/jobs.js';
 import {workflowsOutbox} from '#db/schema/outbox.js';
 
-const {deliverEventToListener} = await import('./job-listener-events.js');
+const {deliverEventToListener, normalizeListenerEvent} = await import('./job-listener-events.js');
 const {jobFactory} = await import('#test/index.js');
 
 interface DeliverOverrides {
@@ -15,6 +18,7 @@ interface DeliverOverrides {
   eventRef?: string;
   provider?: string;
   triggerReference?: WorkflowRunTriggerReference | null;
+  payload?: unknown;
 }
 
 function deliver(overrides: DeliverOverrides = {}) {
@@ -27,7 +31,7 @@ function deliver(overrides: DeliverOverrides = {}) {
     event: 'pull_request_review',
     provider: overrides.provider ?? 'github',
     triggerReference: overrides.triggerReference,
-    payload: {action: 'submitted'},
+    payload: overrides.payload ?? {action: 'submitted'},
     receivedAt: new Date('2026-01-01T00:00:00.000Z'),
   });
 }
@@ -73,6 +77,77 @@ describe('deliverEventToListener', () => {
     });
     expect(row?.storedPayloadBytes).toBeGreaterThan(0);
     expect(row?.normalizedEventBytes).toBeGreaterThan(row?.storedPayloadBytes ?? 0);
+  });
+
+  it('rejects oversized fire events with metadata and no payload or outbox signal', async () => {
+    const job = await jobFactory.create({}, {transient: {status: 'pending'}});
+    const eventRef = crypto.randomUUID();
+    const payload = {body: 'x'.repeat(MAX_LISTENER_FIRE_EVENT_BYTES)};
+
+    const first = await deliver({jobId: job.id, eventRef, payload});
+    const second = await deliver({jobId: job.id, eventRef, payload});
+
+    const [row] = await listEvents(job.id);
+    const outboxRows = await db()
+      .select()
+      .from(workflowsOutbox)
+      .where(eq(workflowsOutbox.eventType, WORKFLOWS_JOB_EVENT_DELIVERED));
+    const matchingOutbox = outboxRows.find(
+      (candidate) =>
+        (candidate.payload as Record<string, unknown>).jobId === job.id &&
+        (candidate.payload as Record<string, unknown>).eventRef === eventRef,
+    );
+
+    expect(first).toMatchObject({
+      buffered: false,
+      skipped: false,
+      rejection: {
+        reason: 'payload-too-large',
+        eventId: expect.any(String),
+        measuredBytes: expect.any(Number),
+        limitBytes: MAX_LISTENER_FIRE_EVENT_BYTES,
+      },
+    });
+    expect(second).toEqual(first);
+    expect(row).toMatchObject({
+      outcome: 'rejected',
+      outcomeReason: 'payload_too_large',
+      payload: null,
+      storedPayloadBytes: diagnosticValueByteLength(payload),
+    });
+    expect(row?.normalizedEventBytes).toBeGreaterThan(MAX_LISTENER_FIRE_EVENT_BYTES);
+    expect(matchingOutbox).toBeUndefined();
+  });
+
+  it('accepts an oversized resolve event for later honoring', async () => {
+    const job = await jobFactory.create({}, {transient: {status: 'pending'}});
+    const payload = {body: 'x'.repeat(MAX_LISTENER_FIRE_EVENT_BYTES)};
+
+    const result = await deliver({jobId: job.id, disposition: 'resolve', payload});
+
+    const [row] = await listEvents(job.id);
+    expect(result).toEqual({buffered: true, skipped: false});
+    expect(row).toMatchObject({outcome: 'pending', payload});
+    expect(row?.normalizedEventBytes).toBeGreaterThan(MAX_LISTENER_FIRE_EVENT_BYTES);
+  });
+
+  it('keeps the maximum first-party webhook payload within the fire-event contract', () => {
+    const payload = {
+      body: 'x'.repeat(WEBHOOK_MAX_RAW_BODY_BYTES - Buffer.byteLength('{"body":""}')),
+    };
+    const normalizedEventBytes = diagnosticValueByteLength([
+      normalizeListenerEvent({
+        source: 'github',
+        event: 'push',
+        deliveryId: 'delivery-1',
+        triggerReference: null,
+        payload,
+        receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+      }),
+    ]);
+
+    expect(Buffer.byteLength(JSON.stringify(payload), 'utf8')).toBe(WEBHOOK_MAX_RAW_BODY_BYTES);
+    expect(normalizedEventBytes).toBeLessThanOrEqual(MAX_LISTENER_FIRE_EVENT_BYTES);
   });
 
   it('persists the normalized trigger reference with the listener event', async () => {

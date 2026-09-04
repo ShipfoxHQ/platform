@@ -20,6 +20,7 @@ vi.mock('#db/event-history.js', () => ({
   upsertDevDispatchErrorDecision: (...args: unknown[]) => upsertDevDispatchErrorDecision(...args),
   upsertDispatchErrorDecision: vi.fn(),
   upsertFilterErrorDecision: vi.fn(),
+  upsertListenerDeliveryRejectedDecision: vi.fn(),
   upsertListenerTriggeredDecision: vi.fn(),
   upsertListenerDispatchErrorDecision: vi.fn(),
   upsertListenerFilterErrorDecision: vi.fn(),
@@ -76,6 +77,9 @@ describe('trigger history is best-effort and never blocks triggering', () => {
     ).resolves.toBeUndefined();
     await expect(
       recorder.listenerFilterErrored(listenerSubscription, 'bad filter'),
+    ).resolves.toBeUndefined();
+    await expect(
+      recorder.listenerDeliveryRejected(listenerSubscription, 'payload-too-large'),
     ).resolves.toBeUndefined();
     await expect(recorder.discarded()).resolves.toBeUndefined();
     await expect(recorder.routed(1)).resolves.toBeUndefined();

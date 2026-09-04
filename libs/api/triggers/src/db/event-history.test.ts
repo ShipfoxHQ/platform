@@ -14,6 +14,7 @@ import {
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
+  upsertListenerDeliveryRejectedDecision,
   upsertListenerDispatchErrorDecision,
   upsertListenerFilterErrorDecision,
   upsertListenerTriggeredDecision,
@@ -568,5 +569,49 @@ describe('decision upserts', () => {
     expect(rows[0]?.subscriptionKind).toBe('listener');
     expect(rows[0]?.decision).toBe('filter-error');
     expect(rows[0]?.reason).toBe('Listener filter evaluation failed');
+  });
+
+  it('records a stable listener delivery rejection decision', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const subscription = buildListenerSubscription();
+
+    await upsertListenerDeliveryRejectedDecision({
+      receivedEventId,
+      subscription,
+      reason: 'payload-too-large',
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      subscriptionKind: 'listener',
+      subscriptionId: subscription.id,
+      decision: 'rejected',
+      runId: null,
+      runName: null,
+      reason: 'payload-too-large',
+    });
+  });
+
+  it('promotes listener rejection to triggered and never downgrades it', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const subscription = buildListenerSubscription();
+
+    await upsertListenerDeliveryRejectedDecision({
+      receivedEventId,
+      subscription,
+      reason: 'payload-too-large',
+    });
+    await upsertListenerTriggeredDecision({receivedEventId, subscription});
+    await upsertListenerDeliveryRejectedDecision({
+      receivedEventId,
+      subscription,
+      reason: 'payload-too-large',
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.decision).toBe('triggered');
+    expect(rows[0]?.reason).toBeNull();
   });
 });

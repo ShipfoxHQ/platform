@@ -296,7 +296,18 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         payload: z.unknown(),
         receivedAt: z.string().datetime(),
       }),
-      output: z.object({buffered: z.boolean(), skipped: z.boolean()}),
+      output: z.object({
+        buffered: z.boolean(),
+        skipped: z.boolean(),
+        rejection: z
+          .object({
+            reason: z.literal('payload-too-large'),
+            eventId: z.string().min(1),
+            measuredBytes: z.number().int().positive(),
+            limitBytes: z.number().int().positive(),
+          })
+          .optional(),
+      }),
       errors: {
         'workspace-not-found': z.object({workspaceId: idSchema}),
         'workspace-suspended': z.object({workspaceId: idSchema}),
