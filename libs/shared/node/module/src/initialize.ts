@@ -8,6 +8,7 @@ import {
   createTemporalWorker,
   createTemporalWorkerConnection,
   type NativeConnection,
+  requestTemporalWorkerShutdown,
   temporalClient,
   type Worker,
 } from '@shipfox/node-temporal';
@@ -529,8 +530,7 @@ async function stopModuleWorkers(options: {
 
 function requestModuleWorkerShutdown({worker, taskQueue}: StartedModuleWorker): unknown[] {
   try {
-    if (workerIsStoppingOrStopped(worker)) return [];
-    worker.shutdown();
+    requestTemporalWorkerShutdown(worker);
     return [];
   } catch (error) {
     logger().error({err: error, taskQueue}, 'Failed to shut down module worker');
@@ -541,11 +541,6 @@ function requestModuleWorkerShutdown({worker, taskQueue}: StartedModuleWorker): 
     });
     return [error];
   }
-}
-
-function workerIsStoppingOrStopped(worker: Worker): boolean {
-  const state = worker.getState();
-  return state === 'STOPPING' || state === 'DRAINING' || state === 'DRAINED' || state === 'STOPPED';
 }
 
 function throwLifecycleErrors(errors: unknown[], message: string): void {

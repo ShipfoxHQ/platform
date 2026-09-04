@@ -1,5 +1,6 @@
 ---
 "@shipfox/node-module": patch
+"@shipfox/node-temporal": minor
 ---
 
-Avoids duplicate Temporal worker shutdown requests when signal handling has already started draining workers.
+Adds state-aware Temporal worker shutdown requests and avoids duplicate requests after a worker has already stopped running.

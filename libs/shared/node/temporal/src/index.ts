@@ -27,4 +27,5 @@ export {
   type CreateWorkerOptions,
   createTemporalWorker,
   createTemporalWorkerConnection,
+  requestTemporalWorkerShutdown,
 } from './worker.js';

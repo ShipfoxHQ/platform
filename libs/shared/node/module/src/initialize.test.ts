@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   createTemporalClient: vi.fn(),
   createTemporalWorker: vi.fn(),
   createTemporalWorkerConnection: vi.fn(),
+  requestTemporalWorkerShutdown: vi.fn(),
   workflowStart: vi.fn(),
   markErrorReported: vi.fn(),
   reportError: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('@shipfox/node-temporal', () => ({
   createTemporalClient: mocks.createTemporalClient,
   createTemporalWorker: mocks.createTemporalWorker,
   createTemporalWorkerConnection: mocks.createTemporalWorkerConnection,
+  requestTemporalWorkerShutdown: mocks.requestTemporalWorkerShutdown,
   temporalClient: () => ({workflow: {start: mocks.workflowStart}}),
 }));
 
@@ -512,6 +514,11 @@ function temporalWorker(runResult: Promise<void> = new Promise(() => undefined))
   };
 }
 
+function mockRequestTemporalWorkerShutdown(worker: ReturnType<typeof temporalWorker>): void {
+  if (worker.getState() !== 'RUNNING') return;
+  worker.shutdown();
+}
+
 function alreadyStartedError(): Error {
   const error = new Error('already started');
   error.name = 'WorkflowExecutionAlreadyStartedError';
@@ -529,6 +536,7 @@ describe('startModuleWorkers', () => {
     mocks.createTemporalClient.mockReset();
     mocks.createTemporalWorker.mockReset();
     mocks.createTemporalWorkerConnection.mockReset();
+    mocks.requestTemporalWorkerShutdown.mockReset();
     mocks.workflowStart.mockReset();
     mocks.logger.error.mockReset();
     mocks.logger.info.mockReset();
@@ -537,6 +545,7 @@ describe('startModuleWorkers', () => {
     mocks.createTemporalClient.mockResolvedValue({});
     mocks.createTemporalWorkerConnection.mockResolvedValue({close: vi.fn()});
     mocks.createTemporalWorker.mockResolvedValue(temporalWorker());
+    mocks.requestTemporalWorkerShutdown.mockImplementation(mockRequestTemporalWorkerShutdown);
     mocks.workflowStart.mockResolvedValue({});
   });
 
@@ -738,15 +747,22 @@ describe('startModuleWorkers', () => {
     );
   });
 
-  it('waits for a draining worker without shutting it down again', async () => {
-    const shutdownFailure = new Error('Not running. Current state: DRAINING');
+  it.each([
+    'INITIALIZED',
+    'STOPPING',
+    'DRAINING',
+    'DRAINED',
+    'STOPPED',
+    'FAILED',
+  ] as const)('waits for a worker in the %s state without shutting it down again', async (state) => {
+    const shutdownFailure = new Error(`Not running. Current state: ${state}`);
     const connection = {close: vi.fn().mockResolvedValue(undefined)};
     let resolveRun: () => void = () => undefined;
     const runPromise = new Promise<void>((resolve) => {
       resolveRun = resolve;
     });
     const worker = temporalWorker(runPromise);
-    worker.getState.mockReturnValue('DRAINING');
+    worker.getState.mockReturnValue(state);
     worker.shutdown.mockImplementation(() => {
       throw shutdownFailure;
     });

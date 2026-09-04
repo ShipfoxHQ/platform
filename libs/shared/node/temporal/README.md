@@ -10,11 +10,12 @@ Temporal client and worker helpers for Shipfox Node services.
 - **`isTemporalHealthy()`**: Checks the Temporal connection health service.
 - **`createTemporalWorkerConnection()`**: Creates a Temporal worker connection for a caller that owns its lifecycle.
 - **`createTemporalWorker(options)`**: Creates a worker with Shipfox defaults.
+- **`requestTemporalWorkerShutdown(worker)`**: Requests shutdown only when the worker is running.
 - **Prebuilt workflow bundles**: Builds and loads production workflow artifacts without bundling at worker startup.
 - **OpenTelemetry propagation**: Connects client, workflow, and activity spans through the official Temporal interceptors.
 - **Temporal metrics**: Exposes the SDK's native Prometheus metrics from the worker process.
 
-## Installation
+## Installation and setup
 
 ```sh
 pnpm add @shipfox/node-temporal
@@ -27,6 +28,7 @@ import {
   createTemporalClient,
   createTemporalWorker,
   createTemporalWorkerConnection,
+  requestTemporalWorkerShutdown,
   temporalClient,
 } from '@shipfox/node-temporal';
 
@@ -56,7 +58,9 @@ const worker = await createTemporalWorker({
   activities: {syncActivity},
 });
 
-await worker.shutdown();
+const run = worker.run();
+requestTemporalWorkerShutdown(worker);
+await run;
 await connection.close();
 ```
 
