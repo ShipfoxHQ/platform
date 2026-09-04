@@ -113,6 +113,8 @@ describe('finalizeAttemptLogStream', () => {
         listWorkflowStepAttempts: vi.fn(),
         getWorkflowRunSource: vi.fn(),
         getWorkflowJobExecutionContext: vi.fn(),
+        listExecutionTriggerEvents: vi.fn(),
+        getExecutionTriggerEvent: vi.fn(),
         getWorkflowStepAttemptDetail: vi.fn(),
         listWorkflowRunAnnotations: vi.fn(),
         listWorkflowRunJobExplanations: vi.fn(),
