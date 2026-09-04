@@ -67,8 +67,15 @@ import {
 } from '@shipfox/api-agent-dto';
 import {logger} from '@shipfox/node-opentelemetry';
 import {claudeHarnessAdapter} from '#core/claude-adapter.js';
+import {CLAUDE_AUTH_HELPER_PATH} from '#core/claude-auth-helper.js';
+import {
+  CLAUDE_CREDENTIAL_CAPABILITY_ENV,
+  CLAUDE_CREDENTIAL_HELPER_TTL_MS,
+  CLAUDE_CREDENTIAL_SOCKET_ENV,
+  CLAUDE_CREDENTIAL_TIMEOUT_ENV,
+} from '#core/claude-credential-broker.js';
 import {AgentConfigError, AgentPermissionModeError} from '#core/errors.js';
-import type {HarnessInvocation} from '#core/harness.js';
+import type {HarnessInvocation, InferenceCredentialSource} from '#core/harness.js';
 import type {IntegrationToolsBridge} from '#core/integration-tools-bridge.js';
 
 // Mirrors claudeModelCapabilities() family normalization in the adapter.
@@ -181,6 +188,7 @@ function lastQueryOptions(): {
   sessionStoreFlush?: string;
   resume?: string;
   forkSession?: boolean;
+  settings?: {apiKeyHelper?: string};
 } {
   const call = queryMock.mock.calls[0] as
     | [
@@ -447,6 +455,50 @@ describe('claudeHarnessAdapter', () => {
     });
     expect(lastQueryOptions()).not.toHaveProperty('tools');
     expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_MODEL');
+  });
+
+  it('uses the renewable Claude helper without passing static auth to the child', async () => {
+    const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    process.env.ANTHROPIC_API_KEY = 'parent-api-key';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'parent-auth-token';
+    queryMock.mockReturnValue(makeQuery([successMessage]));
+    const credentialSource: InferenceCredentialSource = {
+      resolve: vi.fn().mockResolvedValue({token: 'managed-token', generation: 'generation-1'}),
+      close: vi.fn(),
+    };
+
+    try {
+      await claudeHarnessAdapter.run(
+        invocation({
+          provider: 'shipfox',
+          model: 'claude-opus-4-8',
+          credentials: {api_key: 'managed-token'},
+          claude: {
+            base_url: 'https://inference.shipfox.dev/v1',
+            auth_token: 'managed-token',
+          },
+          credentialSource,
+        }),
+      );
+    } finally {
+      if (previousAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+      else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
+    }
+
+    expect(lastQueryOptions().settings).toEqual({apiKeyHelper: CLAUDE_AUTH_HELPER_PATH});
+    expect(lastQueryOptions().env).toMatchObject({
+      [CLAUDE_CREDENTIAL_SOCKET_ENV]: expect.any(String),
+      [CLAUDE_CREDENTIAL_CAPABILITY_ENV]: expect.any(String),
+      [CLAUDE_CREDENTIAL_TIMEOUT_ENV]: expect.any(String),
+      CLAUDE_CODE_API_KEY_HELPER_TTL_MS: String(CLAUDE_CREDENTIAL_HELPER_TTL_MS),
+      ANTHROPIC_BASE_URL: 'https://inference.shipfox.dev/v1',
+      ANTHROPIC_SMALL_FAST_MODEL: 'claude-opus-4-8',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-opus-4-8',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'claude-opus-4-8',
+    });
+    expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(lastQueryOptions().env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN');
+    expect(credentialSource.resolve).not.toHaveBeenCalled();
   });
 
   it('accepts a managed provider with the per-step claude runtime block', async () => {

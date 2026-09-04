@@ -24,6 +24,13 @@ import {
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
 import {config} from '#config.js';
+import {CLAUDE_AUTH_HELPER_PATH} from '#core/claude-auth-helper.js';
+import {
+  CLAUDE_CREDENTIAL_HELPER_TTL_MS,
+  type ClaudeCredentialBroker,
+  claudeCredentialHelperEnvironment,
+  createClaudeCredentialBroker,
+} from '#core/claude-credential-broker.js';
 import {
   type ClaudeToolCatalogErrorClass,
   type ClaudeToolCatalogFailure,
@@ -333,6 +340,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
   let response = '';
   let toolContext: ClaudeToolContext | undefined;
   let turnsCompleted = false;
+  let credentialBroker: ClaudeCredentialBroker | undefined;
   const controller = new AbortController();
   const abortQuery = () => {
     controller.abort();
@@ -346,6 +354,14 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     activeToolDiagnostics = toolContext.diagnostics;
     toolContext.diagnostics.logManifest();
     configDir = await createClaudeConfigDir(agentStateDir);
+    if (invocation.credentialSource !== undefined && invocation.claude !== undefined) {
+      credentialBroker = createClaudeCredentialBroker({
+        credentialSource: invocation.credentialSource,
+        signal,
+        socketDirectory: agentStateDir,
+      });
+      await credentialBroker.start();
+    }
 
     const inputMessages = new ClaudeInputStream();
     messages = inputMessages;
@@ -362,7 +378,17 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
         abortController: controller,
         ...toolContext.selectedToolOptions,
         ...claudeSystemPromptOption(),
-        env: claudeEnvironment(auth, configDir, gitConfigGlobal, override),
+        ...(credentialBroker === undefined
+          ? {}
+          : {settings: {apiKeyHelper: CLAUDE_AUTH_HELPER_PATH}}),
+        env: claudeEnvironment(
+          auth,
+          configDir,
+          gitConfigGlobal,
+          override,
+          effectiveModel,
+          credentialBroker,
+        ),
         ...(toolContext.mcpServers === undefined ? {} : {mcpServers: toolContext.mcpServers}),
         ...claudeSessionQueryOptions(sessionInvocation, sessionStore),
         includePartialMessages: false,
@@ -421,6 +447,7 @@ async function runClaudeAgent(invocation: HarnessInvocation): Promise<HarnessRes
     messages?.close();
     signal.removeEventListener('abort', abortQuery);
     claudeQuery?.close();
+    await credentialBroker?.close();
     if (configDir !== undefined) await cleanupClaudeConfigDir(configDir);
   }
 }
@@ -1474,11 +1501,25 @@ function claudeEnvironment(
   configDir: string,
   gitConfigGlobal: string | undefined,
   override: ClaudeAnthropicOverride | undefined,
+  effectiveModel: string,
+  credentialBroker: ClaudeCredentialBroker | undefined,
 ): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    ANTHROPIC_API_KEY: auth.apiKey,
-    ...(auth.authToken !== undefined ? {ANTHROPIC_AUTH_TOKEN: auth.authToken} : {}),
+  const environment: NodeJS.ProcessEnv = {...process.env};
+  if (credentialBroker === undefined) {
+    environment.ANTHROPIC_API_KEY = auth.apiKey;
+    if (auth.authToken !== undefined) environment.ANTHROPIC_AUTH_TOKEN = auth.authToken;
+  } else {
+    delete environment.ANTHROPIC_API_KEY;
+    delete environment.ANTHROPIC_AUTH_TOKEN;
+    Object.assign(environment, claudeCredentialHelperEnvironment(credentialBroker), {
+      CLAUDE_CODE_API_KEY_HELPER_TTL_MS: String(CLAUDE_CREDENTIAL_HELPER_TTL_MS),
+      ANTHROPIC_SMALL_FAST_MODEL: effectiveModel,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: effectiveModel,
+      CLAUDE_CODE_SUBAGENT_MODEL: effectiveModel,
+    });
+  }
+
+  Object.assign(environment, {
     ...(override !== undefined
       ? {
           ANTHROPIC_BASE_URL: override.baseUrl,
@@ -1492,7 +1533,8 @@ function claudeEnvironment(
     CLAUDE_AGENT_SDK_CLIENT_APP: '@shipfox/runner-agent',
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     ...(gitConfigGlobal ? {GIT_CONFIG_GLOBAL: gitConfigGlobal} : {}),
-  };
+  });
+  return environment;
 }
 
 function claudeAnthropicOverride(

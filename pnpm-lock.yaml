@@ -6813,6 +6813,9 @@ importers:
       '@shipfox/runner-protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@shipfox/runner-workspace':
+        specifier: workspace:*
+        version: link:../workspace
       pi-mcp-adapter:
         specifier: 'catalog:'
         version: 2.11.0(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(ws@8.21.0)(zod@4.4.3)
