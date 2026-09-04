@@ -1,6 +1,10 @@
-import type {NativeConnection} from '@temporalio/worker';
+import type {NativeConnection, State, Worker} from '@temporalio/worker';
 import type {CreateWorkerOptions} from './worker.js';
-import {createTemporalWorker, createTemporalWorkerConnection} from './worker.js';
+import {
+  createTemporalWorker,
+  createTemporalWorkerConnection,
+  requestTemporalWorkerShutdown,
+} from './worker.js';
 
 const mocks = vi.hoisted(() => ({
   nativeConnectionConnect: vi.fn(),
@@ -58,6 +62,13 @@ function workerOptions(overrides: Partial<CreateWorkerOptions> = {}): CreateWork
   };
 }
 
+function temporalWorker(state: State): Worker {
+  return {
+    getState: vi.fn().mockReturnValue(state),
+    shutdown: vi.fn(),
+  } as unknown as Worker;
+}
+
 describe('createTemporalWorkerConnection', () => {
   beforeEach(() => {
     mocks.nativeConnectionConnect.mockReset();
@@ -94,6 +105,31 @@ describe('createTemporalWorkerConnection', () => {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).cause).toBe(failure);
     });
+  });
+});
+
+describe('requestTemporalWorkerShutdown', () => {
+  it('requests shutdown for a running worker', () => {
+    const worker = temporalWorker('RUNNING');
+
+    requestTemporalWorkerShutdown(worker);
+
+    expect(worker.shutdown).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'INITIALIZED',
+    'STOPPING',
+    'DRAINING',
+    'DRAINED',
+    'STOPPED',
+    'FAILED',
+  ] as const)('does not request shutdown for a worker in the %s state', (state) => {
+    const worker = temporalWorker(state);
+
+    requestTemporalWorkerShutdown(worker);
+
+    expect(worker.shutdown).not.toHaveBeenCalled();
   });
 });
 

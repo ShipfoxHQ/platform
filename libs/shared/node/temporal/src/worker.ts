@@ -101,3 +101,8 @@ export async function createTemporalWorker(options: CreateWorkerOptions): Promis
 
   return worker;
 }
+
+export function requestTemporalWorkerShutdown(worker: Worker): void {
+  if (worker.getState() !== 'RUNNING') return;
+  worker.shutdown();
+}
