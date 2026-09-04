@@ -56,7 +56,9 @@ describe('bounded step-log agent-access tool', () => {
     });
     const result = success(response);
 
-    expect(mocks.workflowHandlers.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+    expect(
+      mocks.workflowHandlers.getWorkflowStepAttemptDetail.mock.calls[0]?.[0],
+    ).toStrictEqual({
       workspaceId,
       stepId,
     });

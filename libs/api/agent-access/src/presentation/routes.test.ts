@@ -2,11 +2,16 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {
   type AgentAccessContext,
   AUTH_AGENT_ACCESS,
   setAgentAccessContext,
 } from '@shipfox/api-auth-context';
+import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
+import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {
   type AuthMethod,
   ClientError,
@@ -48,6 +53,18 @@ describe('agent-access MCP routes', () => {
 
   afterEach(async () => {
     await closeApp();
+  });
+
+  test('keeps the core producer composition valid without optional log reads', () => {
+    expect(() =>
+      createAgentAccessRoutes({
+        projects: {} as unknown as ProjectsModuleClient,
+        definitions: {} as unknown as DefinitionsInterModuleClient,
+        workflows: {} as unknown as WorkflowsModuleClient,
+        annotations: {} as unknown as AnnotationsInterModuleClient,
+        triggers: {} as unknown as TriggersInterModuleClient,
+      }),
+    ).not.toThrow();
   });
 
   test('returns 405 for allowed GET and DELETE requests', async () => {

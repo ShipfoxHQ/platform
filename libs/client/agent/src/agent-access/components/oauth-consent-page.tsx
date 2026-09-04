@@ -18,7 +18,11 @@ import {oauthConsentErrorMessage} from './errors.js';
 import {formatAgentAccessTimestamp} from './format.js';
 
 export function OAuthConsentRoutePage() {
+  const auth = useAuthState();
   const search = useRouteSearch(validateOAuthConsentSearch);
+
+  if (auth.isLoading) return <OAuthConsentLoading />;
+
   if (!search.requestId) {
     return (
       <AuthShell

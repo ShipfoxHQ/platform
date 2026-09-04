@@ -7,8 +7,7 @@ export const config = createConfig({
     default: undefined,
   }),
   API_PUBLIC_URL: url({
-    desc: 'Public origin of the API used by Agent Access OAuth metadata and redirect flows. Set it to the externally reachable API URL, including the scheme; HTTPS is required outside localhost.',
-    default: 'http://localhost:16101',
+    desc: 'Public origin of the API used by Agent Access OAuth metadata and redirect flows. Required. Set an externally reachable URL including the scheme. Use HTTPS outside localhost.',
   }),
   AUTH_JWT_EXPIRES_IN: str({
     desc: 'How long an access token stays valid. Accepts a duration string such as 15m, 1h, or 7d.',

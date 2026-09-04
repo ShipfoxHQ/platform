@@ -110,11 +110,48 @@ export class AgentAccessSettingsScreen {
   emptyState(): Locator {
     return this.page.getByText('No authorized apps', {exact: true});
   }
+
+  authorizedAppRow(clientName: string): Locator {
+    return this.page.getByRole('row').filter({hasText: clientName});
+  }
+
+  async openRevokeDialog(clientName: string): Promise<Dialog> {
+    await this.authorizedAppRow(clientName)
+      .getByRole('button', {name: 'Revoke access', exact: true})
+      .click();
+    const dialog = new Dialog(this.page, 'Revoke OAuth access?');
+    await dialog.expectVisible();
+    return dialog;
+  }
+}
+
+export class OAuthConsentScreen {
+  constructor(private readonly page: Page) {}
+
+  heading(clientName: string): Locator {
+    return this.page.getByRole('heading', {
+      name: `Allow ${clientName} to access Shipfox?`,
+      exact: true,
+    });
+  }
+
+  clientIdentity(origin: string): Locator {
+    return this.page.getByText(origin, {exact: true});
+  }
+
+  denyButton(): Locator {
+    return this.page.getByRole('button', {name: 'Deny', exact: true});
+  }
+
+  allowButton(): Locator {
+    return this.page.getByRole('button', {name: 'Allow access', exact: true});
+  }
 }
 
 export interface AgentScreenFixtures {
   agentAccessSettings: AgentAccessSettingsScreen;
   customModelProviders: CustomModelProviderScreen;
+  oauthConsent: OAuthConsentScreen;
 }
 
 export const agentScreens = {
@@ -126,5 +163,8 @@ export const agentScreens = {
     use: FixtureUse<CustomModelProviderScreen>,
   ) => {
     await use(new CustomModelProviderScreen(page));
+  },
+  oauthConsent: async ({page}: {page: Page}, use: FixtureUse<OAuthConsentScreen>) => {
+    await use(new OAuthConsentScreen(page));
   },
 };

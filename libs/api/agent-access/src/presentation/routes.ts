@@ -142,13 +142,16 @@ function toolsFromProducerClients(
     definitions === undefined ||
     workflows === undefined ||
     annotations === undefined ||
-    triggers === undefined ||
-    logs === undefined
+    triggers === undefined
   ) {
-    throw new Error('Agent-access producer clients must be configured together');
+    throw new Error(
+      'Agent-access core producer clients must be configured together: projects, definitions, workflows, annotations, and triggers',
+    );
   }
+  const tools = createAgentAccessTools({projects, definitions, workflows, annotations, triggers});
+  if (logs === undefined) return tools;
   return [
-    ...createAgentAccessTools({projects, definitions, workflows, annotations, triggers}),
+    ...tools,
     ...createAgentAccessDiagnosticTools({triggers}),
     ...createAgentAccessWorkflowDiagnosticTools(workflows),
     ...createAgentAccessLogTools({logs, workflows}),

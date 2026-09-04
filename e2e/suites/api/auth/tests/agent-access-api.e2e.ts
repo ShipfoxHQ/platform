@@ -299,6 +299,27 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
   });
   expect(relistedGrants.status()).toBe(200);
   expect(listAgentGrantsResponseSchema.parse(await relistedGrants.json()).grants).toEqual([]);
+
+  const stillValidClient = new Client({name: 'agent-access-revocation-e2e-client', version: '0.0.0'});
+  const stillValidTransport = new StreamableHTTPClientTransport(new URL('/mcp', apiOrigin), {
+    requestInit: {
+      headers: {
+        authorization: `Bearer ${tokenBody.access_token}`,
+        origin: clientOrigin,
+      },
+    },
+  });
+  try {
+    await stillValidClient.connect(stillValidTransport as unknown as Transport);
+    const stillValidProjects = await stillValidClient.callTool(
+      {name: 'list_projects', arguments: {}},
+      CallToolResultSchema,
+    );
+    expect(stillValidProjects.isError).not.toBe(true);
+    expect(agentAccessEnvelopeSchema.parse(stillValidProjects.structuredContent).ok).toBe(true);
+  } finally {
+    await stillValidClient.close();
+  }
 });
 
 test('protects the composed MCP endpoint with OAuth metadata and Origin checks', async ({
