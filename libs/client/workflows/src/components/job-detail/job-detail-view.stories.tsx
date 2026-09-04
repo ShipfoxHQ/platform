@@ -770,6 +770,7 @@ function failureRun() {
       attempt: 1,
       authoredConfig: {run: String.raw`pnpm test --filter=\${{ inputs.package }}`},
       config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+      outputs: {failed_tests: 4},
     }),
   ];
 
@@ -802,11 +803,13 @@ function stepAttemptDetail({
   attempt,
   authoredConfig,
   config,
+  outputs,
 }: {
   stepId: string;
   attempt: number;
   authoredConfig: Record<string, unknown>;
   config: Record<string, unknown>;
+  outputs?: Record<string, unknown> | undefined;
 }): StepAttemptDetail {
   return {
     stepId,
@@ -814,6 +817,7 @@ function stepAttemptDetail({
     session: null,
     authoredConfig,
     config,
+    ...(outputs === undefined ? {} : {outputs}),
     toolArguments: null,
     evaluationTrace: [
       {
