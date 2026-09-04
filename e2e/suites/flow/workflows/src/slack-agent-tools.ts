@@ -7,7 +7,7 @@ import {
 import {startSuiteLocalRunner, waitForRunTerminalOrFailedRunner} from '#runner.js';
 import {triggerSlackAppMentionAndAwaitRun} from '#slack-events.js';
 import type {SuiteContext} from '#suite-context.js';
-import {seedAndWaitForDefinition} from '#workflow-project.js';
+import {seedProjectWithApiDefinition} from '#workflow-project.js';
 
 const TERMINAL_TIMEOUT_MS = 60_000;
 
@@ -38,7 +38,9 @@ export async function runSlackToolsWorkflow(params: {
   });
 
   try {
-    const {project} = await seedAndWaitForDefinition({
+    // This scenario proves Slack tooling, not definition sync, so it takes the definition
+    // straight from the API rather than waiting on gitea and Temporal to produce one.
+    const {project} = await seedProjectWithApiDefinition({
       suite: params.suite,
       token,
       name: scenario,

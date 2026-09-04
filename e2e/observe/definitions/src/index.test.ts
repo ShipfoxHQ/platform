@@ -8,6 +8,8 @@ const DEFINITION_SYNC_FAILED_RE =
 const DEFINITION_TIMEOUT_RE =
   /Timed out waiting for definition: configPath=.shipfox\/workflows\/missing.yml/u;
 const DEFINITION_TIMEOUT_OBSERVED_RE = /definitions=\[id=22222222/u;
+const DEFINITION_TIMEOUT_SYNC_TIMESTAMPS_RE =
+  /syncStartedAt=2026-07-02T08:00:00.000Z syncLastSyncAt=2026-07-02T08:00:00.000Z/u;
 
 function definition(params: Partial<DefinitionDto> = {}): DefinitionDto {
   return {
@@ -160,6 +162,33 @@ describe('waitForDefinition', () => {
 
     await expect(result).rejects.toThrow(DEFINITION_TIMEOUT_RE);
     await expect(result).rejects.toThrow(DEFINITION_TIMEOUT_OBSERVED_RE);
+  });
+
+  test('reports sync timestamps so a timeout shows how long the sync has run', async () => {
+    const result = waitForDefinition({
+      configPath: '.shipfox/workflows/missing.yml',
+      fetch: () =>
+        response(
+          listResponse({
+            sync: {
+              ref: 'main',
+              status: 'syncing',
+              last_sync_at: '2026-07-02T08:00:00.000Z',
+              started_at: '2026-07-02T08:00:00.000Z',
+              finished_at: null,
+              last_error_code: null,
+              last_error_message: null,
+              diagnostics: [],
+            },
+          }),
+        ),
+      initialDelayMs: 1,
+      projectId,
+      timeoutMs: 10,
+      token: 'user-token',
+    });
+
+    await expect(result).rejects.toThrow(DEFINITION_TIMEOUT_SYNC_TIMESTAMPS_RE);
   });
 
   test('passes abort signals through polling', async () => {

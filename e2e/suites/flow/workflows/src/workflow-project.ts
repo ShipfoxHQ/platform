@@ -1,5 +1,6 @@
 import type {DefinitionResponseDto} from '@shipfox/api-definitions-dto';
 import type {ProjectResponseDto} from '@shipfox/api-projects-dto';
+import {createApiClient} from '@shipfox/e2e-core';
 import {type CreatedIssue, commitFiles, createIssue, createRepo} from '@shipfox/e2e-driver-gitea';
 import {waitForDefinition} from '@shipfox/e2e-observe-definitions';
 import {createProject, giteaExternalRepositoryId} from './create-project.js';
@@ -17,6 +18,15 @@ export interface WorkflowProjectFile {
   path: string;
   content: string;
 }
+
+/**
+ * How a seeded project gets its definition.
+ *
+ * `vcs` commits the workflow file and waits for the definition sync to apply it, which is
+ * what a test of the sync itself needs. `api` posts the same YAML to `POST /definitions`,
+ * for tests that only need a definition to exist before they exercise something else.
+ */
+export type DefinitionDelivery = 'vcs' | 'api';
 
 export interface SeededWorkflowProject {
   project: ProjectResponseDto;
@@ -65,6 +75,7 @@ export async function seedWorkflowProject(params: {
   replacements?: Record<string, string> | undefined;
   extraFiles?: WorkflowProjectFile[] | undefined;
   giteaIssue?: {title: string; body: string} | undefined;
+  definitionDelivery?: DefinitionDelivery | undefined;
 }): Promise<SeededWorkflowProject> {
   await createRepo({org: params.suite.org, name: params.repo});
   const giteaIssue =
@@ -83,15 +94,24 @@ export async function seedWorkflowProject(params: {
       ...(giteaIssue === undefined ? {} : {__GITEA_ISSUE_NUMBER__: String(giteaIssue.number)}),
     },
   });
-  await commitFiles({
-    org: params.suite.org,
-    repo: params.repo,
-    message: `seed ${params.name}`,
-    files: [
-      {path: params.configPath, content: renderedWorkflowYaml},
-      ...(params.extraFiles ?? []).map((file) => ({path: file.path, content: file.content})),
-    ],
-  });
+  const files = [
+    // An `api` delivery deliberately leaves the workflow file out of the repo. A synced
+    // VCS definition at the same path is a second row with the same triggers, so it
+    // subscribes twice and one event starts two runs. `createRepo` already initializes
+    // the repository with a default branch for jobs that check it out.
+    ...(params.definitionDelivery === 'api'
+      ? []
+      : [{path: params.configPath, content: renderedWorkflowYaml}]),
+    ...(params.extraFiles ?? []).map((file) => ({path: file.path, content: file.content})),
+  ];
+  if (files.length > 0) {
+    await commitFiles({
+      org: params.suite.org,
+      repo: params.repo,
+      message: `seed ${params.name}`,
+      files,
+    });
+  }
 
   const project = await createProject({
     workspaceId: params.suite.workspaceId,
@@ -117,4 +137,51 @@ export async function seedAndWaitForDefinition(params: Parameters<typeof seedWor
     token: params.token,
   });
   return {...seeded, definition};
+}
+
+/**
+ * Seeds a project and creates its definition over the API in one round trip.
+ *
+ * Prefer this over `seedAndWaitForDefinition` unless the definition sync is the subject of
+ * the test. Waiting for a sync makes an arrangement step depend on gitea, the outbox, and
+ * a Temporal workflow whose provider activities retry with 5s/10s/20s/40s backoff, so a
+ * transient failure holds the sync in `syncing` far longer than the arrangement is worth
+ * waiting for. `POST /definitions` runs the same parsing and integration validation
+ * synchronously, so a workflow this suite got wrong fails as a 400 naming the problem
+ * instead of a poll timing out with no error to report.
+ */
+export async function seedProjectWithApiDefinition(
+  params: Parameters<typeof seedWorkflowProject>[0],
+): Promise<ReadyWorkflowProject> {
+  const seeded = await seedWorkflowProject({...params, definitionDelivery: 'api'});
+  const definition = await createApiClient({
+    token: params.token,
+  }).requestJson<DefinitionResponseDto>('post', '/definitions', {
+    json: {
+      project_id: seeded.project.id,
+      source: 'manual',
+      yaml: seeded.renderedWorkflowYaml,
+    },
+  });
+  assertResolvedReferences(definition, params.name);
+  return {...seeded, definition};
+}
+
+/**
+ * A workflow naming a connection, tool, or method the workspace does not have is only a
+ * warning, because a definition stays authorable while its integration is being connected.
+ * A seeded fixture has no such excuse: its trigger would never fire and its tools would
+ * never be offered, so the run fails minutes later with nothing pointing back at the
+ * arrangement. Failing on the diagnostic names the missing reference instead.
+ */
+function assertResolvedReferences(definition: DefinitionResponseDto, scenario: string): void {
+  const unresolved = (definition.diagnostics ?? []).filter((diagnostic) =>
+    diagnostic.code.startsWith('unknown-'),
+  );
+  if (unresolved.length === 0) return;
+
+  const detail = unresolved
+    .map((diagnostic) => `${diagnostic.code} at ${diagnostic.path ?? 'unknown path'}`)
+    .join(', ');
+  throw new Error(`Seeded ${scenario} definition references unresolved integrations: ${detail}`);
 }
