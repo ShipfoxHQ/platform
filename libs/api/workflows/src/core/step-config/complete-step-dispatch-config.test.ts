@@ -565,12 +565,7 @@ describe('completeStepDispatchConfig', () => {
       config: {
         tool: {
           method: 'get',
-          input_schema: {
-            type: 'object',
-            properties: {method: {const: 'get'}},
-            required: ['method'],
-            additionalProperties: false,
-          },
+          input_schema: {type: 'object'},
         },
       },
       configPlan: {
