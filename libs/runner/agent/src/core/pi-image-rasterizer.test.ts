@@ -247,6 +247,7 @@ describe('worker lifecycle', () => {
   });
 
   it('keeps queued work when another worker can recover from initialization failure', async () => {
+    vi.useFakeTimers();
     const workers: FakeRenderWorker[] = [];
     const rasterizer = createPiSvgRasterizer({
       workerFactory: (() => {
