@@ -91,6 +91,18 @@ export {
   stepStatusReasonSchema,
 } from './step.js';
 export {
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_METADATA_MAX_BYTES,
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
+  type WorkflowExecutionTriggerEventDetailDto,
+  type WorkflowExecutionTriggerEventSummaryDto,
+  type WorkflowExecutionTriggerEventsResponseDto,
+  workflowExecutionTriggerEventDetailSchema,
+  workflowExecutionTriggerEventSummarySchema,
+  workflowExecutionTriggerEventsResponseSchema,
+} from './workflow-execution-events.js';
+export {
   MAX_LISTENER_TRIGGER_EVENTS_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,
   RUNNER_NEXT_STEP_ENVELOPE_ALLOWANCE_BYTES,

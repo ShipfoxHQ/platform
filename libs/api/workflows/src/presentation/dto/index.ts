@@ -8,6 +8,10 @@ export {
   toStepGateResultDto,
 } from './step.js';
 export {
+  toWorkflowExecutionTriggerEventDetailDto,
+  toWorkflowExecutionTriggerEventSummaryDto,
+} from './workflow-execution-events.js';
+export {
   toWorkflowExecutionStepsResponseDto,
   toWorkflowJobDetailDto,
   toWorkflowJobExecutionSummariesResponseDto,

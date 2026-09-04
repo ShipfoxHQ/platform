@@ -9,6 +9,10 @@ export {
 export type {WorkflowFailedStepAttemptRead} from './workflow-runs/failed-step-attempts.js';
 export {listFailedStepAttempts} from './workflow-runs/failed-step-attempts.js';
 export type {
+  WorkflowExecutionTriggerEventCursor,
+  WorkflowExecutionTriggerEventDetailRead,
+  WorkflowExecutionTriggerEventPageRead,
+  WorkflowExecutionTriggerEventSummaryRead,
   WorkflowJobDetailRead,
   WorkflowJobExecutionContextRead,
   WorkflowJobExecutionCursor,
@@ -26,10 +30,12 @@ export type {
   WorkflowStepSummaryRead,
 } from './workflow-runs/job-detail.js';
 export {
+  getExecutionTriggerEvent,
   getWorkflowJobDetail,
   getWorkflowJobExecutionContext,
   getWorkflowJobReadScope,
   getWorkflowStepReadScope,
+  listExecutionTriggerEvents,
   listWorkflowExecutionSteps,
   listWorkflowJobExecutionSummaries,
   listWorkflowStepAttemptSummaries,

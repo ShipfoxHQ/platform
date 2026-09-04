@@ -3,14 +3,21 @@ import {
   WORKFLOW_DIAGNOSTIC_EVALUATION_TRACE_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_OUTPUT_MAX_BYTES,
   WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES,
   WORKFLOW_JOB_DETAIL_STEP_PAGE_LIMIT,
   WORKFLOW_STEP_ATTEMPT_PREVIEW_LIMIT,
 } from '@shipfox/api-workflows-dto';
+import {type TimestampIdCursor, timestampIdCursorWhere} from '@shipfox/node-drizzle';
 import {and, asc, count, desc, eq, gt, inArray, lt, lte, or, sql} from 'drizzle-orm';
 import {
   normalizeWorkflowExecutionEvent,
   type WorkflowExecutionEvent,
 } from '#core/entities/job-execution.js';
+import type {
+  JobListenerEventDisposition,
+  JobListenerEventOutcome,
+  JobListenerEventOutcomeReason,
+} from '#core/entities/job-listener-event.js';
 import {
   type PersistedEvaluationTraceEntry,
   type StepAttemptStatus,
@@ -22,6 +29,7 @@ import {
 } from '#core/entities/step.js';
 import {db, type Tx} from '../db.js';
 import {jobExecutions} from '../schema/job-executions.js';
+import {jobListenerEvents} from '../schema/job-listener-events.js';
 import {jobs} from '../schema/jobs.js';
 import {stepAttempts} from '../schema/step-attempts.js';
 import {steps} from '../schema/steps.js';
@@ -134,6 +142,34 @@ export interface WorkflowJobExecutionPageRead {
   items: WorkflowRunJobExecutionSummary[];
   nextCursor: WorkflowJobExecutionCursor | null;
   total: BoundedExecutionCount | undefined;
+}
+
+export interface WorkflowExecutionTriggerEventSummaryRead {
+  id: string;
+  eventRef: string;
+  deliveryId: string;
+  source: string;
+  event: string;
+  disposition: JobListenerEventDisposition;
+  outcome: JobListenerEventOutcome;
+  outcomeReason: JobListenerEventOutcomeReason | null;
+  receivedAt: Date;
+  storedPayloadBytes: number;
+  normalizedEventBytes: number;
+}
+
+export interface WorkflowExecutionTriggerEventDetailRead
+  extends WorkflowExecutionTriggerEventSummaryRead {
+  payload: unknown | null;
+  payloadPreviewTruncated: boolean;
+}
+
+export type WorkflowExecutionTriggerEventCursor = TimestampIdCursor;
+
+export interface WorkflowExecutionTriggerEventPageRead {
+  items: WorkflowExecutionTriggerEventSummaryRead[];
+  nextCursor: WorkflowExecutionTriggerEventCursor | null;
+  total: number | undefined;
 }
 
 export interface WorkflowStepAttemptPageRead {
@@ -258,6 +294,53 @@ export function listWorkflowJobExecutionSummaries(
       async (tx) => {
         await setWorkflowJobReadStatementTimeout(tx);
         return readWorkflowJobExecutionSummaries(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
+  );
+}
+
+export function listExecutionTriggerEvents(
+  params: {
+    jobId: string;
+    executionId: string;
+    limit: number;
+    cursor?: WorkflowExecutionTriggerEventCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+  options: WorkflowJobReadOptions = {},
+): Promise<WorkflowExecutionTriggerEventPageRead | undefined> {
+  return withReadMeasurement(options, async (recordRows) =>
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readExecutionTriggerEventPage(tx, params, recordRows);
+      },
+      {
+        isolationLevel: 'repeatable read',
+        accessMode: 'read only',
+      },
+    ),
+  );
+}
+
+export function getExecutionTriggerEvent(
+  params: {
+    jobId: string;
+    executionId: string;
+    eventRef: string;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+  options: WorkflowJobReadOptions = {},
+): Promise<WorkflowExecutionTriggerEventDetailRead | undefined> {
+  return withReadMeasurement(options, async (recordRows) =>
+    db().transaction(
+      async (tx) => {
+        await setWorkflowJobReadStatementTimeout(tx);
+        return readExecutionTriggerEvent(tx, params, recordRows);
       },
       {
         isolationLevel: 'repeatable read',
@@ -415,17 +498,6 @@ async function readWorkflowJobExecutionContext(
         then octet_length(${jobExecutions.outputs}::text)
         else null
       end`,
-      triggerEvents: sql<WorkflowExecutionEvent[] | null>`case
-        when jsonb_typeof(${jobExecutions.triggerEvents}) is distinct from 'array' then '[]'::jsonb
-        when octet_length(${jobExecutions.triggerEvents}::text) <= ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
-        then ${jobExecutions.triggerEvents}
-        else null
-      end`,
-      triggerEventsBytes: sql<number | null>`case
-        when jsonb_typeof(${jobExecutions.triggerEvents}) = 'array'
-        then octet_length(${jobExecutions.triggerEvents}::text)
-        else null
-      end`,
       jobEvaluationTrace: sql<readonly PersistedEvaluationTraceEntry[] | null>`case
         when ${jobs.evaluationTrace} is null then null
         when jsonb_typeof(${jobs.evaluationTrace}) = 'array'
@@ -471,7 +543,331 @@ async function readWorkflowJobExecutionContext(
     .limit(1);
   if (!row) return undefined;
 
-  return toWorkflowJobExecutionContextRead(row);
+  const triggerEvents =
+    (await readCanonicalExecutionTriggerEvents(tx, params.jobId, params.executionId)) ??
+    (await readLegacyExecutionTriggerEvents(tx, params.jobId, params.executionId));
+
+  return toWorkflowJobExecutionContextRead({
+    ...row,
+    triggerEvents: triggerEvents.events,
+    triggerEventsBytes: triggerEvents.bytes,
+  });
+}
+
+function listenerStoredPayloadBytes() {
+  return sql<number>`case
+    when ${jobListenerEvents.storedPayloadBytes} > 0 then ${jobListenerEvents.storedPayloadBytes}
+    when ${jobListenerEvents.payload} is null then 0
+    when jsonb_typeof(${jobListenerEvents.payload}) = 'null' then 0
+    when jsonb_typeof(${jobListenerEvents.payload}) = 'string'
+      then octet_length(${jobListenerEvents.payload} #>> '{}')
+    else octet_length(${jobListenerEvents.payload}::text)
+  end`;
+}
+
+function listenerNormalizedEventBytes() {
+  return sql<number>`case
+    when ${jobListenerEvents.normalizedEventBytes} > 0 then ${jobListenerEvents.normalizedEventBytes}
+    else octet_length(
+      jsonb_build_array(
+        jsonb_build_object(
+          'source', ${jobListenerEvents.source},
+          'event', ${jobListenerEvents.event},
+          'delivery_id', ${jobListenerEvents.deliveryId},
+          'received_at', to_char(
+            ${jobListenerEvents.receivedAt} at time zone 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+          ),
+          'project', ${jobListenerEvents.triggerReference}->'project',
+          'repository', ${jobListenerEvents.triggerReference}->'repository',
+          'ref', ${jobListenerEvents.triggerReference}->'ref',
+          'commit', ${jobListenerEvents.triggerReference}->'commit',
+          'data', ${jobListenerEvents.payload}
+        )
+      )::text
+    )
+  end`;
+}
+
+function listenerPayloadPreviewTruncated() {
+  return sql<boolean>`case
+    when ${listenerStoredPayloadBytes()} > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+      then true
+    when ${jobListenerEvents.payload} is null then false
+    when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+      then true
+    else false
+  end`;
+}
+
+async function readExecutionTriggerEventPage(
+  tx: Tx,
+  params: {
+    jobId: string;
+    executionId: string;
+    limit: number;
+    cursor?: WorkflowExecutionTriggerEventCursor | undefined;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+  recordRows: (count: number) => void,
+): Promise<WorkflowExecutionTriggerEventPageRead | undefined> {
+  const target = await loadJobDetailTarget(tx, params.jobId, params.scope);
+  recordRows(target ? 1 : 0);
+  if (!target) return undefined;
+
+  const execution = await loadExecutionForEventRead(tx, params.jobId, params.executionId);
+  recordRows(execution ? 1 : 0);
+  if (!execution) return undefined;
+
+  const conditions = executionTriggerEventConditions(params.jobId, params.executionId);
+  const cursorCondition = timestampIdCursorWhere({
+    timestampColumn: jobListenerEvents.receivedAt,
+    idColumn: jobListenerEvents.id,
+    cursor: params.cursor,
+  });
+  if (cursorCondition) conditions.push(cursorCondition);
+
+  const rows = await tx
+    .select({
+      id: jobListenerEvents.id,
+      eventRef: jobListenerEvents.eventRef,
+      deliveryId: jobListenerEvents.deliveryId,
+      source: jobListenerEvents.source,
+      event: jobListenerEvents.event,
+      disposition: jobListenerEvents.disposition,
+      outcome: jobListenerEvents.outcome,
+      outcomeReason: jobListenerEvents.outcomeReason,
+      receivedAt: jobListenerEvents.receivedAt,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
+    })
+    .from(jobListenerEvents)
+    .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
+    .where(and(...conditions))
+    .orderBy(desc(jobListenerEvents.receivedAt), desc(jobListenerEvents.id))
+    .limit(params.limit + 1);
+  recordRows(rows.length);
+
+  const hasMore = rows.length > params.limit;
+  const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+  const last = pageRows.at(-1);
+  const total =
+    params.cursor === undefined
+      ? await countExecutionTriggerEvents(tx, params.jobId, params.executionId, recordRows)
+      : undefined;
+
+  return {
+    items: pageRows,
+    nextCursor: hasMore && last ? {createdAt: last.receivedAt, id: last.id} : null,
+    total,
+  };
+}
+
+async function readExecutionTriggerEvent(
+  tx: Tx,
+  params: {
+    jobId: string;
+    executionId: string;
+    eventRef: string;
+    scope?: WorkflowJobReadScope | undefined;
+  },
+  recordRows: (count: number) => void,
+): Promise<WorkflowExecutionTriggerEventDetailRead | undefined> {
+  const target = await loadJobDetailTarget(tx, params.jobId, params.scope);
+  recordRows(target ? 1 : 0);
+  if (!target) return undefined;
+
+  const execution = await loadExecutionForEventRead(tx, params.jobId, params.executionId);
+  recordRows(execution ? 1 : 0);
+  if (!execution) return undefined;
+
+  const [row] = await tx
+    .select({
+      id: jobListenerEvents.id,
+      eventRef: jobListenerEvents.eventRef,
+      deliveryId: jobListenerEvents.deliveryId,
+      source: jobListenerEvents.source,
+      event: jobListenerEvents.event,
+      disposition: jobListenerEvents.disposition,
+      outcome: jobListenerEvents.outcome,
+      outcomeReason: jobListenerEvents.outcomeReason,
+      receivedAt: jobListenerEvents.receivedAt,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
+      payloadPreviewTruncated: listenerPayloadPreviewTruncated(),
+      payload: sql<unknown | null>`case
+        when ${jobListenerEvents.payload} is null then null
+        when ${listenerStoredPayloadBytes()} > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+          then null
+        when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES}
+          then null
+        else ${jobListenerEvents.payload}
+      end`,
+    })
+    .from(jobListenerEvents)
+    .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
+    .where(
+      and(
+        ...executionTriggerEventConditions(params.jobId, params.executionId),
+        eq(jobListenerEvents.eventRef, params.eventRef),
+      ),
+    )
+    .limit(1);
+  recordRows(row ? 1 : 0);
+  return row;
+}
+
+async function loadExecutionForEventRead(
+  tx: Tx,
+  jobId: string,
+  executionId: string,
+): Promise<{id: string} | undefined> {
+  const [execution] = await tx
+    .select({id: jobExecutions.id})
+    .from(jobExecutions)
+    .where(and(eq(jobExecutions.id, executionId), eq(jobExecutions.jobId, jobId)))
+    .limit(1);
+  return execution;
+}
+
+function executionTriggerEventConditions(jobId: string, executionId: string) {
+  return [
+    eq(jobListenerEvents.jobId, jobId),
+    eq(jobListenerEvents.consumedByExecutionId, executionId),
+    eq(jobExecutions.id, executionId),
+    eq(jobExecutions.jobId, jobId),
+  ];
+}
+
+async function countExecutionTriggerEvents(
+  tx: Tx,
+  jobId: string,
+  executionId: string,
+  recordRows: (count: number) => void,
+): Promise<number> {
+  const [row] = await tx
+    .select({total: count()})
+    .from(jobListenerEvents)
+    .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
+    .where(and(...executionTriggerEventConditions(jobId, executionId)));
+  recordRows(row ? 1 : 0);
+  return Number(row?.total ?? 0);
+}
+
+interface ExecutionTriggerEventsRead {
+  events: WorkflowExecutionEvent[] | null;
+  bytes: number | null;
+}
+
+async function readCanonicalExecutionTriggerEvents(
+  tx: Tx,
+  jobId: string,
+  executionId: string,
+): Promise<ExecutionTriggerEventsRead | undefined> {
+  const [aggregate] = await tx
+    .select({
+      eventCount: count(),
+      normalizedEventBytes: sql<number | null>`sum(${listenerNormalizedEventBytes()})`,
+    })
+    .from(jobListenerEvents)
+    .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
+    .where(and(...executionTriggerEventConditions(jobId, executionId)));
+  const eventCount = Number(aggregate?.eventCount ?? 0);
+  if (eventCount === 0) return undefined;
+
+  const normalizedEventBytes = Number(aggregate?.normalizedEventBytes ?? 0);
+  if (normalizedEventBytes > WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES) {
+    return {events: null, bytes: normalizedEventBytes};
+  }
+
+  const rows = await tx
+    .select({
+      id: jobListenerEvents.id,
+      eventRef: jobListenerEvents.eventRef,
+      deliveryId: jobListenerEvents.deliveryId,
+      source: jobListenerEvents.source,
+      event: jobListenerEvents.event,
+      disposition: jobListenerEvents.disposition,
+      outcome: jobListenerEvents.outcome,
+      outcomeReason: jobListenerEvents.outcomeReason,
+      receivedAt: jobListenerEvents.receivedAt,
+      storedPayloadBytes: listenerStoredPayloadBytes(),
+      normalizedEventBytes: listenerNormalizedEventBytes(),
+      triggerReference: jobListenerEvents.triggerReference,
+      payload: sql<unknown | null>`case
+        when ${jobListenerEvents.payload} is null then null
+        when ${listenerStoredPayloadBytes()} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+          then null
+        when ${listenerNormalizedEventBytes()} > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+          then null
+        when octet_length(${jobListenerEvents.payload}::text) > ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+          then null
+        else ${jobListenerEvents.payload}
+      end`,
+    })
+    .from(jobListenerEvents)
+    .innerJoin(jobExecutions, eq(jobListenerEvents.consumedByExecutionId, jobExecutions.id))
+    .where(and(...executionTriggerEventConditions(jobId, executionId)))
+    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
+
+  return {
+    events: rows.map(toWorkflowExecutionEvent),
+    bytes: normalizedEventBytes,
+  };
+}
+
+async function readLegacyExecutionTriggerEvents(
+  tx: Tx,
+  jobId: string,
+  executionId: string,
+): Promise<ExecutionTriggerEventsRead> {
+  const [row] = await tx
+    .select({
+      triggerEvents: sql<WorkflowExecutionEvent[] | null>`case
+        when jsonb_typeof(${jobExecutions.triggerEvents}) is distinct from 'array' then '[]'::jsonb
+        when octet_length(${jobExecutions.triggerEvents}::text) <= ${WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES}
+        then ${jobExecutions.triggerEvents}
+        else null
+      end`,
+      triggerEventsBytes: sql<number | null>`case
+        when jsonb_typeof(${jobExecutions.triggerEvents}) = 'array'
+        then octet_length(${jobExecutions.triggerEvents}::text)
+        else null
+      end`,
+    })
+    .from(jobExecutions)
+    .where(and(eq(jobExecutions.id, executionId), eq(jobExecutions.jobId, jobId)))
+    .limit(1);
+  return {
+    events: Array.isArray(row?.triggerEvents) ? row.triggerEvents : null,
+    bytes: row?.triggerEventsBytes ?? null,
+  };
+}
+
+function toWorkflowExecutionEvent(row: {
+  source: string;
+  event: string;
+  deliveryId: string;
+  receivedAt: Date;
+  triggerReference: {
+    project?: WorkflowExecutionEvent['project'];
+    repository?: WorkflowExecutionEvent['repository'];
+    ref?: WorkflowExecutionEvent['ref'];
+    commit?: WorkflowExecutionEvent['commit'];
+  } | null;
+  payload: unknown | null;
+}): WorkflowExecutionEvent {
+  return normalizeWorkflowExecutionEvent({
+    source: row.source,
+    event: row.event,
+    delivery_id: row.deliveryId,
+    received_at: row.receivedAt.toISOString(),
+    project: row.triggerReference?.project ?? null,
+    repository: row.triggerReference?.repository ?? null,
+    ref: row.triggerReference?.ref ?? null,
+    commit: row.triggerReference?.commit ?? null,
+    data: row.payload,
+  });
 }
 
 function toWorkflowJobExecutionContextRead(
@@ -1007,6 +1403,11 @@ function hasExecutionContext() {
       then jsonb_array_length(${jobExecutions.triggerEvents}) > 0
       else false
     end
+    or exists (
+      select 1
+      from ${jobListenerEvents}
+      where ${jobListenerEvents.consumedByExecutionId} = ${jobExecutions.id}
+    )
   )`;
 }
 

@@ -1,4 +1,5 @@
 import {
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   WORKFLOW_JOB_EXECUTION_PAGE_LIMIT,
   WORKFLOW_JOB_STEP_PAGE_LIMIT,
   WORKFLOW_RUN_ANNOTATIONS_PAGE_LIMIT,
@@ -121,6 +122,13 @@ describe('workflowsInterModuleContract', () => {
       }).limit,
     ).toBe(WORKFLOW_STEP_ATTEMPT_PAGE_LIMIT);
     expect(
+      workflowsInterModuleContract.methods.listExecutionTriggerEvents.input.parse({
+        workspaceId,
+        jobId,
+        executionId,
+      }).limit,
+    ).toBe(WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT);
+    expect(
       workflowsInterModuleContract.methods.listWorkflowRunAnnotations.input.parse({
         workspaceId,
         workflowRunId,
@@ -149,6 +157,8 @@ describe('workflowsInterModuleContract', () => {
       workflowsInterModuleContract.methods.listWorkflowStepAttempts,
       workflowsInterModuleContract.methods.getWorkflowRunSource,
       workflowsInterModuleContract.methods.getWorkflowJobExecutionContext,
+      workflowsInterModuleContract.methods.listExecutionTriggerEvents,
+      workflowsInterModuleContract.methods.getExecutionTriggerEvent,
       workflowsInterModuleContract.methods.getWorkflowStepAttemptDetail,
       workflowsInterModuleContract.methods.listWorkflowRunAnnotations,
       workflowsInterModuleContract.methods.listWorkflowRunJobExplanations,
@@ -184,12 +194,48 @@ describe('workflowsInterModuleContract', () => {
         items: [],
       }),
     ).toEqual({workflow_run_attempt: 3, items: []});
+    expect(
+      workflowsInterModuleContract.methods.listExecutionTriggerEvents.output.parse({
+        items: [
+          {
+            event_ref: 'event-1',
+            delivery_id: 'delivery-1',
+            source: 'github',
+            event: 'push',
+            disposition: 'fire',
+            outcome: 'consumed',
+            outcome_reason: null,
+            received_at: '2026-08-31T12:00:00.000Z',
+            stored_payload_bytes: 32,
+            normalized_event_bytes: 128,
+          },
+        ],
+        nextCursor: null,
+        total: 1,
+      }),
+    ).toMatchObject({items: [{event_ref: 'event-1'}], nextCursor: null, total: 1});
+    expect(
+      workflowsInterModuleContract.methods.getExecutionTriggerEvent.output.parse({
+        event_ref: 'event-1',
+        delivery_id: 'delivery-1',
+        source: 'github',
+        event: 'push',
+        disposition: 'fire',
+        outcome: 'consumed',
+        outcome_reason: null,
+        received_at: '2026-08-31T12:00:00.000Z',
+        stored_payload_bytes: 32,
+        normalized_event_bytes: 128,
+        payload_preview: '{"action":"opened"}',
+      }),
+    ).toMatchObject({payload_preview: '{"action":"opened"}'});
   });
 
   test('rejects page limits outside the producer-owned bounds', () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
     const workflowRunId = '00000000-0000-4000-8000-000000000002';
     const jobId = '00000000-0000-4000-8000-000000000003';
+    const executionId = '00000000-0000-4000-8000-000000000004';
 
     expect(
       workflowsInterModuleContract.methods.listWorkflowRunJobs.input.safeParse({
@@ -203,6 +249,14 @@ describe('workflowsInterModuleContract', () => {
         workspaceId,
         jobId,
         limit: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      workflowsInterModuleContract.methods.listExecutionTriggerEvents.input.safeParse({
+        workspaceId,
+        jobId,
+        executionId,
+        limit: 101,
       }).success,
     ).toBe(false);
     expect(

@@ -6,7 +6,11 @@ import {
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {workspacesInterModuleContract} from '@shipfox/api-workspaces-dto/inter-module';
 import {createInterModuleKnownError, isInterModuleKnownError} from '@shipfox/inter-module';
-import {decodeNumberIdCursor} from '@shipfox/node-drizzle';
+import {
+  decodeNumberIdCursor,
+  decodeTimestampIdCursor,
+  encodeTimestampIdCursor,
+} from '@shipfox/node-drizzle';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
@@ -38,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   getStepAttemptDetail: vi.fn(),
   getStepById: vi.fn(),
   getStepByIdForJobExecution: vi.fn(),
+  getExecutionTriggerEvent: vi.fn(),
   getWorkflowJobDetail: vi.fn(),
   getWorkflowJobExecutionContext: vi.fn(),
   getWorkflowJobReadScope: vi.fn(),
@@ -49,6 +54,7 @@ const mocks = vi.hoisted(() => ({
   getWorkflowRunSource: vi.fn(),
   getWorkflowStepReadScope: vi.fn(),
   listFailedStepAttempts: vi.fn(),
+  listExecutionTriggerEvents: vi.fn(),
   listRunAttemptsPage: vi.fn(),
   listStepAttemptIdsByJobId: vi.fn(),
   listWorkflowExecutionSteps: vi.fn(),
@@ -129,6 +135,7 @@ describe('Workflows inter-module presentation', () => {
     mocks.getStepAttemptDetail.mockReset();
     mocks.getStepById.mockReset();
     mocks.getStepByIdForJobExecution.mockReset();
+    mocks.getExecutionTriggerEvent.mockReset();
     mocks.getWorkflowJobDetail.mockReset();
     mocks.getWorkflowJobExecutionContext.mockReset();
     mocks.getWorkflowJobReadScope.mockReset();
@@ -140,6 +147,7 @@ describe('Workflows inter-module presentation', () => {
     mocks.getWorkflowRunSource.mockReset();
     mocks.getWorkflowStepReadScope.mockReset();
     mocks.listFailedStepAttempts.mockReset();
+    mocks.listExecutionTriggerEvents.mockReset();
     mocks.listRunAttemptsPage.mockReset();
     mocks.listWorkflowRunJobSummaries.mockReset();
     mocks.listWorkflowExecutionSteps.mockReset();
@@ -325,6 +333,193 @@ describe('Workflows inter-module presentation', () => {
       ),
     ).rejects.toThrow('Invalid workflow read cursor');
     expect(mocks.listRunAttemptsPage).not.toHaveBeenCalled();
+  });
+
+  it('authorizes and maps canonical execution event list and detail reads', async () => {
+    const workspaceId = input.workspaceId;
+    const projectId = input.projectId;
+    const jobId = crypto.randomUUID();
+    const executionId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    const workflowRunAttemptId = crypto.randomUUID();
+    const receivedAt = new Date('2026-08-31T12:00:00.000Z');
+    const nextCursor = {createdAt: receivedAt, id: crypto.randomUUID()};
+    const scope = {
+      workflowRunId,
+      projectId,
+      workflowRunAttemptId,
+      workflowRunAttempt: 2,
+    };
+    mocks.getWorkflowJobReadScope.mockResolvedValue(scope);
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId,
+    });
+    mocks.listExecutionTriggerEvents.mockResolvedValue({
+      items: [
+        {
+          id: crypto.randomUUID(),
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          disposition: 'fire',
+          outcome: 'consumed',
+          outcomeReason: null,
+          receivedAt,
+          storedPayloadBytes: 32,
+          normalizedEventBytes: 128,
+        },
+      ],
+      nextCursor,
+      total: 1,
+    });
+    mocks.getExecutionTriggerEvent.mockResolvedValue({
+      id: crypto.randomUUID(),
+      eventRef: 'event-1',
+      deliveryId: 'delivery-1',
+      source: 'github',
+      event: 'push',
+      disposition: 'fire',
+      outcome: 'consumed',
+      outcomeReason: null,
+      receivedAt,
+      storedPayloadBytes: 32,
+      normalizedEventBytes: 128,
+      payload: {action: 'opened'},
+    });
+
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+    const handlerContext = {signal: new AbortController().signal};
+
+    const page = await presentation.handlers.listExecutionTriggerEvents(
+      {workspaceId, jobId, executionId, limit: 25},
+      handlerContext,
+    );
+    const detail = await presentation.handlers.getExecutionTriggerEvent(
+      {workspaceId, jobId, executionId, eventRef: 'event-1'},
+      handlerContext,
+    );
+
+    expect(page).toEqual({
+      items: [
+        {
+          event_ref: 'event-1',
+          delivery_id: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          disposition: 'fire',
+          outcome: 'consumed',
+          outcome_reason: null,
+          received_at: receivedAt.toISOString(),
+          stored_payload_bytes: 32,
+          normalized_event_bytes: 128,
+        },
+      ],
+      nextCursor: expect.any(String),
+      total: 1,
+    });
+    expect(decodeTimestampIdCursor(page?.nextCursor ?? undefined)).toEqual(nextCursor);
+    expect(detail).toEqual({
+      event_ref: 'event-1',
+      delivery_id: 'delivery-1',
+      source: 'github',
+      event: 'push',
+      disposition: 'fire',
+      outcome: 'consumed',
+      outcome_reason: null,
+      received_at: receivedAt.toISOString(),
+      stored_payload_bytes: 32,
+      normalized_event_bytes: 128,
+      payload_preview: '{"action":"opened"}',
+    });
+    expect(mocks.listExecutionTriggerEvents).toHaveBeenCalledWith({
+      jobId,
+      executionId,
+      limit: 25,
+      cursor: undefined,
+      scope,
+    });
+    expect(mocks.getExecutionTriggerEvent).toHaveBeenCalledWith({
+      jobId,
+      executionId,
+      eventRef: 'event-1',
+      scope,
+    });
+  });
+
+  it('hides execution event reads across workspaces and rejects malformed event cursors', async () => {
+    const workspaceId = input.workspaceId;
+    const jobId = crypto.randomUUID();
+    const executionId = crypto.randomUUID();
+    const workflowRunId = crypto.randomUUID();
+    mocks.getWorkflowJobReadScope.mockResolvedValue({
+      workflowRunId,
+      projectId: input.projectId,
+      workflowRunAttemptId: crypto.randomUUID(),
+      workflowRunAttempt: 1,
+    });
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId: crypto.randomUUID(),
+      projectId: input.projectId,
+    });
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
+    });
+
+    await expect(
+      presentation.handlers.listExecutionTriggerEvents(
+        {workspaceId, jobId, executionId, limit: 25},
+        {signal: new AbortController().signal},
+      ),
+    ).resolves.toBeNull();
+    expect(mocks.listExecutionTriggerEvents).not.toHaveBeenCalled();
+
+    mocks.getWorkflowRunAccessScopeById.mockResolvedValue({
+      id: workflowRunId,
+      workspaceId,
+      projectId: input.projectId,
+    });
+    await expect(
+      presentation.handlers.listExecutionTriggerEvents(
+        {workspaceId, jobId, executionId, limit: 25, cursor: 'malformed'},
+        {signal: new AbortController().signal},
+      ),
+    ).rejects.toThrow('Invalid workflow read cursor');
+    expect(mocks.listExecutionTriggerEvents).not.toHaveBeenCalled();
+
+    await expect(
+      presentation.handlers.listExecutionTriggerEvents(
+        {
+          workspaceId,
+          jobId,
+          executionId,
+          limit: 25,
+          cursor: encodeTimestampIdCursor({
+            createdAt: new Date('2026-08-31T12:00:00.000Z'),
+            id: 'not-a-uuid',
+          }),
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).rejects.toThrow('Invalid workflow read cursor');
+    expect(mocks.listExecutionTriggerEvents).not.toHaveBeenCalled();
   });
 
   it('maps bounded failed step-attempt coordinates for run diagnostics', async () => {
