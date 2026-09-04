@@ -1,22 +1,27 @@
 import type {
+  EvaluationTraceDto,
   JobExecutionSummaryDto,
+  JobListeningDto,
+  JobModeDto,
   JobStatusDto,
+  JobStatusReasonDto,
+  ListenerStatusDto,
+  ResolutionReasonDto,
   StepAttemptDto,
+  StepDto,
   StepErrorDto,
   StepGateResultSummaryDto,
+  WorkflowExecutionEventDto,
   WorkflowJobDetailDto,
   WorkflowRunAttemptDto,
   WorkflowRunAttemptsResponseDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunJobSummaryDto,
   WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunOverviewResponseDto,
+  WorkflowRunResponseDto,
   WorkflowRunStatusDto,
-  WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import type {
@@ -25,20 +30,20 @@ import type {
   RunAnnotationRecord,
 } from '#core/run-annotation.js';
 import type {
-  Job,
   Step,
-  StepAttempt,
-  WorkflowRunDetail,
+  WorkflowRun,
   WorkflowRunListItem,
   WorkflowRunListPage,
+  WorkflowRunOverviewJob,
 } from '#core/workflow-run.js';
+import {Job, JobExecution, StepAttempt, WorkflowRunAttempt} from '#core/workflow-run.js';
 import {
-  toJob,
-  toStep,
-  toStepAttempt,
-  toWorkflowRunDetail,
+  toEvaluationTrace,
+  toWorkflowExecutionEvent,
   toWorkflowRunListItem,
   toWorkflowRunListPage,
+  toWorkflowRunOverview,
+  toWorkflowRunOverviewJob,
 } from '#hooks/api/workflow-run-mapper.js';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -89,15 +94,82 @@ export function runAnnotationEntryFixture(
   };
 }
 
-export type JobDtoOverrides = Partial<Omit<WorkflowRunJobDetailDto, 'job_executions'>> & {
-  job_executions?: WorkflowRunJobDetailDto['job_executions'];
-  steps?: WorkflowRunStepDetailDto[];
+export type WorkflowStepFixtureDto = StepDto & {
+  exit_code: number | null;
+  outputs: Record<string, unknown> | null;
+  response: string | null;
+  gate_result: StepAttemptDto['gate_result'];
+  attempts: StepAttemptDto[];
 };
 
-type JobDtoBase = Omit<WorkflowRunJobDetailDto, 'job_executions'>;
+export type WorkflowJobExecutionFixtureDto = {
+  id: string;
+  job_id: string;
+  sequence: number;
+  name: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status_reason: JobExecutionSummaryDto['status_reason'];
+  status_reason_message: string | null;
+  runner: string[] | null;
+  trigger_events: WorkflowExecutionEventDto[];
+  outputs: Record<string, unknown> | null;
+  evaluation_trace: EvaluationTraceDto | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  timed_out_at: string | null;
+  created_at: string;
+  updated_at: string;
+  steps: WorkflowStepFixtureDto[];
+};
 
-// Built as a list item, the widest run shape, so one factory serves both the list endpoint
-// and the single-run endpoints; the narrower response schemas drop the extra key.
+export type WorkflowJobFixtureDto = {
+  id: string;
+  run_attempt_id: string;
+  key: string;
+  name: string | null;
+  mode: JobModeDto;
+  status: JobStatusDto;
+  status_reason: JobStatusReasonDto | null;
+  carried_over: boolean;
+  success: string | null;
+  runner: string[] | null;
+  evaluation_trace: EvaluationTraceDto | null;
+  listening: JobListeningDto | null;
+  listener_status: ListenerStatusDto;
+  resolution_reason: ResolutionReasonDto | null;
+  outputs: Record<string, unknown> | null;
+  dependencies: string[];
+  position: number;
+  created_at: string;
+  updated_at: string;
+  job_executions: WorkflowJobExecutionFixtureDto[];
+};
+
+type WorkflowRunFixtureDto = Omit<
+  WorkflowRunResponseDto,
+  'trigger_payload' | 'inputs' | 'source_snapshot'
+> & {
+  run_attempt: WorkflowRunAttemptDto;
+  jobs: WorkflowJobFixtureDto[];
+  has_started_job_execution: boolean;
+};
+
+type WorkflowRunTreeFixture = WorkflowRun & {
+  latestAttempt: number;
+  runAttempt: WorkflowRunAttempt;
+  jobs: Job[];
+  hasStartedJobExecution: boolean;
+};
+
+export type JobDtoOverrides = Partial<Omit<WorkflowJobFixtureDto, 'job_executions'>> & {
+  job_executions?: WorkflowJobExecutionFixtureDto[];
+  steps?: WorkflowStepFixtureDto[];
+};
+
+type JobDtoBase = Omit<WorkflowJobFixtureDto, 'job_executions'>;
+
+// Built as the bounded run-list shape shared by list and overview fixture builders.
 export function workflowRunDto(
   overrides: Partial<WorkflowRunListItemDto> = {},
 ): WorkflowRunListItemDto {
@@ -116,10 +188,7 @@ export function workflowRunDto(
     trigger_provider: null,
     trigger_source: 'manual',
     trigger_event: 'fire',
-    trigger_payload: {},
     trigger_reference: null,
-    inputs: null,
-    source_snapshot: null,
     created_at: '2026-06-21T12:00:00.000Z',
     updated_at: '2026-06-21T12:01:00.000Z',
     started_at: null,
@@ -129,6 +198,24 @@ export function workflowRunDto(
     job_display_status_counts: [],
     has_started_job_execution: false,
     ...overrides,
+  };
+}
+
+/** A mutation response retains write-owned fields that run-list rows omit. */
+export function workflowRunResponseDto(
+  overrides: Partial<WorkflowRunResponseDto> = {},
+): WorkflowRunResponseDto {
+  const {
+    trigger_payload: triggerPayload = {},
+    inputs = null,
+    source_snapshot: sourceSnapshot = null,
+    ...runOverrides
+  } = overrides;
+  return {
+    ...workflowRunDto(runOverrides as Partial<WorkflowRunListItemDto>),
+    trigger_payload: triggerPayload,
+    inputs,
+    source_snapshot: sourceSnapshot,
   };
 }
 
@@ -246,9 +333,9 @@ export function workflowRunListPage(
   return toWorkflowRunListPage(workflowRunListResponseDto(overrides));
 }
 
-export function workflowRunDetailDto(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
+export function workflowRunFixtureDto(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): WorkflowRunFixtureDto {
   const {
     jobs,
     run_attempt: runAttemptOverride,
@@ -281,7 +368,7 @@ export function workflowRunDetailDto(
 }
 
 export function workflowRunOverviewResponseDto(
-  detail: WorkflowRunDetailResponseDto,
+  detail: WorkflowRunFixtureDto,
 ): WorkflowRunOverviewResponseDto {
   return {
     run: {
@@ -309,19 +396,64 @@ export function workflowRunOverviewResponseDto(
   };
 }
 
-export function workflowRunDetail(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetail {
-  return toWorkflowRunDetail(workflowRunDetailDto(overrides));
+export function workflowRunOverview(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): ReturnType<typeof toWorkflowRunOverview> {
+  const detail = workflowRunFixtureDto(overrides);
+  const overview = toWorkflowRunOverview(workflowRunOverviewResponseDto(detail));
+  return {
+    ...overview,
+    currentAttempt: detail.current_attempt,
+    latestAttempt: detail.latest_attempt,
+  };
 }
 
-/** Convert a complete-tree fixture into the selected-job response used by the migrated client. */
+export function workflowRunTreeFixture(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): WorkflowRunTreeFixture {
+  const detail = workflowRunFixtureDto(overrides);
+  const jobs = detail.jobs.map(toFixtureJob);
+  return {
+    id: detail.id,
+    projectId: detail.project_id,
+    definitionId: detail.definition_id,
+    origin: detail.origin,
+    devSource: detail.dev_source
+      ? {
+          ref: detail.dev_source.ref,
+          commit: detail.dev_source.commit,
+          configPath: detail.dev_source.config_path,
+          initiatedByUserId: detail.dev_source.initiated_by_user_id,
+          replayOfEventId: detail.dev_source.replay_of_event_id,
+        }
+      : null,
+    number: detail.number,
+    name: detail.name,
+    workflowName: detail.workflow_name,
+    currentAttempt: detail.current_attempt,
+    triggerProvider: detail.trigger_provider,
+    triggerSource: detail.trigger_source,
+    triggerEvent: detail.trigger_event,
+    triggerDisplayLabel: detail.trigger_event || detail.trigger_source,
+    triggerLabel: [detail.trigger_source, detail.trigger_event].filter(Boolean).join(' · '),
+    triggerReference: detail.trigger_reference,
+    createdAt: detail.created_at,
+    updatedAt: detail.updated_at,
+    isTemporary: detail.id.startsWith('temp-'),
+    latestAttempt: detail.latest_attempt,
+    runAttempt: toFixtureRunAttempt(detail.run_attempt),
+    jobs,
+    hasStartedJobExecution: detail.has_started_job_execution,
+  };
+}
+
+/** Convert a run fixture into the selected-job response used by the migrated client. */
 export function workflowJobDetailResponseDto({
   detail,
   jobId,
   executionId,
 }: {
-  detail: WorkflowRunDetailResponseDto;
+  detail: WorkflowRunFixtureDto;
   jobId: string;
   executionId?: string | null | undefined;
 }): WorkflowJobDetailDto {
@@ -343,10 +475,10 @@ export function workflowJobDetailResponseDto({
 }
 
 function workflowJobOverviewDto(
-  job: WorkflowRunJobDetailDto,
-  defaultExecution: WorkflowRunJobExecutionDetailDto | undefined,
+  job: WorkflowJobFixtureDto,
+  defaultExecution: WorkflowJobExecutionFixtureDto | undefined,
 ): WorkflowRunJobOverviewDto {
-  const executionStatusCounts = {
+  const executionStatusCounts: Record<WorkflowJobExecutionFixtureDto['status'], number> = {
     pending: 0,
     running: 0,
     succeeded: 0,
@@ -372,21 +504,31 @@ function workflowJobOverviewDto(
   };
 }
 
+export function workflowRunOverviewJob(overrides: JobDtoOverrides = {}): WorkflowRunOverviewJob {
+  const job = workflowJobDto(
+    overrides.status === 'running' &&
+      overrides.mode !== 'listening' &&
+      !overrides.job_executions &&
+      !overrides.steps
+      ? {...overrides, job_executions: [workflowJobExecutionDto({status: 'running'})]}
+      : overrides,
+  );
+  return toWorkflowRunOverviewJob(workflowJobOverviewDto(job, defaultJobExecutionDto(job)));
+}
+
 function defaultJobExecutionDto(
-  job: WorkflowRunJobDetailDto,
-): WorkflowRunJobExecutionDetailDto | undefined {
+  job: WorkflowJobFixtureDto,
+): WorkflowJobExecutionFixtureDto | undefined {
   return (
     job.job_executions.find((execution) => execution.status === 'running') ??
-    job.job_executions.reduce<WorkflowRunJobExecutionDetailDto | undefined>(
+    job.job_executions.reduce<WorkflowJobExecutionFixtureDto | undefined>(
       (latest, execution) => (!latest || execution.sequence > latest.sequence ? execution : latest),
       undefined,
     )
   );
 }
 
-function jobExecutionSummaryDto(
-  execution: WorkflowRunJobExecutionDetailDto,
-): JobExecutionSummaryDto {
+function jobExecutionSummaryDto(execution: WorkflowJobExecutionFixtureDto): JobExecutionSummaryDto {
   return {
     id: execution.id,
     sequence: execution.sequence,
@@ -404,8 +546,8 @@ function jobExecutionSummaryDto(
 }
 
 function compactJobExecutionDto(
-  job: WorkflowRunJobDetailDto,
-  execution: WorkflowRunJobExecutionDetailDto,
+  job: WorkflowJobFixtureDto,
+  execution: WorkflowJobExecutionFixtureDto,
 ): NonNullable<WorkflowJobDetailDto['selected_execution']> {
   return {
     ...jobExecutionSummaryDto(execution),
@@ -488,13 +630,232 @@ function compactAttemptError(error: Record<string, unknown> | null): StepErrorDt
 }
 
 function compactGateResult(
-  gateResult: WorkflowRunJobExecutionDetailDto['steps'][number]['attempts'][number]['gate_result'],
+  gateResult: WorkflowJobExecutionFixtureDto['steps'][number]['attempts'][number]['gate_result'],
 ): StepGateResultSummaryDto {
   if (!gateResult || typeof gateResult.kind !== 'string') return {kind: 'unknown'};
   if (gateResult.kind === 'none' || gateResult.kind === 'not_evaluated') {
     return {kind: gateResult.kind};
   }
   return {kind: 'unknown'};
+}
+
+function toFixtureRunAttempt(dto: WorkflowRunAttemptDto): WorkflowRunAttempt {
+  return new WorkflowRunAttempt({
+    id: dto.id,
+    workflowRunId: dto.workflow_run_id,
+    attempt: dto.attempt,
+    status: dto.status,
+    createdAt: dto.created_at,
+    startedAt: dto.started_at,
+    finishedAt: dto.finished_at,
+    rerunMode: dto.rerun_mode,
+  });
+}
+
+function toFixtureJob(dto: WorkflowJobFixtureDto): Job {
+  return new Job({
+    id: dto.id,
+    runAttemptId: dto.run_attempt_id,
+    key: dto.key,
+    name: dto.name,
+    mode: dto.mode,
+    status: dto.status,
+    statusReason: dto.status_reason,
+    carriedOver: dto.carried_over,
+    outputs: dto.outputs,
+    success: dto.success,
+    runner: dto.runner,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+    listening: dto.listening ? toFixtureListening(dto.listening) : null,
+    listenerStatus: dto.listener_status,
+    resolutionReason: dto.resolution_reason,
+    dependencies: dto.dependencies,
+    position: dto.position,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+    jobExecutions: dto.job_executions.map(toFixtureJobExecution),
+  });
+}
+
+function toFixtureListening(dto: JobListeningDto) {
+  return {
+    on: dto.on,
+    until: dto.until,
+    timeoutMs: dto.timeout_ms,
+    maxExecutions: dto.max_executions,
+    batch: dto.batch
+      ? {
+          debounceMs: dto.batch.debounce_ms,
+          maxSize: dto.batch.max_size,
+          maxWaitMs: dto.batch.max_wait_ms,
+        }
+      : null,
+    onResolve: dto.on_resolve,
+    executionTimeoutMs: dto.execution_timeout_ms,
+    name: dto.name,
+  };
+}
+
+function toFixtureJobExecution(dto: WorkflowJobExecutionFixtureDto) {
+  return new JobExecution({
+    id: dto.id,
+    jobId: dto.job_id,
+    sequence: dto.sequence,
+    name: dto.name,
+    status: dto.status,
+    statusReason: dto.status_reason,
+    statusReasonMessage: dto.status_reason_message,
+    runner: dto.runner,
+    outputs: dto.outputs,
+    triggerEvents: dto.trigger_events.map(toWorkflowExecutionEvent),
+    queuedAt: dto.queued_at,
+    startedAt: dto.started_at,
+    finishedAt: dto.finished_at,
+    timedOutAt: dto.timed_out_at,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+    steps: dto.steps.map(toFixtureStep),
+  });
+}
+
+function toFixtureStep(dto: WorkflowStepFixtureDto): Step {
+  return {
+    id: dto.id,
+    jobExecutionId: dto.job_execution_id,
+    key: dto.key,
+    name: dto.name,
+    sourceLocation: dto.source_location
+      ? {startLine: dto.source_location.start_line, endLine: dto.source_location.end_line}
+      : null,
+    status: dto.status,
+    statusReason: dto.status_reason,
+    type: dto.type,
+    config: dto.config,
+    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
+    agentConfig: toFixtureAgentConfig(dto),
+    toolConfig: toFixtureToolConfig(dto),
+    error: toFixtureError(dto.error),
+    position: dto.position,
+    currentAttempt: dto.current_attempt,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+    attempts: dto.attempts.map((attempt) => toFixtureStepAttempt(attempt, dto.job_execution_id)),
+  };
+}
+
+function toFixtureStepAttempt(dto: StepAttemptDto, jobExecutionId: string): StepAttempt {
+  return new StepAttempt({
+    id: dto.id,
+    stepId: dto.step_id,
+    jobExecutionId,
+    attempt: dto.attempt,
+    executionOrder: dto.execution_order,
+    status: dto.status,
+    exitCode: dto.exit_code,
+    output: dto.output,
+    outputs: dto.outputs ?? dto.output,
+    response: dto.response,
+    error: dto.error,
+    gateResult: toFixtureGateResult(dto.gate_result),
+    restartFeedback: dto.restart_feedback,
+    invocations: dto.invocations.map((invocation) => ({
+      callIndex: invocation.call_index,
+      startedAt: invocation.started_at,
+      ...(invocation.finished_at === undefined ? {} : {finishedAt: invocation.finished_at}),
+      ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
+      ...(invocation.error_code === undefined ? {} : {errorCode: invocation.error_code}),
+      ...(invocation.duration_ms === undefined ? {} : {durationMs: invocation.duration_ms}),
+      ...(invocation.next_due_at === undefined ? {} : {nextDueAt: invocation.next_due_at}),
+    })),
+    startedAt: dto.started_at,
+    finishedAt: dto.finished_at,
+  });
+}
+
+function toFixtureError(error: StepErrorDto): Step['error'] {
+  if (error === null) return null;
+  return {
+    message: error.message,
+    ...(error.code === undefined ? {} : {code: error.code}),
+    ...(error.managed_provider_id === undefined
+      ? {}
+      : {managedProviderId: error.managed_provider_id}),
+    ...(error.field === undefined ? {} : {field: error.field}),
+    ...(error.source === undefined ? {} : {source: error.source}),
+    exitCode: error.exit_code ?? null,
+    signal: error.signal,
+    reason: error.reason,
+    agentConfigIssue: error.agent_config_issue,
+    category: error.category,
+  };
+}
+
+function toFixtureGateResult(gateResult: StepAttemptDto['gate_result']): StepAttempt['gateResult'] {
+  if (gateResult === null) return null;
+  if (gateResult.kind === 'none' || gateResult.kind === 'not_evaluated') return gateResult;
+  if (gateResult.kind === 'passed') {
+    return {
+      kind: 'passed',
+      passed: true,
+      source: gateResult.source,
+      exitCode: gateResult.exit_code,
+    };
+  }
+  if (gateResult.kind === 'failed') {
+    return {
+      kind: 'failed',
+      passed: false,
+      source: gateResult.source,
+      exitCode: gateResult.exit_code,
+    };
+  }
+  if (gateResult.kind === 'uncheckable') {
+    return {
+      kind: 'uncheckable',
+      passed: false,
+      uncheckable: true,
+      reason: gateResult.reason,
+      exitCode: gateResult.exit_code,
+    };
+  }
+  if (gateResult.kind === 'evaluation_error') {
+    return {kind: 'evaluation_error', reason: gateResult.reason, exitCode: gateResult.exit_code};
+  }
+  return gateResult;
+}
+
+function toFixtureAgentConfig(dto: WorkflowStepFixtureDto): Step['agentConfig'] {
+  if (dto.type !== 'agent') return null;
+  return {
+    provider: stringConfigValue(dto.config.provider),
+    model: stringConfigValue(dto.config.model),
+    thinking: stringConfigValue(dto.config.thinking),
+  };
+}
+
+function toFixtureToolConfig(dto: WorkflowStepFixtureDto): Step['toolConfig'] {
+  if (dto.type !== 'tool') return null;
+  const tool = recordConfigValue(dto.config.tool);
+  const sensitivity = tool?.sensitivity;
+  const method = stringConfigValue(tool?.method);
+  return {
+    provider: stringConfigValue(tool?.provider),
+    connectionSlug: stringConfigValue(tool?.connection_slug),
+    toolId: stringConfigValue(tool?.id),
+    ...(method === null ? {} : {method}),
+    sensitivity: sensitivity === 'read' || sensitivity === 'write' ? sensitivity : null,
+  };
+}
+
+function recordConfigValue(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringConfigValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export function workflowRunAttemptDto(
@@ -517,12 +878,13 @@ export function runAttemptsResponseDto(
   overrides: Partial<WorkflowRunAttemptsResponseDto> = {},
 ): WorkflowRunAttemptsResponseDto {
   return {
-    attempts: [workflowRunAttemptDto()],
+    items: [workflowRunAttemptDto()],
+    next_cursor: null,
     ...overrides,
   };
 }
 
-export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowRunJobDetailDto {
+export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowJobFixtureDto {
   jobSequence += 1;
   const {job_executions, steps, ...jobOverrides} = overrides;
   const key =
@@ -558,16 +920,20 @@ export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowRunJobD
 }
 
 export function workflowJob(overrides: JobDtoOverrides = {}): Job {
-  return toJob(workflowJobDto(overrides));
+  return toFixtureJob(workflowJobDto(overrides));
 }
 
 export function workflowJobExecutionDto(
-  overrides: Partial<WorkflowRunJobExecutionDetailDto> = {},
-): WorkflowRunJobExecutionDetailDto {
+  overrides: Partial<WorkflowJobExecutionFixtureDto> = {},
+): WorkflowJobExecutionFixtureDto {
   jobExecutionSequence += 1;
   const id =
     overrides.id ?? `77777777-7777-4777-8777-${String(jobExecutionSequence).padStart(12, '0')}`;
-  const {steps: overrideSteps, ...restOverrides} = overrides;
+  const {
+    steps: overrideSteps,
+    status_reason_message: statusReasonMessage,
+    ...restOverrides
+  } = overrides;
   const steps = overrideSteps?.map((step) => ({...step, job_execution_id: id})) ?? [];
 
   return {
@@ -589,12 +955,13 @@ export function workflowJobExecutionDto(
     updated_at: '2026-06-21T12:01:00.000Z',
     steps,
     ...restOverrides,
+    status_reason_message: statusReasonMessage ?? null,
   };
 }
 
 export function workflowStepDto(
-  overrides: Partial<WorkflowRunStepDetailDto> = {},
-): WorkflowRunStepDetailDto {
+  overrides: Partial<WorkflowStepFixtureDto> = {},
+): WorkflowStepFixtureDto {
   stepSequence += 1;
 
   return {
@@ -623,8 +990,8 @@ export function workflowStepDto(
   };
 }
 
-export function workflowStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): Step {
-  return toStep(workflowStepDto(overrides));
+export function workflowStep(overrides: Partial<WorkflowStepFixtureDto> = {}): Step {
+  return toFixtureStep(workflowStepDto(overrides));
 }
 
 export function workflowStepAttemptDto(overrides: Partial<StepAttemptDto> = {}): StepAttemptDto {
@@ -650,7 +1017,7 @@ export function workflowStepAttemptDto(overrides: Partial<StepAttemptDto> = {}):
 }
 
 export function workflowStepAttempt(overrides: Partial<StepAttemptDto> = {}): StepAttempt {
-  return toStepAttempt(workflowStepAttemptDto(overrides), JOB_EXECUTION_ID);
+  return toFixtureStepAttempt(workflowStepAttemptDto(overrides), JOB_EXECUTION_ID);
 }
 
 export function sequencedWorkflowRunDto(
@@ -687,7 +1054,7 @@ export function sequencedWorkflowRunListItem(
 export function workflowJobWithName(
   name: string,
   overrides: JobDtoOverrides = {},
-): WorkflowRunJobDetailDto {
+): WorkflowJobFixtureDto {
   return workflowJobDto({name, ...overrides});
 }
 

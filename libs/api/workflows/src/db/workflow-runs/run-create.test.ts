@@ -28,7 +28,6 @@ import {
   getStepsByJobId,
   getWorkflowRunAttemptById,
   getWorkflowRunById,
-  getWorkflowRunDetail,
   listRunAttempts,
   resolveJobStatusFromJobExecutions,
   updateJobExecutionStatus,
@@ -885,35 +884,6 @@ describe('workflow run queries', () => {
 
       const guarded = await nextStepForJob(job.id);
       expect(guarded).toMatchObject({kind: 'step', step: {position: 1}, dispatched: true});
-    });
-
-    test('returns the persisted model in run detail', async () => {
-      const model = buildModel({
-        env: {RUN_ID: template('run.id')},
-        jobs: {
-          build: {
-            steps: [{run: 'echo first'}, {run: 'echo second'}],
-          },
-        },
-      });
-      const run = await createWorkflowRun({
-        workspaceId,
-        projectId,
-        definitionId,
-        model,
-        triggerPayload: {
-          source: 'manual',
-          event: 'fire',
-          subscriptionId: crypto.randomUUID(),
-          userId: crypto.randomUUID(),
-        },
-      });
-
-      const detail = await getWorkflowRunDetail(run.id);
-
-      expect(detail?.runAttempt.model).toEqual(model);
-      expect(detail?.jobs).toHaveLength(1);
-      expect(detail?.jobs[0]?.jobExecutions[0]?.steps).toHaveLength(3);
     });
 
     test('persists explicit checkout policy on jobs', async () => {

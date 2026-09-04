@@ -1,6 +1,5 @@
-import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
-import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
-import {workflowJob, workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import type {WorkflowRunOverview, WorkflowRunOverviewJob} from '#core/workflow-run.js';
+import {workflowRunOverview, workflowRunOverviewJob} from '#test/fixtures/workflow-run.js';
 import {buildJobGraphModel, nextJobGraphNodeId} from './graph-model.js';
 
 describe('buildJobGraphModel', () => {
@@ -170,9 +169,9 @@ function nodeByName(result: ReturnType<typeof buildJobGraphModel>, name: string)
   return result.nodes.find((node) => node.name === name);
 }
 
-function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail {
+function makeRun({jobs = [], ...overrides}: RunOverrides = {}): WorkflowRunOverview {
   return {
-    ...workflowRunDetail({
+    ...workflowRunOverview({
       name: 'Deploy',
       trigger_provider: 'github',
       trigger_source: 'github_acme',
@@ -181,9 +180,16 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
       jobs: [],
     }),
     ...overrides,
+    jobs: {kind: 'complete', total: jobs.length, items: jobs},
   };
 }
 
-function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
-  return workflowJob({key: overrides.key ?? overrides.name, ...overrides});
+type RunOverrides = Omit<Partial<WorkflowRunOverview>, 'jobs'> & {
+  jobs?: WorkflowRunOverviewJob[];
+};
+
+function makeJob(
+  overrides: Parameters<typeof workflowRunOverviewJob>[0] & {name: string},
+): WorkflowRunOverviewJob {
+  return workflowRunOverviewJob({key: overrides.key ?? overrides.name, ...overrides});
 }

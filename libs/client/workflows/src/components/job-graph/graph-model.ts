@@ -1,17 +1,12 @@
-import {
-  defaultJobExecution,
-  deriveJobDisplayStatus,
-  deriveJobExecutionDisplayStatus,
-  type Job,
-  type JobDisplayDuration,
-  type JobExecution,
-  type JobExecutionStatus,
-  type WorkflowRunOverviewExecution,
-  type WorkflowRunOverviewJob,
+import type {
+  JobDisplayDuration,
+  JobExecutionStatus,
+  WorkflowRunOverviewExecution,
+  WorkflowRunOverviewJob,
 } from '#core/workflow-run.js';
 import type {JobGraphRun} from './types.js';
 
-export type JobGraphJob = Job | WorkflowRunOverviewJob;
+export type JobGraphJob = WorkflowRunOverviewJob;
 
 export type JobGraphNode = JobGraphJob & {
   column: number;
@@ -83,7 +78,6 @@ export function buildJobGraphModel({run}: {run: JobGraphRun}): JobGraphModel {
 }
 
 function graphJobs(run: JobGraphRun): JobGraphJob[] {
-  if (Array.isArray(run.jobs)) return [...run.jobs];
   return run.jobs.kind === 'complete' ? [...run.jobs.items] : [];
 }
 
@@ -163,22 +157,19 @@ function jobGraphNode(
 }
 
 export function graphJobDisplayStatus(job: JobGraphJob) {
-  return isOverviewJob(job) ? job.displayStatus : deriveJobDisplayStatus(job);
+  return job.displayStatus;
 }
 
 export function graphJobDefaultExecution(
   job: JobGraphJob,
-): JobExecution | WorkflowRunOverviewExecution | undefined {
-  return isOverviewJob(job) ? (job.defaultExecution ?? undefined) : defaultJobExecution(job);
+): WorkflowRunOverviewExecution | undefined {
+  return job.defaultExecution ?? undefined;
 }
 
 export function graphJobExecutionDisplayStatus(
-  execution: JobExecution | WorkflowRunOverviewExecution | undefined,
+  execution: WorkflowRunOverviewExecution | undefined,
 ): JobExecutionStatus | undefined {
-  if (!execution) return undefined;
-  return 'displayStatus' in execution
-    ? execution.displayStatus
-    : deriveJobExecutionDisplayStatus(execution);
+  return execution?.displayStatus;
 }
 
 export function graphJobDisplayDuration(job: JobGraphJob): JobDisplayDuration | null {
@@ -186,7 +177,7 @@ export function graphJobDisplayDuration(job: JobGraphJob): JobDisplayDuration | 
 }
 
 export function graphJobExecutionCount(job: JobGraphJob): number | '100+' {
-  return isOverviewJob(job) ? job.executionCount : job.jobExecutions.length;
+  return job.executionCount;
 }
 
 export function graphJobExecutionCountVisible(job: JobGraphJob): boolean {
@@ -196,23 +187,7 @@ export function graphJobExecutionCountVisible(job: JobGraphJob): boolean {
 export function graphJobExecutionStatusCounts(
   job: JobGraphJob,
 ): Record<JobExecutionStatus, number | '100+'> {
-  if (isOverviewJob(job)) return job.executionStatusCounts;
-
-  const counts: Record<JobExecutionStatus, number> = {
-    pending: 0,
-    running: 0,
-    succeeded: 0,
-    failed: 0,
-    cancelled: 0,
-  };
-  for (const execution of job.jobExecutions) {
-    counts[deriveJobExecutionDisplayStatus(execution)] += 1;
-  }
-  return counts;
-}
-
-function isOverviewJob(job: JobGraphJob): job is WorkflowRunOverviewJob {
-  return 'defaultExecution' in job;
+  return job.executionStatusCounts;
 }
 
 export function nextJobGraphNodeId({

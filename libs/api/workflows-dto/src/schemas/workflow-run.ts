@@ -5,15 +5,8 @@ import {jobModeSchema, listenerStatusSchema} from './job-listening.js';
 
 /** PostgreSQL int4 upper bound used by persisted workflow-run attempts and positions. */
 export const WORKFLOW_RUN_ATTEMPT_MAX = 2_147_483_647;
+export const WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT = 25;
 export const WORKFLOW_RUN_JOB_POSITION_MAX = 2_147_483_647;
-
-// This header is an internal rollout signal. It lets the API distinguish the
-// first detail read from a React Query refetch without changing the response
-// contract. Older clients omit it and are recorded as `unknown`.
-export const WORKFLOW_RUN_DETAIL_REQUEST_KIND_HEADER =
-  'x-shipfox-workflow-run-detail-request-kind' as const;
-export const WORKFLOW_RUN_DETAIL_REQUEST_KINDS = ['initial', 'polling', 'bridge'] as const;
-export type WorkflowRunDetailRequestKind = (typeof WORKFLOW_RUN_DETAIL_REQUEST_KINDS)[number];
 
 export const workflowRunStatusSchema = z.enum([
   'pending',
@@ -217,20 +210,10 @@ export const workflowRunLineageHeadResponseSchema = workflowRunLineageHeadSchema
 
 export type WorkflowRunLineageHeadResponseDto = WorkflowRunLineageHeadDto;
 
-export const workflowRunAttemptsQuerySchema = z
-  .object({
-    limit: z.coerce.number().int().min(1).max(100).optional(),
-    cursor: z.string().optional(),
-  })
-  .superRefine(({limit, cursor}, ctx) => {
-    if (cursor !== undefined && limit === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'limit is required when cursor is provided',
-        path: ['limit'],
-      });
-    }
-  });
+export const workflowRunAttemptsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT),
+  cursor: z.string().optional(),
+});
 
 export type WorkflowRunAttemptsQueryDto = z.infer<typeof workflowRunAttemptsQuerySchema>;
 
@@ -242,10 +225,7 @@ export const workflowRunResponseSchema = workflowRunDtoSchema;
 
 export type WorkflowRunResponseDto = z.infer<typeof workflowRunResponseSchema>;
 
-export const workflowRunAttemptsResponseSchema = z.union([
-  z.object({attempts: z.array(workflowRunAttemptDtoSchema)}),
-  workflowRunAttemptsPageSchema,
-]);
+export const workflowRunAttemptsResponseSchema = workflowRunAttemptsPageSchema;
 
 export type WorkflowRunAttemptsResponseDto = z.infer<typeof workflowRunAttemptsResponseSchema>;
 
@@ -296,14 +276,9 @@ export type WorkflowRunJobDisplayStatusCountDto = z.infer<
 >;
 
 export const workflowRunListItemSchema = z
-  .object({
-    ...workflowRunDtoFields,
-    // These fields are still emitted by the server during the mixed-deployment window, but an
-    // older server may omit them after the list payload is trimmed. Defaults keep parsed rows
-    // fully populated without weakening the detail response contract above.
-    trigger_payload: z.record(z.string(), z.unknown()).optional().default({}),
-    inputs: z.record(z.string(), z.unknown()).nullable().optional().default(null),
-    source_snapshot: workflowSourceSnapshotSchema.nullable().optional().default(null),
+  .object(workflowRunDtoFields)
+  .omit({trigger_payload: true, inputs: true, source_snapshot: true})
+  .extend({
     /** Up to `WORKFLOW_RUN_JOB_PREVIEW_LIMIT` jobs in graph order, not the whole set. */
     jobs: z.array(workflowRunJobSummaryDtoSchema).max(WORKFLOW_RUN_JOB_PREVIEW_LIMIT),
     /** Persisted verdict counts, kept stable so older web clients can consume new responses. */

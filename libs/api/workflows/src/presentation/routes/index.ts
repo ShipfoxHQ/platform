@@ -14,7 +14,6 @@ import {cancelRunRoute} from './cancel-run.js';
 import {createCheckoutTokenRoute} from './checkout-token.js';
 import {getJobDetailRoute} from './get-job-detail.js';
 import {getJobExecutionContextRoute} from './get-job-execution-context.js';
-import {getRunRoute} from './get-run.js';
 import {getRunAggregatesRoute} from './get-run-aggregates.js';
 import {getRunLineageHeadRoute} from './get-run-lineage-head.js';
 import {getRunOverviewRoute} from './get-run-overview.js';
@@ -90,7 +89,6 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         listRunAnnotationsRoute(params.annotations, params.projects),
         listRunJobExplanationsRoute(params.projects),
         getRunSourceRoute(params.projects),
-        getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),
         cancelRunRoute(params.projects),
         rerunRunRoute(params.projects, params.workspaces, params.admission),

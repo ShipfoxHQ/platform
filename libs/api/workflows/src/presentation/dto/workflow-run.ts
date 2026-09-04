@@ -1,7 +1,6 @@
 import type {
   JobExecutionSummaryDto,
   WorkflowRunAttemptDto,
-  WorkflowRunDetailResponseDto,
   WorkflowRunDevSourceDto,
   WorkflowRunDto,
   WorkflowRunLineageHeadDto,
@@ -14,7 +13,6 @@ import type {
 import {encodeStringIdCursor} from '@shipfox/node-drizzle';
 import type {
   WorkflowRun,
-  WorkflowRunDetail,
   WorkflowRunDevSource,
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
@@ -28,8 +26,6 @@ import type {
   WorkflowRunOverviewRead,
   WorkflowRunSelection,
 } from '#db/index.js';
-import {toJobDto, toJobExecutionDto} from './job.js';
-import {toStepAttemptDto, toStepDto} from './step.js';
 
 export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): WorkflowRunDto {
   return {
@@ -69,8 +65,14 @@ export function toRunListItemDto(
   run: WorkflowRun,
   jobs: WorkflowRunJobsSummary = EMPTY_JOBS,
 ): WorkflowRunListItemDto {
+  const {
+    trigger_payload: _triggerPayload,
+    inputs: _inputs,
+    source_snapshot: _sourceSnapshot,
+    ...runWithoutHeavyFields
+  } = toRunDto(run);
   return {
-    ...toRunDto(run),
+    ...runWithoutHeavyFields,
     jobs: jobs.preview.map((job) => ({
       id: job.id,
       key: job.key,
@@ -84,34 +86,6 @@ export function toRunListItemDto(
     job_status_counts: jobs.rawStatusCounts.map(({status, count}) => ({status, count})),
     job_display_status_counts: jobs.statusCounts.map(({status, count}) => ({status, count})),
     has_started_job_execution: jobs.hasStartedJobExecution,
-  };
-}
-
-export function toRunDetailDto(run: WorkflowRunDetail): WorkflowRunDetailResponseDto {
-  return {
-    ...toRunDto(run, run.latestAttempt),
-    run_attempt: toRunAttemptDto(run.runAttempt),
-    jobs: run.jobs.map((job) => ({
-      ...toJobDto(job),
-      job_executions: job.jobExecutions.map((jobExecution) => ({
-        ...toJobExecutionDto(jobExecution),
-        steps: jobExecution.steps.map((step) => {
-          const attempts = step.attempts.map(toStepAttemptDto);
-          const latestTerminalAttempt = attempts
-            .filter((attempt) => attempt.status !== 'running')
-            .at(-1);
-          return {
-            ...toStepDto(step),
-            exit_code: latestTerminalAttempt?.exit_code ?? null,
-            outputs: latestTerminalAttempt?.outputs ?? null,
-            response: latestTerminalAttempt?.response ?? null,
-            gate_result: latestTerminalAttempt?.gate_result ?? null,
-            attempts,
-          };
-        }),
-      })),
-    })),
-    has_started_job_execution: run.hasStartedJobExecution,
   };
 }
 

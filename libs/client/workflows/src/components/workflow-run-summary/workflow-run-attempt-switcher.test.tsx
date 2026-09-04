@@ -6,7 +6,7 @@ import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
 import {
   runAttemptsResponseDto,
   workflowRunAttemptDto,
-  workflowRunDetail,
+  workflowRunOverview,
 } from '#test/fixtures/workflow-run.js';
 import {jsonResponse, PROJECT_TEST_WSLUG, renderProjectPage} from '#test/pages.js';
 import {WorkflowRunAttemptSwitcher} from './workflow-run-attempt-switcher.js';
@@ -64,7 +64,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
         Promise.resolve(
           jsonResponse(
             runAttemptsResponseDto({
-              attempts: [
+              items: [
                 workflowRunAttemptDto({
                   id: ROOT_RUN_ID,
                   attempt: 1,
@@ -121,7 +121,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
         Promise.resolve(
           jsonResponse(
             runAttemptsResponseDto({
-              attempts: [
+              items: [
                 workflowRunAttemptDto({id: ROOT_RUN_ID, attempt: 1}),
                 workflowRunAttemptDto({id: CURRENT_RUN_ID, attempt: 2}),
               ],
@@ -237,7 +237,7 @@ describe('WorkflowRunAttemptSwitcher', () => {
         Promise.resolve(
           jsonResponse(
             runAttemptsResponseDto({
-              attempts: [
+              items: [
                 workflowRunAttemptDto({id: ROOT_RUN_ID, attempt: 1}),
                 workflowRunAttemptDto({id: CURRENT_RUN_ID, attempt: 2}),
               ],
@@ -276,7 +276,7 @@ function renderSwitcher({
   latestAttempt?: number | undefined;
   path?: string | undefined;
 } = {}) {
-  const run = workflowRunDetail({
+  const run = workflowRunOverview({
     id: CURRENT_RUN_ID,
     current_attempt: 2,
     latest_attempt: latestAttempt,

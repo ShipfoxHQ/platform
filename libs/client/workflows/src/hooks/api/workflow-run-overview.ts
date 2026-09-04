@@ -5,11 +5,10 @@ import {
   workflowRunOverviewResponseSchema,
   workflowRunSourceResponseSchema,
 } from '@shipfox/api-workflows-dto';
-import {ApiError, checkedApiRequest, isInvalidApiResponseError} from '@shipfox/client-api';
+import {checkedApiRequest} from '@shipfox/client-api';
 import {
   type InfiniteData,
   infiniteQueryOptions,
-  type QueryClient,
   queryOptions,
   type UseInfiniteQueryOptions,
   type UseQueryOptions,
@@ -18,22 +17,18 @@ import {
 } from '@tanstack/react-query';
 import {
   isWorkflowRunTerminal,
-  type WorkflowRunDetail,
   type WorkflowRunLineageHead,
   type WorkflowRunOverview,
   type WorkflowRunOverviewJobPage,
   type WorkflowRunSource,
 } from '#core/workflow-run.js';
 import {
-  legacyWorkflowRunOverviewJobsOffset,
   toWorkflowRunLineageHead,
   toWorkflowRunOverview,
-  toWorkflowRunOverviewFromRunDetail,
   toWorkflowRunOverviewJobPage,
-  toWorkflowRunOverviewJobsPageFromRunDetail,
   toWorkflowRunSource,
 } from './workflow-run-mapper.js';
-import {workflowRunQueryOptions, workflowRunsQueryKeys} from './workflow-runs.js';
+import {workflowRunsQueryKeys} from './workflow-runs.js';
 
 export const WORKFLOW_RUN_OVERVIEW_STALE_TIME_MS = 2_000;
 export const WORKFLOW_RUN_OVERVIEW_ACTIVE_POLL_MS = 4_000;
@@ -100,7 +95,7 @@ export function workflowRunLineageHeadQueryOptions({
       ? workflowRunsQueryKeys.head(workflowRunId)
       : ([...workflowRunsQueryKeys.all, 'head'] as const),
     enabled: Boolean(workflowRunId) && enabled,
-    queryFn: ({signal, client}) => getWorkflowRunLineageHead(workflowRunId ?? '', client, signal),
+    queryFn: ({signal}) => getWorkflowRunLineageHead(workflowRunId ?? '', signal),
     ...(initialData === undefined ? {} : {initialData, initialDataUpdatedAt: 0}),
     staleTime: WORKFLOW_RUN_LINEAGE_HEAD_STALE_TIME_MS,
     refetchOnMount: 'always',
@@ -115,27 +110,15 @@ export function useWorkflowRunLineageHeadQuery(input: WorkflowRunLineageHeadQuer
 
 async function getWorkflowRunLineageHead(
   workflowRunId: string,
-  client: QueryClient,
   signal?: AbortSignal,
 ): Promise<WorkflowRunLineageHead> {
-  try {
-    return toWorkflowRunLineageHead(
-      await checkedApiRequest(
-        workflowRunLineageHeadResponseSchema,
-        `/workflows/runs/${workflowRunId}/head`,
-        {signal},
-      ),
-    );
-  } catch (error) {
-    if (!isLegacyOverviewEndpointError(error)) throw error;
-    const detail = await getLegacyWorkflowRunDetail(client, workflowRunId, undefined, signal);
-    return {
-      currentAttempt: detail.currentAttempt,
-      latestAttempt: detail.latestAttempt,
-      currentStatus: detail.runAttempt.status,
-      updatedAt: detail.updatedAt,
-    };
-  }
+  return toWorkflowRunLineageHead(
+    await checkedApiRequest(
+      workflowRunLineageHeadResponseSchema,
+      `/workflows/runs/${workflowRunId}/head`,
+      {signal},
+    ),
+  );
 }
 
 export interface WorkflowRunOverviewQueryInput {
@@ -156,8 +139,7 @@ export function workflowRunOverviewQueryOptions({
         ? workflowRunsQueryKeys.overview(workflowRunId, runAttempt)
         : ([...workflowRunsQueryKeys.all, 'overview'] as const),
     enabled: queryEnabled,
-    queryFn: ({signal, client}) =>
-      getWorkflowRunOverview(workflowRunId ?? '', runAttempt ?? 0, client, signal),
+    queryFn: ({signal}) => getWorkflowRunOverview(workflowRunId ?? '', runAttempt ?? 0, signal),
     staleTime: (query) =>
       isWorkflowRunTerminal(query.state.data?.runAttempt.status ?? 'pending')
         ? Infinity
@@ -186,55 +168,15 @@ export function useWorkflowRunOverviewQuery(input: WorkflowRunOverviewQueryInput
 async function getWorkflowRunOverview(
   workflowRunId: string,
   runAttempt: number,
-  client: QueryClient,
   signal?: AbortSignal,
 ): Promise<WorkflowRunOverview> {
   const params = new URLSearchParams({attempt: String(runAttempt)});
-  try {
-    return toWorkflowRunOverview(
-      await checkedApiRequest(
-        workflowRunOverviewResponseSchema,
-        `/workflows/runs/${workflowRunId}/overview?${params.toString()}`,
-        {signal},
-      ),
-    );
-  } catch (error) {
-    // Keep the retained legacy endpoint as a short-lived mixed-deployment bridge. Only an
-    // unavailable endpoint or an old-shaped successful payload falls back; operational errors
-    // still belong to the overview query.
-    if (!isLegacyOverviewEndpointError(error)) throw error;
-    return toWorkflowRunOverviewFromRunDetail(
-      await getLegacyWorkflowRunDetail(client, workflowRunId, runAttempt, signal),
-    );
-  }
-}
-
-function getLegacyWorkflowRunDetail(
-  client: QueryClient,
-  workflowRunId: string,
-  runAttempt?: number,
-  signal?: AbortSignal,
-): Promise<WorkflowRunDetail> {
-  if (runAttempt !== undefined) {
-    const currentDetail = client.getQueryData<WorkflowRunDetail>(
-      workflowRunsQueryKeys.detail(workflowRunId),
-    );
-    if (currentDetail?.runAttempt.attempt === runAttempt) return Promise.resolve(currentDetail);
-  }
-  return client.fetchQuery(
-    workflowRunQueryOptions({
-      workflowRunId,
-      runAttempt,
-      requestKind: 'bridge',
-      requestSignal: signal,
-    }),
-  );
-}
-
-function isLegacyOverviewEndpointError(error: unknown): boolean {
-  return (
-    isInvalidApiResponseError(error) ||
-    (error instanceof ApiError && (error.status === 404 || error.status === 405))
+  return toWorkflowRunOverview(
+    await checkedApiRequest(
+      workflowRunOverviewResponseSchema,
+      `/workflows/runs/${workflowRunId}/overview?${params.toString()}`,
+      {signal},
+    ),
   );
 }
 
@@ -261,8 +203,8 @@ export function workflowRunOverviewJobsInfiniteQueryOptions({
         : ([...workflowRunsQueryKeys.all, 'overview-jobs'] as const),
     enabled: queryEnabled,
     initialPageParam: null as string | null,
-    queryFn: ({pageParam, signal, client}) =>
-      getWorkflowRunOverviewJobs(workflowRunId ?? '', runAttempt ?? 0, pageParam, client, signal),
+    queryFn: ({pageParam, signal}) =>
+      getWorkflowRunOverviewJobs(workflowRunId ?? '', runAttempt ?? 0, pageParam, signal),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     ...(initialPage === undefined
       ? {}
@@ -289,35 +231,20 @@ async function getWorkflowRunOverviewJobs(
   workflowRunId: string,
   runAttempt: number,
   cursor: string | null,
-  client: QueryClient,
   signal?: AbortSignal,
 ): Promise<WorkflowRunOverviewJobPage> {
-  const legacyOffset = legacyWorkflowRunOverviewJobsOffset(cursor);
-  if (cursor !== null && legacyOffset !== undefined) {
-    const detail = await getLegacyWorkflowRunDetail(client, workflowRunId, runAttempt, signal);
-    return toWorkflowRunOverviewJobsPageFromRunDetail(detail, legacyOffset);
-  }
-
   const params = new URLSearchParams({
     attempt: String(runAttempt),
     limit: String(WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT),
   });
   if (cursor) params.set('cursor', cursor);
-  try {
-    return toWorkflowRunOverviewJobPage(
-      await checkedApiRequest(
-        workflowRunOverviewJobsResponseSchema,
-        `/workflows/runs/${workflowRunId}/jobs?${params.toString()}`,
-        {signal},
-      ),
-    );
-  } catch (error) {
-    if (!isLegacyOverviewEndpointError(error) || (cursor !== null && legacyOffset === undefined)) {
-      throw error;
-    }
-    const detail = await getLegacyWorkflowRunDetail(client, workflowRunId, runAttempt, signal);
-    return toWorkflowRunOverviewJobsPageFromRunDetail(detail, legacyOffset ?? 0);
-  }
+  return toWorkflowRunOverviewJobPage(
+    await checkedApiRequest(
+      workflowRunOverviewJobsResponseSchema,
+      `/workflows/runs/${workflowRunId}/jobs?${params.toString()}`,
+      {signal},
+    ),
+  );
 }
 
 export interface WorkflowRunSourceQueryInput {

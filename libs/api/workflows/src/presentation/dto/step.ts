@@ -5,7 +5,6 @@ import {
   type OversizedFieldDto,
   STEP_ERROR_MESSAGE_MAX_LENGTH,
   type StepAttemptDetailResponseDto,
-  type StepAttemptDto,
   type StepDto,
   type StepErrorDto,
   type StepGateResultDto,
@@ -243,27 +242,6 @@ function toStepSourceLocationDto(
   return {
     start_line: sourceLocation.startLine,
     end_line: sourceLocation.endLine,
-  };
-}
-
-export function toStepAttemptDto(attempt: StepAttempt): StepAttemptDto {
-  const restartFeedback = inlineDiagnostic('restart_feedback', attempt.restartFeedback);
-  return {
-    id: attempt.id,
-    step_id: attempt.stepId,
-    attempt: attempt.attempt,
-    execution_order: attempt.executionOrder,
-    status: attempt.status,
-    exit_code: attempt.exitCode,
-    output: attempt.output,
-    outputs: attempt.output,
-    response: attempt.response,
-    error: attempt.error,
-    gate_result: toStepGateResultDto(attempt.gateResult, attempt.status),
-    restart_feedback: restartFeedback.value,
-    invocations: attempt.invocations.slice(0, WORKFLOW_STEP_ATTEMPT_INVOCATION_READ_MAX),
-    started_at: attempt.startedAt.toISOString(),
-    finished_at: attempt.finishedAt ? attempt.finishedAt.toISOString() : null,
   };
 }
 

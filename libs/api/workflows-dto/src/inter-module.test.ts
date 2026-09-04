@@ -12,7 +12,6 @@ import {workflowsInterModuleContract} from './inter-module.js';
 
 describe('workflowsInterModuleContract', () => {
   test('accepts workspace-scoped execution reads with decoded cursors and filters', () => {
-    const workflowRunId = '00000000-0000-4000-8000-000000000001';
     const stepId = '00000000-0000-4000-8000-000000000002';
     const workspaceId = '00000000-0000-4000-8000-000000000003';
     const cursor = {
@@ -33,11 +32,6 @@ describe('workflowsInterModuleContract', () => {
         createdTo: '2026-08-31T00:00:00.000Z',
       },
     });
-    const detail = workflowsInterModuleContract.methods.getWorkflowRunDetail.input.parse({
-      workspaceId,
-      workflowRunId,
-      attempt: 2,
-    });
     const step = workflowsInterModuleContract.methods.getStepAttemptDetail.input.parse({
       workspaceId,
       stepId,
@@ -46,15 +40,11 @@ describe('workflowsInterModuleContract', () => {
 
     expect(runs.cursor).toEqual(cursor);
     expect(runs.filters?.status).toBe('failed');
-    expect(detail.attempt).toBe(2);
     expect(step.stepId).toBe(stepId);
   });
 
   test('keeps missing execution reads nullable and bounds latest-attempt inputs', () => {
     const workspaceId = '00000000-0000-4000-8000-000000000001';
-    const nullRun = workflowsInterModuleContract.methods.getWorkflowRunDetail.output.parse({
-      run: null,
-    });
     const nullStep = workflowsInterModuleContract.methods.getStepAttemptDetail.output.parse({
       detail: null,
     });
@@ -65,7 +55,6 @@ describe('workflowsInterModuleContract', () => {
       attempt: 3,
     });
 
-    expect(nullRun).toEqual({run: null});
     expect(nullStep).toEqual({detail: null});
     expect(latestRun).toEqual({attempt: null});
     expect(latestStep).toEqual({attempt: 3});

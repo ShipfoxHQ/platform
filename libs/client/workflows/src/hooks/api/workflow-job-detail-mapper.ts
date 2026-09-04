@@ -184,15 +184,15 @@ export function mergeWorkflowJobStepAttempts(
 }
 
 /**
- * The job log components still accept the retained complete-tree model. Keep this conversion at
- * the presentation boundary: the selected-job query and its cache never acquire legacy fields.
+ * The job log components still accept the retained job model. Keep this conversion at the
+ * presentation boundary: the selected-job query and its cache never acquire diagnostic fields.
  */
-export function toLegacyJobForJobDetail(
+export function toJobForJobDetail(
   detail: WorkflowJobDetail,
   presentation: WorkflowJobDetailPresentationOptions = {},
 ): Job {
   const execution = detail.selectedExecution
-    ? toLegacyJobExecution(detail.job.id, detail.selectedExecution, presentation)
+    ? toJobExecutionForJobDetail(detail.job.id, detail.selectedExecution, presentation)
     : undefined;
   const updatedAt = execution?.updatedAt ?? detail.job.defaultExecution?.updatedAt ?? '';
 
@@ -220,7 +220,7 @@ export function toLegacyJobForJobDetail(
   });
 }
 
-function toLegacyJobExecution(
+function toJobExecutionForJobDetail(
   jobId: string,
   detail: WorkflowJobExecutionDetail,
   presentation: WorkflowJobDetailPresentationOptions,
@@ -245,12 +245,12 @@ function toLegacyJobExecution(
     createdAt: detail.updatedAt,
     updatedAt: detail.updatedAt,
     steps: steps.map((step) =>
-      toLegacyStep(step, detail.updatedAt, presentation.attemptsByStepId?.get(step.id)),
+      toStepForJobDetail(step, detail.updatedAt, presentation.attemptsByStepId?.get(step.id)),
     ),
   });
 }
 
-function toLegacyStep(
+function toStepForJobDetail(
   step: WorkflowJobStepSummary,
   fallbackUpdatedAt: string,
   presentedAttempts: readonly WorkflowJobStepAttemptSummary[] | undefined,
@@ -276,7 +276,7 @@ function toLegacyStep(
     currentAttempt: step.currentAttempt,
     createdAt: firstAttempt?.startedAt ?? fallbackUpdatedAt,
     updatedAt,
-    attempts: attempts.map((attempt) => toLegacyStepAttempt(attempt, step.jobExecutionId)),
+    attempts: attempts.map((attempt) => toStepAttemptForJobDetail(attempt, step.jobExecutionId)),
   };
 }
 
@@ -292,7 +292,7 @@ function mergeById<T extends {id: string}>(sources: readonly (readonly T[])[]): 
   return [...merged.values()];
 }
 
-function toLegacyStepAttempt(
+function toStepAttemptForJobDetail(
   attempt: WorkflowJobStepAttemptSummary,
   jobExecutionId: string,
 ): StepAttempt {

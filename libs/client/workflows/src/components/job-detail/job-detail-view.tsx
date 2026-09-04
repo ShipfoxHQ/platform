@@ -54,10 +54,9 @@ import {
 import {
   mergeWorkflowJobStepAttempts,
   mergeWorkflowJobStepSummaries,
-  toLegacyJobForJobDetail,
+  toJobForJobDetail,
   type WorkflowJobDetailPresentationOptions,
 } from '#hooks/api/workflow-job-detail-mapper.js';
-import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   type WorkflowJobSearch,
   workflowJobSearchParams,
@@ -92,9 +91,7 @@ import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
 type InspectorState = {key: string; attemptId: string | null};
-type JobDetailQuery =
-  | ReturnType<typeof useWorkflowRunAttemptQuery>
-  | ReturnType<typeof useWorkflowJobDetailQuery>;
+type JobDetailQuery = ReturnType<typeof useWorkflowJobDetailQuery>;
 interface JobDetailData {
   id: string;
   runAttempt: {
@@ -490,32 +487,18 @@ function normalizeJobDetailData(
   presentation?: WorkflowJobDetailPresentationOptions,
 ): JobDetailData | undefined {
   if (!data) return undefined;
-  if (isWorkflowJobDetail(data)) {
-    if (data.job.id !== jobId) return undefined;
-    return {
-      id: data.workflowRunId,
-      runAttempt: {
-        attempt: data.workflowRunAttempt,
-        status: jobDetailRunStatus(data),
-      },
-      job: toLegacyJobForJobDetail(data, presentation),
-      executionCount: data.job.executionCount,
-      executionCountVisible: data.job.executionCountVisible,
-      executionDisplayStatus: data.selectedExecution?.displayStatus,
-    };
-  }
-
-  const job = data.jobs.find((candidate) => candidate.id === jobId);
-  return job
-    ? {
-        id: data.id || workflowRunId,
-        runAttempt: data.runAttempt,
-        job,
-        executionCount: job.jobExecutions.length,
-        executionCountVisible: job.executionCountVisible,
-        executionDisplayStatus: undefined,
-      }
-    : undefined;
+  if (data.job.id !== jobId) return undefined;
+  return {
+    id: data.workflowRunId || workflowRunId,
+    runAttempt: {
+      attempt: data.workflowRunAttempt,
+      status: jobDetailRunStatus(data),
+    },
+    job: toJobForJobDetail(data, presentation),
+    executionCount: data.job.executionCount,
+    executionCountVisible: data.job.executionCountVisible,
+    executionDisplayStatus: data.selectedExecution?.displayStatus,
+  };
 }
 
 function useSelectedJobDetailPresentation({
@@ -529,15 +512,12 @@ function useSelectedJobDetailPresentation({
   selectedJobQuery: boolean;
   jobId: string;
 }) {
-  const selectedJobDetail =
-    selectedJobQuery && data && isWorkflowJobDetail(data) && data.job.id === jobId
-      ? data
-      : undefined;
+  const selectedJobDetail = selectedJobQuery && data && data.job.id === jobId ? data : undefined;
   const selectedDetailExecution = selectedJobDetail?.selectedExecution ?? undefined;
   const [attemptsStepId, setAttemptsStepId] = useState<string | undefined>(undefined);
   const pendingAttemptsStepIdRef = useRef<string | undefined>(undefined);
   const previousSelectedResourceKeyRef = useRef<string | undefined>(undefined);
-  const selectedResourceKey = `${selectedJobQuery ? 'selected' : 'legacy'}:${jobId}:${selectedDetailExecution?.id ?? ''}`;
+  const selectedResourceKey = `selected:${jobId}:${selectedDetailExecution?.id ?? ''}`;
 
   useEffect(() => {
     if (previousSelectedResourceKeyRef.current === selectedResourceKey) return;
@@ -710,10 +690,6 @@ function SelectedJobStepsPagination({
       </Button>
     </div>
   );
-}
-
-function isWorkflowJobDetail(data: NonNullable<JobDetailQuery['data']>): data is WorkflowJobDetail {
-  return 'selectedExecution' in data && 'workflowRunId' in data;
 }
 
 function jobDetailRunStatus(detail: WorkflowJobDetail): JobDetailData['runAttempt']['status'] {

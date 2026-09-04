@@ -11,7 +11,6 @@ import {
   defaultJobExecution,
   deriveJobDisplayStatus,
   type Job,
-  type WorkflowRunDetail,
   type WorkflowRunJobSummary,
   type WorkflowRunListItem,
   type WorkflowRunOverview,
@@ -26,7 +25,7 @@ import {
 import {JobExecutionTimeText} from '../job-detail/job-execution-time-text.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
-type RunWorkspaceRun = WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
+type RunWorkspaceRun = WorkflowRunOverview | WorkflowRunListItem;
 type RunWorkspaceJob = Job | WorkflowRunOverviewJob | WorkflowRunJobSummary;
 
 const RUN_WORKSPACE_LINK_CLASS_NAME =

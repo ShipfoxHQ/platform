@@ -73,19 +73,19 @@ describe('GET /api/workflows/runs/:id/attempts', () => {
 
     expect(rootRes.statusCode).toBe(200);
     expect(
-      rootRes.json().attempts.map((attempt: {workflow_run_id: string}) => attempt.workflow_run_id),
+      rootRes.json().items.map((attempt: {workflow_run_id: string}) => attempt.workflow_run_id),
     ).toEqual([source.id, source.id]);
-    expect(rootRes.json().attempts[0]).toMatchObject({
-      workflow_run_id: source.id,
-      attempt: 1,
-      status: 'failed',
-      rerun_mode: null,
-    });
-    expect(rootRes.json().attempts[1]).toMatchObject({
+    expect(rootRes.json().items[0]).toMatchObject({
       workflow_run_id: source.id,
       attempt: 2,
       status: 'pending',
       rerun_mode: 'all',
+    });
+    expect(rootRes.json().items[1]).toMatchObject({
+      workflow_run_id: source.id,
+      attempt: 1,
+      status: 'failed',
+      rerun_mode: null,
     });
     expect(rerun.id).toBe(source.id);
   });
@@ -99,8 +99,8 @@ describe('GET /api/workflows/runs/:id/attempts', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().attempts).toHaveLength(1);
-    expect(res.json().attempts[0]).toMatchObject({
+    expect(res.json().items).toHaveLength(1);
+    expect(res.json().items[0]).toMatchObject({
       workflow_run_id: run.id,
       attempt: 1,
       rerun_mode: null,
@@ -132,13 +132,9 @@ describe('GET /api/workflows/runs/:id/attempts', () => {
     });
   });
 
-  test('rejects a cursor without a limit and invalid bounded limits', async () => {
+  test('rejects invalid cursors and bounded limits', async () => {
     const {source} = await createLineage();
 
-    const missingLimit = await app.inject({
-      method: 'GET',
-      url: `/api/workflows/runs/${source.id}/attempts?cursor=opaque-cursor`,
-    });
     const invalidCursor = await app.inject({
       method: 'GET',
       url: `/api/workflows/runs/${source.id}/attempts?limit=1&cursor=opaque-cursor`,
@@ -148,7 +144,6 @@ describe('GET /api/workflows/runs/:id/attempts', () => {
       url: `/api/workflows/runs/${source.id}/attempts?limit=101`,
     });
 
-    expect(missingLimit.statusCode).toBe(400);
     expect(invalidCursor.statusCode).toBe(400);
     expect(invalidCursor.json().code).toBe('invalid-cursor');
     expect(invalidLimit.statusCode).toBe(400);

@@ -21,7 +21,6 @@ import {WorkflowRunNumberLabel} from '#components/workflow-run-number-label.js';
 import {
   isWorkflowRunTerminal,
   WORKFLOW_RUN_STATUSES,
-  type WorkflowRunDetail,
   type WorkflowRunListItem,
   type WorkflowRunOverview,
   type WorkflowRunRerunMode,
@@ -42,7 +41,7 @@ const NEUTRAL_ACTION_SURFACE_CLASS_NAME =
 
 type WorkflowRunAction = 'cancel' | 'rerun-all' | 'rerun-menu' | 'none';
 
-export type WorkflowRunSummaryRun = WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
+export type WorkflowRunSummaryRun = WorkflowRunOverview | WorkflowRunListItem;
 
 export interface WorkflowRunSummaryProps {
   workspaceSlug?: string | undefined;

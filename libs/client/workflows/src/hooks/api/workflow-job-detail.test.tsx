@@ -13,7 +13,7 @@ import {
   workflowJobDetailResponseDto,
   workflowJobDto,
   workflowJobExecutionDto,
-  workflowRunDetailDto,
+  workflowRunFixtureDto,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -32,7 +32,7 @@ import {
 import {
   mergeWorkflowJobStepAttempts,
   mergeWorkflowJobStepSummaries,
-  toLegacyJobForJobDetail,
+  toJobForJobDetail,
   toWorkflowJobDetail,
 } from './workflow-job-detail-mapper.js';
 
@@ -357,7 +357,7 @@ describe('selected-job API hooks', () => {
     const olderStep = {...firstStep, id: SECOND_STEP_ID, name: 'older step'};
     const olderAttempt = {...firstAttempt, id: SECOND_ATTEMPT_ID, attempt: 2};
 
-    const presentedJob = toLegacyJobForJobDetail(detail, {
+    const presentedJob = toJobForJobDetail(detail, {
       steps: mergeWorkflowJobStepSummaries([[...selectedExecution.steps.items, olderStep]]),
       attemptsByStepId: new Map([
         [firstStep.id, mergeWorkflowJobStepAttempts([[...firstStep.attempts.items, olderAttempt]])],
@@ -445,9 +445,9 @@ function selectedJobDetailResponseDto(): WorkflowJobDetailDto {
     steps: [step],
   });
   return workflowJobDetailResponseDto({
-    detail: workflowRunDetailDto({
+    detail: workflowRunFixtureDto({
       id: RUN_ID,
-      run_attempt: {...workflowRunDetailDto().run_attempt, workflow_run_id: RUN_ID},
+      run_attempt: {...workflowRunFixtureDto().run_attempt, workflow_run_id: RUN_ID},
       jobs: [
         workflowJobDto({
           id: JOB_ID,

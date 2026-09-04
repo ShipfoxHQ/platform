@@ -1,10 +1,7 @@
-import {
-  type StepAttemptDto,
-  type WorkflowRunStepDetailDto,
-  workflowRunStatusSchema,
-} from '@shipfox/api-workflows-dto';
+import {type StepAttemptDto, workflowRunStatusSchema} from '@shipfox/api-workflows-dto';
 import {getWorkflowStatusVisual} from '#components/workflow-status/status-visuals.js';
 import type {Job} from '#core/workflow-run.js';
+import type {WorkflowStepFixtureDto} from '#test/fixtures/workflow-run.js';
 import {
   type JobDtoOverrides,
   workflowJob,
@@ -360,7 +357,7 @@ function makeJob(overrides: JobDtoOverrides = {}): Job {
   return workflowJob(overrides);
 }
 
-function makeStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): WorkflowRunStepDetailDto {
+function makeStep(overrides: Partial<WorkflowStepFixtureDto> = {}): WorkflowStepFixtureDto {
   return workflowStepDto(overrides);
 }
 

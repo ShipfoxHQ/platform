@@ -12,7 +12,6 @@ import {Link} from '@tanstack/react-router';
 import {useEffect, useState} from 'react';
 import type {
   WorkflowRunAttempt,
-  WorkflowRunDetail,
   WorkflowRunListItem,
   WorkflowRunOverview,
 } from '#core/workflow-run.js';
@@ -23,7 +22,7 @@ import {WorkflowStatusIcon} from '../workflow-status/workflow-status-icon.js';
 export interface WorkflowRunAttemptSwitcherProps {
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
-  run: WorkflowRunDetail | WorkflowRunOverview | WorkflowRunListItem;
+  run: WorkflowRunOverview | WorkflowRunListItem;
   latestAttempt: number;
 }
 

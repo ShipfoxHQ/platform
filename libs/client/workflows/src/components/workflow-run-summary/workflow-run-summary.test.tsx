@@ -10,11 +10,10 @@ import {
 import {render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {createStore, Provider as JotaiProvider} from 'jotai';
-import type {workflowRunDetailDto} from '#test/fixtures/workflow-run.js';
 import {
   workflowJobDto,
   workflowJobExecutionDto,
-  workflowRunDetail,
+  workflowRunOverview,
 } from '#test/fixtures/workflow-run.js';
 import {WorkflowRunSummary} from './workflow-run-summary.js';
 
@@ -68,7 +67,7 @@ describe('WorkflowRunSummary', () => {
   });
 
   test('omits the run number before the server assigns one', async () => {
-    const run = {...workflowRunDetail({workflow_name: 'CI'}), number: null};
+    const run = {...workflowRunOverview({workflow_name: 'CI'}), number: null};
     render(<WorkflowRunSummary run={run} />);
 
     const summary = await screen.findByRole('region', {name: 'deploy-web'});
@@ -77,7 +76,7 @@ describe('WorkflowRunSummary', () => {
   });
 
   test('separates a standalone run number from the run timestamp', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       workflow_name: 'CI',
       trigger_source: '',
       trigger_event: '',
@@ -498,7 +497,7 @@ describe('WorkflowRunSummary', () => {
   });
 
   test('does not start a bare dev provenance line with a separator', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       ...devRunOverrides(),
       trigger_source: '',
       trigger_event: '',
@@ -521,7 +520,7 @@ describe('WorkflowRunSummary', () => {
       token: 'token',
       user: {id: '99999999-9999-4999-8999-999999999999', email: 'me@example.com'},
     });
-    const run = workflowRunDetail({...devRunOverrides()});
+    const run = workflowRunOverview({...devRunOverrides()});
 
     render(
       <JotaiProvider store={store}>
@@ -537,7 +536,7 @@ describe('WorkflowRunSummary', () => {
 
   test('links a dev replay run to its source event', async () => {
     const EVENT_ID = '88888888-8888-4888-8888-888888888888';
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       ...devRunOverrides(),
       dev_source: {...devSourceDto(), replay_of_event_id: EVENT_ID},
     });
@@ -568,7 +567,7 @@ describe('WorkflowRunSummary', () => {
 
   test('omits the replay provenance when the dev run replays no event', async () => {
     renderSummaryWithRouter({
-      run: workflowRunDetail(devRunOverrides()),
+      run: workflowRunOverview(devRunOverrides()),
       workspaceSlug: 'acme',
       projectSlug: 'project',
     });
@@ -580,10 +579,10 @@ describe('WorkflowRunSummary', () => {
 });
 
 function renderSummary(
-  overrides: Parameters<typeof workflowRunDetailDto>[0] = {},
+  overrides: Parameters<typeof workflowRunOverview>[0] = {},
   props: Omit<Parameters<typeof WorkflowRunSummary>[0], 'run'> = {},
 ) {
-  const run = workflowRunDetail({
+  const run = workflowRunOverview({
     id: RUN_ID,
     project_id: '44444444-4444-4444-8444-444444444444',
     definition_id: '55555555-5555-4555-8555-555555555555',
@@ -610,7 +609,7 @@ function devSourceDto() {
   };
 }
 
-function devRunOverrides(): Parameters<typeof workflowRunDetailDto>[0] {
+function devRunOverrides(): Parameters<typeof workflowRunOverview>[0] {
   return {
     origin: 'dev',
     trigger_reference: null,
@@ -624,7 +623,7 @@ function renderSummaryWithRouter({
   workspaceSlug,
   projectSlug,
 }: {
-  run: ReturnType<typeof workflowRunDetail>;
+  run: ReturnType<typeof workflowRunOverview>;
   workspaceSlug: string;
   projectSlug: string;
 }) {

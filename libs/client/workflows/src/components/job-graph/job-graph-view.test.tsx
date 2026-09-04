@@ -1,12 +1,10 @@
-import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import {fireEvent, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type {Job, WorkflowRunDetail, WorkflowRunOverview} from '#core/workflow-run.js';
+import type {WorkflowRunOverview, WorkflowRunOverviewJob} from '#core/workflow-run.js';
 import {
-  workflowJob,
   workflowJobExecutionDto,
-  workflowRunDetail,
-  workflowStepDto,
+  workflowRunOverview,
+  workflowRunOverviewJob,
 } from '#test/fixtures/workflow-run.js';
 import {JobGraph} from './job-graph.js';
 
@@ -295,9 +293,9 @@ describe('JobGraph', () => {
   });
 });
 
-function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail {
+function makeRun({jobs = [], ...overrides}: RunOverrides = {}): WorkflowRunOverview {
   return {
-    ...workflowRunDetail({
+    ...workflowRunOverview({
       name: 'Deploy',
       trigger_source: 'manual',
       trigger_event: 'fire',
@@ -305,21 +303,29 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
       jobs: [],
     }),
     ...overrides,
+    jobs: {kind: 'complete', total: jobs.length, items: jobs},
   };
 }
 
-function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
-  return workflowJob(overrides);
+type RunOverrides = Omit<Partial<WorkflowRunOverview>, 'jobs'> & {
+  jobs?: WorkflowRunOverviewJob[];
+};
+
+function makeJob(
+  overrides: Parameters<typeof workflowRunOverviewJob>[0] & {name: string},
+): WorkflowRunOverviewJob {
+  return workflowRunOverviewJob(overrides);
 }
 
-function makeRunningJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
+function makeRunningJob(
+  overrides: Parameters<typeof workflowRunOverviewJob>[0] & {name: string},
+): WorkflowRunOverviewJob {
   return makeJob({
     ...overrides,
     status: 'running',
     job_executions: [
       workflowJobExecutionDto({
         status: 'running',
-        steps: [workflowStepDto({status: 'running'})],
       }),
     ],
   });

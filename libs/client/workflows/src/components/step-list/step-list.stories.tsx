@@ -1,4 +1,4 @@
-import type {StepAttemptDto, WorkflowRunStepDetailDto} from '@shipfox/api-workflows-dto';
+import type {StepAttemptDto} from '@shipfox/api-workflows-dto';
 import {LogView, type LogViewProps} from '@shipfox/client-logs';
 import {Text} from '@shipfox/react-ui/typography';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-router';
 import {within} from 'storybook/test';
 import type {Job} from '#core/workflow-run.js';
+import type {WorkflowStepFixtureDto} from '#test/fixtures/workflow-run.js';
 import {
   type JobDtoOverrides,
   workflowJob,
@@ -409,7 +410,7 @@ function makeJob(overrides: JobDtoOverrides = {}): Job {
   return workflowJob(overrides);
 }
 
-function makeStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): WorkflowRunStepDetailDto {
+function makeStep(overrides: Partial<WorkflowStepFixtureDto> = {}): WorkflowStepFixtureDto {
   return workflowStepDto(overrides);
 }
 

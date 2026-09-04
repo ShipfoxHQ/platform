@@ -1,8 +1,7 @@
-import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import type {Meta, StoryObj} from '@storybook/react';
 import {within} from 'storybook/test';
-import type {Job, WorkflowRunDetail} from '#core/workflow-run.js';
-import {workflowJob, workflowRunDetail, workflowStepDto} from '#test/fixtures/workflow-run.js';
+import type {WorkflowRunOverview, WorkflowRunOverviewJob} from '#core/workflow-run.js';
+import {workflowRunOverview, workflowRunOverviewJob} from '#test/fixtures/workflow-run.js';
 import {JobGraph} from './job-graph.js';
 
 const meta = {
@@ -128,7 +127,7 @@ export const Selected: Story = {
   },
 };
 
-function linearJobs(count: number): Job[] {
+function linearJobs(count: number): WorkflowRunOverviewJob[] {
   return Array.from({length: count}, (_, index) =>
     makeJob({
       name: `job-${String(index + 1).padStart(2, '0')}`,
@@ -139,7 +138,7 @@ function linearJobs(count: number): Job[] {
   );
 }
 
-function unevenJoinRun(): WorkflowRunDetail {
+function unevenJoinRun(): WorkflowRunOverview {
   const packageJob = makeJob({name: 'package', position: 0, status: 'succeeded'});
   const securityScan = makeJob({name: 'security-scan', position: 1, status: 'succeeded'});
   const smokeTests = makeJob({
@@ -163,9 +162,9 @@ function unevenJoinRun(): WorkflowRunDetail {
   });
 }
 
-function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail {
+function makeRun({jobs = [], ...overrides}: RunOverrides = {}): WorkflowRunOverview {
   return {
-    ...workflowRunDetail({
+    ...workflowRunOverview({
       name: 'Deploy',
       status: 'running',
       trigger_source: 'manual',
@@ -174,13 +173,16 @@ function makeRun(overrides: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail 
       jobs: [],
     }),
     ...overrides,
+    jobs: {kind: 'complete', total: jobs.length, items: jobs},
   };
 }
 
-function makeJob(overrides: Partial<WorkflowRunJobDetailDto> & {name: string}): Job {
-  const job = workflowJob(overrides);
-  if (overrides.status === 'running' && job.jobExecutions.length === 0) {
-    return workflowJob({...overrides, steps: [workflowStepDto({status: 'running'})]});
-  }
-  return job;
+type RunOverrides = Omit<Partial<WorkflowRunOverview>, 'jobs'> & {
+  jobs?: WorkflowRunOverviewJob[];
+};
+
+function makeJob(
+  overrides: Parameters<typeof workflowRunOverviewJob>[0] & {name: string},
+): WorkflowRunOverviewJob {
+  return workflowRunOverviewJob(overrides);
 }

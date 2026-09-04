@@ -1,7 +1,6 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {
   WorkflowRunAnnotationItemDto,
-  WorkflowRunDetailResponseDto,
   WorkflowRunJobExplanationDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunOverviewResponseDto,
@@ -10,14 +9,7 @@ import {configureApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {type ReactNode, useEffect, useState} from 'react';
-import {
-  runAttemptsResponseDto,
-  workflowJobDto,
-  workflowJobExecutionDto,
-  workflowRunDetailDto,
-  workflowStepAttemptDto,
-  workflowStepDto,
-} from '#test/fixtures/workflow-run.js';
+import {runAttemptsResponseDto} from '#test/fixtures/workflow-run.js';
 import {WorkflowRunView} from './workflow-run-view.js';
 
 const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
@@ -88,65 +80,10 @@ function responseForPath(
   if (path === `/workflows/runs/${RUN_ID}/jobs`) {
     return {body: RUN_LARGE_JOBS_RESPONSE, status: 200};
   }
-  if (path === `/workflows/runs/${RUN_ID}`) return {body: RUN_RESPONSE, status: 200};
   return {body: {code: 'not-found'}, status: 404};
 }
 
-const RUN_RESPONSE: WorkflowRunDetailResponseDto = workflowRunDetailDto({
-  id: RUN_ID,
-  project_id: PROJECT_ID,
-  name: 'deploy-web',
-  status: 'succeeded',
-  started_at: RUN_STARTED_AT,
-  finished_at: RUN_FINISHED_AT,
-  has_started_job_execution: true,
-  jobs: [
-    workflowJobDto({
-      id: BUILD_JOB_ID,
-      key: 'build',
-      name: 'build',
-      status: 'succeeded',
-      position: 0,
-      job_executions: [
-        workflowJobExecutionDto({
-          id: BUILD_EXECUTION_ID,
-          job_id: BUILD_JOB_ID,
-          status: 'succeeded',
-          steps: [
-            workflowStepDto({
-              id: BUILD_STEP_ID,
-              name: 'run smoke checks',
-              status: 'succeeded',
-              attempts: [
-                workflowStepAttemptDto({
-                  id: BUILD_ATTEMPT_ID,
-                  step_id: BUILD_STEP_ID,
-                  attempt: 1,
-                  status: 'succeeded',
-                }),
-              ],
-            }),
-          ],
-        }),
-      ],
-    }),
-    workflowJobDto({
-      key: 'deploy',
-      name: 'deploy',
-      status: 'succeeded',
-      position: 1,
-      dependencies: ['build'],
-    }),
-    workflowJobDto({
-      key: 'notify',
-      name: 'notify',
-      status: 'succeeded',
-      position: 2,
-      dependencies: ['deploy'],
-    }),
-  ],
-});
-const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({attempts: []});
+const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({items: []});
 const BUILD_OVERVIEW_JOB = overviewJobDto({
   id: BUILD_JOB_ID,
   key: 'build',
@@ -156,22 +93,31 @@ const BUILD_OVERVIEW_JOB = overviewJobDto({
 });
 const RUN_OVERVIEW_RESPONSE: WorkflowRunOverviewResponseDto = {
   run: {
-    id: RUN_RESPONSE.id,
-    project_id: RUN_RESPONSE.project_id,
-    definition_id: RUN_RESPONSE.definition_id,
-    number: RUN_RESPONSE.number,
-    name: RUN_RESPONSE.name,
-    workflow_name: RUN_RESPONSE.workflow_name,
-    origin: RUN_RESPONSE.origin,
-    dev_source: RUN_RESPONSE.dev_source,
-    trigger_provider: RUN_RESPONSE.trigger_provider,
-    trigger_source: RUN_RESPONSE.trigger_source,
-    trigger_event: RUN_RESPONSE.trigger_event,
-    trigger_reference: RUN_RESPONSE.trigger_reference,
-    created_at: RUN_RESPONSE.created_at,
+    id: RUN_ID,
+    project_id: PROJECT_ID,
+    definition_id: '33333333-3333-4333-8333-333333333333',
+    number: 7,
+    name: 'deploy-web',
+    workflow_name: 'deploy-web',
+    origin: 'synced',
+    dev_source: null,
+    trigger_provider: null,
+    trigger_source: 'manual',
+    trigger_event: 'fire',
+    trigger_reference: null,
+    created_at: '2026-06-26T11:55:00.000Z',
   },
-  attempt: RUN_RESPONSE.run_attempt,
-  has_started_job_execution: RUN_RESPONSE.has_started_job_execution,
+  attempt: {
+    id: '22222222-2222-4222-8222-222222222222',
+    workflow_run_id: RUN_ID,
+    attempt: 1,
+    status: 'succeeded',
+    created_at: '2026-06-26T11:55:00.000Z',
+    started_at: RUN_STARTED_AT,
+    finished_at: RUN_FINISHED_AT,
+    rerun_mode: null,
+  },
+  has_started_job_execution: true,
   jobs: {
     kind: 'complete',
     total: 3,

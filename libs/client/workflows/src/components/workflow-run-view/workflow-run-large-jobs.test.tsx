@@ -3,7 +3,7 @@ import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {type WorkflowRunOverview, WorkflowRunOverviewJob} from '#core/workflow-run.js';
-import {workflowRunDetail} from '#test/fixtures/workflow-run.js';
+import {workflowRunOverview} from '#test/fixtures/workflow-run.js';
 import {WorkflowRunLargeJobs} from './workflow-run-large-jobs.js';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -74,7 +74,7 @@ describe('WorkflowRunLargeJobs', () => {
 });
 
 function largeRun(): WorkflowRunOverview {
-  const detail = workflowRunDetail({id: RUN_ID, status: 'succeeded', jobs: []});
+  const detail = workflowRunOverview({id: RUN_ID, status: 'succeeded'});
   const firstJob = new WorkflowRunOverviewJob({
     id: FIRST_JOB_ID,
     key: 'build',

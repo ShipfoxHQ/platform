@@ -1,5 +1,5 @@
 import type {
-  WorkflowRunDetailResponseDto,
+  WorkflowRunListItemDto,
   WorkflowRunResponseDto,
   WorkflowRunSelectionResponseDto,
 } from '@shipfox/api-workflows-dto';
@@ -12,8 +12,8 @@ import {
   workflowJobDetailResponseDto,
   workflowJobDto,
   workflowJobExecutionDto,
-  workflowRunDetailDto,
   workflowRunDto,
+  workflowRunFixtureDto,
   workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
@@ -62,7 +62,6 @@ const JOBS_TAB_NAME = /^Jobs/u;
 const BUILD_JOB_BUTTON_NAME = 'build, Succeeded';
 const DEPLOY_JOB_BUTTON_NAME = 'deploy, Running';
 const SELECTION_NOT_FOUND_DESCRIPTION_RE = /not part of this run/u;
-const RUN_DETAIL_PATH_RE = /^\/workflows\/runs\/([^/]+)$/u;
 const RUN_HEAD_PATH_RE = /^\/workflows\/runs\/([^/]+)\/head$/u;
 const RUN_OVERVIEW_PATH_RE = /^\/workflows\/runs\/([^/]+)\/overview$/u;
 const RUN_SELECTION_PATH_RE = /^\/workflows\/runs\/([^/]+)\/selection$/u;
@@ -71,7 +70,6 @@ const RUN_OVERRIDES = {
   id: RUN_ID,
   project_id: PROJECT_ID,
   definition_id: DEFINITION_ID,
-  trigger_payload: {source: 'manual', event: 'fire'},
   created_at: '2026-05-07T01:01:00.000Z',
   updated_at: '2026-05-07T01:02:00.000Z',
 } satisfies Partial<WorkflowRunResponseDto>;
@@ -347,7 +345,7 @@ describe('WorkflowRunPages', () => {
     expect(screen.getByRole('link', {name: 'Summary'})).toHaveAttribute('aria-current', 'page');
   });
 
-  test('redirects a legacy selected-step URL to its owning dedicated job page', async () => {
+  test('redirects a selected-step URL to its owning dedicated job page', async () => {
     const fetchImpl = createRunDetailFetch({
       selectionResponse: {
         workflow_run_id: RUN_ID,
@@ -571,7 +569,7 @@ describe('WorkflowRunPages', () => {
         runs: [workflowRunDto(RUN_OVERRIDES), workflowRunDto(SECOND_RUN_OVERRIDES)],
         details: {
           [RUN_ID]: defaultRunDetailDto(),
-          [SECOND_RUN_ID]: workflowRunDetailDto({...SECOND_RUN_OVERRIDES, jobs: []}),
+          [SECOND_RUN_ID]: workflowRunFixtureDto({...SECOND_RUN_OVERRIDES, jobs: []}),
         },
       }),
     });
@@ -677,10 +675,6 @@ function createRunsListFetch() {
         }),
       );
     }
-    if (url.pathname === `/workflows/runs/${RUN_ID}`) {
-      return Promise.resolve(jsonResponse(workflowRunDetailDto({...RUN_OVERRIDES, jobs: []})));
-    }
-
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });
 }
@@ -898,8 +892,8 @@ function createRunDetailFetch({
   selectionResponse,
   selectionErrorStatus,
 }: {
-  runs?: WorkflowRunResponseDto[];
-  details?: Record<string, WorkflowRunDetailResponseDto>;
+  runs?: WorkflowRunListItemDto[];
+  details?: Record<string, ReturnType<typeof workflowRunFixtureDto>>;
   selectionResponse?: WorkflowRunSelectionResponseDto | null | undefined;
   selectionErrorStatus?: number | undefined;
 } = {}) {
@@ -927,7 +921,7 @@ function createRunDetailFetch({
 
 function runResourceResponseForRequest(
   url: URL,
-  details: Record<string, WorkflowRunDetailResponseDto>,
+  details: Record<string, ReturnType<typeof workflowRunFixtureDto>>,
   selectionResponse: WorkflowRunSelectionResponseDto | null | undefined,
 ) {
   const runHead = runLineageHeadResponse(url, details);
@@ -939,9 +933,6 @@ function runResourceResponseForRequest(
       ? undefined
       : (selectionResponse ?? defaultSelectionResponse(selectionMatch[1]));
   }
-
-  const runDetail = runDetailResponse(url, details);
-  if (runDetail) return runDetail;
 
   const runOverview = runOverviewResponse(url, details);
   if (runOverview) return runOverview;
@@ -956,7 +947,10 @@ function defaultSelectionResponse(runId: string): WorkflowRunSelectionResponseDt
   return {workflow_run_id: runId, ...DEFAULT_SELECTION_RESPONSE};
 }
 
-function runLineageHeadResponse(url: URL, details: Record<string, WorkflowRunDetailResponseDto>) {
+function runLineageHeadResponse(
+  url: URL,
+  details: Record<string, ReturnType<typeof workflowRunFixtureDto>>,
+) {
   const runMatch = url.pathname.match(RUN_HEAD_PATH_RE);
   const detail = runMatch?.[1] ? details[runMatch[1]] : undefined;
   return detail
@@ -969,15 +963,10 @@ function runLineageHeadResponse(url: URL, details: Record<string, WorkflowRunDet
     : undefined;
 }
 
-function runDetailResponse(
+function runOverviewResponse(
   url: URL,
-  details: Record<string, WorkflowRunDetailResponseDto>,
-): WorkflowRunDetailResponseDto | undefined {
-  const runMatch = url.pathname.match(RUN_DETAIL_PATH_RE);
-  return runMatch?.[1] ? details[runMatch[1]] : undefined;
-}
-
-function runOverviewResponse(url: URL, details: Record<string, WorkflowRunDetailResponseDto>) {
+  details: Record<string, ReturnType<typeof workflowRunFixtureDto>>,
+) {
   const runMatch = url.pathname.match(RUN_OVERVIEW_PATH_RE);
   const detail = runMatch?.[1] ? details[runMatch[1]] : undefined;
   return detail ? workflowRunOverviewResponseDto(detail) : undefined;
@@ -985,7 +974,7 @@ function runOverviewResponse(url: URL, details: Record<string, WorkflowRunDetail
 
 function selectedJobDetailResponse(
   url: URL,
-  details: Record<string, WorkflowRunDetailResponseDto>,
+  details: Record<string, ReturnType<typeof workflowRunFixtureDto>>,
 ) {
   const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
   if (!jobMatch?.[1]) return undefined;
@@ -1035,9 +1024,9 @@ function requestInputUrl(input: RequestInfo | URL) {
 }
 
 function defaultRunDetailDto(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
-  return workflowRunDetailDto({
+  overrides: Parameters<typeof workflowRunFixtureDto>[0] = {},
+): ReturnType<typeof workflowRunFixtureDto> {
+  return workflowRunFixtureDto({
     ...RUN_OVERRIDES,
     jobs: [
       workflowJobDto({

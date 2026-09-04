@@ -14,7 +14,7 @@ export function JobGraph({
 }: JobGraphProps) {
   const model = useMemo(() => buildJobGraphModel({run}), [run]);
 
-  if (!Array.isArray(run.jobs) && run.jobs.kind === 'large') {
+  if (run.jobs.kind === 'large') {
     return (
       <EmptyState
         className={cn('min-h-160', className)}
