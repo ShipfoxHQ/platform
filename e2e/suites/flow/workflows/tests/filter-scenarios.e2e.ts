@@ -496,7 +496,7 @@ test.describe('filter scenarios', () => {
 
       expect(
         listenerDeliveryObserved({
-          observation: matchingFire.observation,
+          observation: terminal,
           jobKey: LISTENER_JOB,
           deliveryId: matchingFire.deliveryId,
         }).matched,

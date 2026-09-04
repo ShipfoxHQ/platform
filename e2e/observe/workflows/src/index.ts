@@ -396,6 +396,14 @@ async function readOverviewJobs(options: {
     cursor = page.next_cursor;
   }
 
+  if (requiredKeys.size > 0) {
+    throw new Error(
+      `Requested workflow run job keys were not found in bounded overview pages: ${[
+        ...requiredKeys,
+      ].join(', ')}; last bounded resource=${options.tracker.last}`,
+    );
+  }
+
   return jobs;
 }
 
@@ -432,6 +440,7 @@ async function readStepPages(options: {
   executionId: string;
   initial: WorkflowJobExecutionDetailDto['steps'];
   stepKeys: readonly string[] | undefined;
+  stepAttempts: readonly number[] | 'all' | undefined;
   signal: AbortSignal | undefined;
   tracker: ResourceTracker;
 }): Promise<StepSummaryDto[]> {
@@ -442,9 +451,14 @@ async function readStepPages(options: {
     requiredKeys.delete(step.name);
   }
 
-  let cursor = options.stepKeys === undefined ? null : options.initial.next_cursor;
+  const shouldReadAllSteps = shouldReadAllStepPages(options.stepKeys, options.stepAttempts);
+  let cursor = initialStepPageCursor(
+    options.stepKeys,
+    shouldReadAllSteps,
+    options.initial.next_cursor,
+  );
   const seenCursors = new Set<string>();
-  while (requiredKeys.size > 0 && cursor !== null) {
+  while (hasRemainingStepPages(requiredKeys, shouldReadAllSteps, cursor)) {
     if (seenCursors.has(cursor)) {
       throw new Error(
         `Repeated workflow execution step cursor; last bounded resource=${options.tracker.last}`,
@@ -475,6 +489,30 @@ async function readStepPages(options: {
   return steps.filter(
     (step) => (step.key !== null && selectedKeys.has(step.key)) || selectedKeys.has(step.name),
   );
+}
+
+function shouldReadAllStepPages(
+  stepKeys: readonly string[] | undefined,
+  stepAttempts: readonly number[] | 'all' | undefined,
+): boolean {
+  return stepKeys === undefined && stepAttempts !== undefined;
+}
+
+function initialStepPageCursor(
+  stepKeys: readonly string[] | undefined,
+  shouldReadAllSteps: boolean,
+  cursor: string | null,
+): string | null {
+  if (stepKeys === undefined && !shouldReadAllSteps) return null;
+  return cursor;
+}
+
+function hasRemainingStepPages(
+  requiredKeys: Set<string>,
+  shouldReadAllSteps: boolean,
+  cursor: string | null,
+): cursor is string {
+  return cursor !== null && (shouldReadAllSteps || requiredKeys.size > 0);
 }
 
 async function readStepAttemptSummaries(options: {
@@ -610,6 +648,7 @@ async function readExecutionObservation(options: {
         executionId: options.execution.id,
         initial: detail.steps,
         stepKeys: options.selection.stepKeys,
+        stepAttempts: options.selection.stepAttempts,
         signal: options.signal,
         tracker: options.tracker,
       }).then((items) =>
@@ -672,8 +711,13 @@ async function readExecutionSummaryPage(options: {
 function selectedExecutionSummaries(
   items: JobExecutionSummaryDto[],
   wanted: Set<number> | undefined,
+  excludedExecutionId: string | undefined,
 ): JobExecutionSummaryDto[] {
-  return wanted === undefined ? items : items.filter((execution) => wanted.has(execution.sequence));
+  return items.filter(
+    (execution) =>
+      execution.id !== excludedExecutionId &&
+      (wanted === undefined || wanted.has(execution.sequence)),
+  );
 }
 
 function hasAllRequestedExecutions(
@@ -700,6 +744,7 @@ async function readExecutionSummaries(options: {
   jobId: string;
   sequences: readonly number[] | 'all';
   selection: WorkflowJobObservationSelection;
+  excludedExecutionId?: string | undefined;
   signal: AbortSignal | undefined;
   tracker: ResourceTracker;
 }): Promise<WorkflowExecutionObservation[]> {
@@ -718,7 +763,7 @@ async function readExecutionSummaries(options: {
       tracker: options.tracker,
     });
 
-    const pageItems = selectedExecutionSummaries(page.items, wanted);
+    const pageItems = selectedExecutionSummaries(page.items, wanted, options.excludedExecutionId);
     const pageObservations = await Promise.all(
       pageItems.map((execution) =>
         readExecutionObservation({
@@ -759,6 +804,7 @@ async function readJobObservation(options: {
         selection.includeContext === true ||
         selection.stepAttempts !== undefined));
   const executions: WorkflowExecutionObservation[] = [];
+  let defaultExecutionId: string | undefined;
 
   if (needsDefault) {
     const detail = await readJobDetail({
@@ -768,6 +814,7 @@ async function readJobObservation(options: {
       tracker: options.tracker,
     });
     if (detail.selected_execution !== null) {
+      defaultExecutionId = detail.selected_execution.id;
       executions.push(
         await readExecutionObservation({
           client: options.client,
@@ -789,6 +836,7 @@ async function readJobObservation(options: {
         jobId: options.job.id,
         sequences: selection.executionSequences,
         selection,
+        excludedExecutionId: defaultExecutionId,
         signal: options.signal,
         tracker: options.tracker,
       })),

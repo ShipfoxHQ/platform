@@ -56,7 +56,14 @@ async function attachRunObservation(params: {
     const observation = await observeRun({
       runId: params.runId,
       selection: {
-        jobs: [{jobKey: LISTENER_JOB, executionSequences: 'all', includeContext: true}],
+        jobs: [
+          {
+            jobKey: LISTENER_JOB,
+            executionSequences: 'all',
+            includeContext: true,
+            stepAttempts: 'all',
+          },
+        ],
       },
       token: params.token,
     });

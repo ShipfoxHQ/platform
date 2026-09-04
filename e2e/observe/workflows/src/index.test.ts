@@ -553,7 +553,122 @@ describe('waitForRunTerminal', () => {
     expect(paths).toContain(
       `/workflows/runs/jobs/${jobId}/executions/${executionId}/steps?limit=100&cursor=steps-1`,
     );
-    expect(paths).not.toContain(`/workflows/runs/${runId}`);
+    expect(paths.every((path) => !path.includes(`/workflows/runs/${runId}?`))).toBe(true);
+  });
+
+  test('follows every step page when attempt details are selected without step keys', async () => {
+    const paths: string[] = [];
+    const otherStepId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const selectedJob = jobSummary({key: 'target'});
+    const otherStep = stepSummary({id: otherStepId, key: 'other'});
+    const selectedStep = stepSummary({key: 'target'});
+    const responses = new Map<string, Response>([
+      [`/workflows/runs/${runId}/head`, response(head('succeeded'))],
+      [`/workflows/runs/${runId}/overview?attempt=1`, response(overview({jobs: [selectedJob]}))],
+      [
+        `/workflows/runs/jobs/${jobId}`,
+        response({
+          workflow_run_id: runId,
+          workflow_run_attempt: 1,
+          job: selectedJob,
+          selected_execution: selectedExecutionDetail({
+            steps: [otherStep],
+            nextCursor: 'steps-1',
+          }),
+        }),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}/executions/${executionId}/steps?limit=100&cursor=steps-1`,
+        response({items: [selectedStep], next_cursor: null, total: 2}),
+      ],
+      [
+        `/workflows/runs/steps/${otherStepId}/attempts/1`,
+        response(stepDetail({step_id: otherStepId})),
+      ],
+      [`/workflows/runs/steps/${stepId}/attempts/1`, response(stepDetail())],
+    ]);
+
+    const result = await observeRun({
+      fetch: (input) => {
+        const url = new URL(input);
+        const path = `${url.pathname}${url.search}`;
+        paths.push(path);
+        const next = responses.get(path);
+        if (next === undefined) throw new Error(`Unexpected request: ${path}`);
+        return next;
+      },
+      runId,
+      selection: {
+        jobs: [{jobKey: 'target', includeDefaultExecution: true, stepAttempts: 'all'}],
+      },
+      token: 'user-token',
+    });
+
+    const target = result.jobs.find((job) => job.key === 'target');
+    expect(target?.executions[0]?.steps.map((step) => step.key)).toEqual(['other', 'target']);
+    expect(paths).toContain(
+      `/workflows/runs/jobs/${jobId}/executions/${executionId}/steps?limit=100&cursor=steps-1`,
+    );
+  });
+
+  test('does not re-read the default execution when it is selected by sequence', async () => {
+    const paths: string[] = [];
+    const selectedJob = jobSummary({key: 'target'});
+    const responses = new Map<string, Response>([
+      [`/workflows/runs/${runId}/head`, response(head('succeeded'))],
+      [`/workflows/runs/${runId}/overview?attempt=1`, response(overview({jobs: [selectedJob]}))],
+      [
+        `/workflows/runs/jobs/${jobId}`,
+        response({
+          workflow_run_id: runId,
+          workflow_run_attempt: 1,
+          job: selectedJob,
+          selected_execution: selectedExecutionDetail({steps: []}),
+        }),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}/executions?limit=25`,
+        response({items: [executionSummary()], next_cursor: null, total: 1}),
+      ],
+    ]);
+
+    const result = await observeRun({
+      fetch: (input) => {
+        const url = new URL(input);
+        const path = `${url.pathname}${url.search}`;
+        paths.push(path);
+        const next = responses.get(path);
+        if (next === undefined) throw new Error(`Unexpected request: ${path}`);
+        return next;
+      },
+      runId,
+      selection: {
+        jobs: [{jobKey: 'target', includeDefaultExecution: true, executionSequences: [1]}],
+      },
+      token: 'user-token',
+    });
+
+    expect(result.jobs.find((job) => job.key === 'target')?.executions).toHaveLength(1);
+    expect(paths.filter((path) => path === `/workflows/runs/jobs/${jobId}`)).toHaveLength(1);
+    expect(paths).not.toContain(`/workflows/runs/jobs/${jobId}?execution_id=${executionId}`);
+  });
+
+  test('reports selected job keys missing from bounded overview pages', async () => {
+    const result = observeRun({
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname.endsWith('/head')) return response(head('succeeded'));
+        if (url.pathname.endsWith('/overview')) return response(overview({jobs: []}));
+        throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+      },
+      runId,
+      selection: {jobs: [{jobKey: 'missing'}]},
+      token: 'user-token',
+    });
+
+    await expect(result).rejects.toThrow(
+      'Requested workflow run job keys were not found in bounded overview pages: missing; last bounded resource=workflow run overview attempt 1',
+    );
   });
 
   test('names the last bounded cursor resource when a page repeats', async () => {

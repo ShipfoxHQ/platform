@@ -8,6 +8,8 @@ import {
   type WorkflowRunObservationSelection,
 } from '@shipfox/e2e-observe-workflows';
 
+const OBSERVATION_ATTEMPT_TIMEOUT_MS = 500;
+
 export interface PollingOptions {
   fetch?: ApiFetch | undefined;
   projectId: string;
@@ -81,18 +83,26 @@ export async function waitForRunObservationMatching(params: {
 
   while (Date.now() <= deadline) {
     params.signal?.throwIfAborted();
-    const observation = await observeRun({
-      apiUrl: params.apiUrl,
-      fetch: params.fetch,
-      runId: params.runId,
-      selection: params.selection,
-      signal: params.signal,
-      timeoutMs: Math.max(1, deadline - Date.now()),
-      token: params.token,
-    });
-    const result = params.matches(observation);
-    if (result.matched) return observation;
-    lastDiagnostic = result.diagnostic;
+    try {
+      const observation = await observeRun({
+        apiUrl: params.apiUrl,
+        fetch: params.fetch,
+        runId: params.runId,
+        selection: params.selection,
+        signal: params.signal,
+        timeoutMs: OBSERVATION_ATTEMPT_TIMEOUT_MS,
+        token: params.token,
+      });
+      const result = params.matches(observation);
+      if (result.matched) return observation;
+      lastDiagnostic = result.diagnostic;
+    } catch (error) {
+      params.signal?.throwIfAborted();
+      if (lastDiagnostic === 'no bounded workflow observation observed') {
+        lastDiagnostic = error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (Date.now() > deadline) break;
     await delay(250, undefined, {signal: params.signal});
   }
 

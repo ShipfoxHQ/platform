@@ -58,6 +58,14 @@ function execution(
 
 function listenerJob(overrides: Partial<WorkflowJobObservation> = {}): WorkflowJobObservation {
   const executions = overrides.executions ?? [execution()];
+  const executionStatusCounts = {
+    pending: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    cancelled: 0,
+  };
+  for (const candidate of executions) executionStatusCounts[candidate.status] += 1;
   const base: WorkflowJobObservation = {
     id: '77777777-7777-4777-8777-777777777777',
     key: 'listen',
@@ -69,13 +77,7 @@ function listenerJob(overrides: Partial<WorkflowJobObservation> = {}): WorkflowJ
     listener_status: 'resolved',
     position: 0,
     execution_count: overrides.execution_count ?? executions.length,
-    execution_status_counts: {
-      pending: 0,
-      running: 0,
-      succeeded: 1,
-      failed: 0,
-      cancelled: 0,
-    },
+    execution_status_counts: executionStatusCounts,
     default_execution: null,
     executions,
   };
@@ -194,6 +196,7 @@ describe('listener helper predicates', () => {
     const result = listenerExecutionCountMatches({observation, jobKey: 'listen', count: 2});
 
     expect(result.matched).toBe(true);
+    expect(observation.jobs[0]?.execution_status_counts.succeeded).toBe(2);
   });
 
   test('matches listener resolution status', () => {

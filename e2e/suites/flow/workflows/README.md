@@ -161,6 +161,7 @@ Gitea admin/webhook variables live in `@shipfox/e2e-driver-gitea`.
 
 ## Artifacts
 
-On failure a scenario attaches the bounded workflow observation JSON, the evaluated
-mismatch diff, and the fetched step logs to its Playwright result. Each local runner writes stdout and
-stderr to `.e2e-run/runners/<label>.log`; failing scenarios attach that runner log.
+On failure a scenario attaches the bounded workflow observation JSON, the
+evaluated mismatch diff, and the fetched step logs to its Playwright result.
+Each local runner writes stdout and stderr to `.e2e-run/runners/<label>.log`;
+failing scenarios attach that runner log.

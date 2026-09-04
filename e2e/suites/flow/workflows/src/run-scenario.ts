@@ -61,6 +61,8 @@ function observationSelection(
         ? {}
         : {
             includeDefaultExecution: true,
+            executionSequences: 'all',
+            stepAttempts: 'all',
             stepKeys: Object.keys(jobExpectation.steps),
           }),
     })),
