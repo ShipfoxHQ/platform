@@ -101,7 +101,7 @@ function createListProjectsTool(projects: ProjectsModuleClient): AgentAccessTool
       const page = await projects.listProjectCatalogByWorkspace({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        cursor,
+        ...optionalCursor(cursor),
       });
       const result = {
         projects: page.projects.map(toProjectResult),
@@ -137,7 +137,7 @@ function createListWorkflowDefinitionsTool(
           workspaceId: context.workspaceId,
           projectId: input.project_id,
           limit: input.limit,
-          cursor,
+          ...optionalCursor(cursor),
         });
         const result = {
           definitions: page.definitions.map(toDefinitionResult),
@@ -210,8 +210,8 @@ function createListWorkflowRunsTool(
         workspaceId: context.workspaceId,
         projectId: input.project_id,
         limit: input.limit,
-        cursor,
-        filters: workflowRunFilters(input),
+        ...optionalCursor(cursor),
+        ...optionalFilters(workflowRunFilters(input)),
       });
       const result = {
         runs: page.runs.map(toWorkflowRunResult),
@@ -288,8 +288,8 @@ function createListTriggerEventsTool(triggers: TriggersInterModuleClient): Agent
       const page = await triggers.listTriggerEvents({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        cursor: cursor ? {receivedAt: cursor.createdAt, id: cursor.id} : undefined,
-        filters: triggerEventFilters(input),
+        ...optionalCursor(toTriggerEventReadCursor(cursor)),
+        ...optionalFilters(triggerEventFilters(input)),
       });
       const result = {
         trigger_events: page.events.map(toTriggerEventResult),
@@ -581,6 +581,18 @@ function triggerEventFilters(input: ListTriggerEventsInputDto) {
     ...(input.from === undefined ? {} : {from: input.from}),
     ...(input.to === undefined ? {} : {to: input.to}),
   };
+}
+
+function optionalCursor<Cursor>(cursor: Cursor | undefined): {cursor?: Cursor} {
+  return cursor === undefined ? {} : {cursor};
+}
+
+function optionalFilters<Filters>(filters: Filters | undefined): {filters?: Filters} {
+  return filters === undefined ? {} : {filters};
+}
+
+function toTriggerEventReadCursor(cursor: {createdAt: string; id: string} | undefined) {
+  return cursor ? {receivedAt: cursor.createdAt, id: cursor.id} : undefined;
 }
 
 function projectCursor(item: Record<string, unknown>): string {

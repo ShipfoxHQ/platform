@@ -14,6 +14,7 @@ import {
 import {
   decodeNumberIdCursor,
   decodeTimestampIdCursor,
+  encodeNumberIdCursor,
   encodeTimestampIdCursor,
 } from '@shipfox/node-drizzle';
 import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
@@ -302,6 +303,25 @@ describe('Workflows inter-module presentation', () => {
       workspaceId,
       workflowRunId,
       workflowRunAttempt: attempt,
+      limit: 100,
+    });
+    const annotationCursor = {value: 7, id: crypto.randomUUID()};
+    await expect(
+      presentation.handlers.listWorkflowRunAnnotations(
+        {
+          workspaceId,
+          workflowRunId,
+          limit: 100,
+          cursor: encodeNumberIdCursor(annotationCursor),
+        },
+        context,
+      ),
+    ).resolves.toEqual({workflow_run_attempt: attempt, items: [], nextCursor: null});
+    expect(listAnnotationsForRunAttempt).toHaveBeenNthCalledWith(2, {
+      workspaceId,
+      workflowRunId,
+      workflowRunAttempt: attempt,
+      cursor: annotationCursor,
       limit: 100,
     });
     await expect(
