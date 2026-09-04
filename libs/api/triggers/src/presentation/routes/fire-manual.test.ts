@@ -157,6 +157,36 @@ describe('POST /:definitionId/fire-manual', () => {
     });
   });
 
+  test('maps admission denial to 409 with required action details', async () => {
+    const definitionId = crypto.randomUUID();
+    const reason = 'billing-payment-method-required';
+    const requiredAction = {
+      reason,
+      message: 'Add a payment method to continue.',
+      url: '/settings/billing',
+    };
+    await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});
+    fireManualSubscriptionMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startRunFromTrigger,
+        'admission-denied',
+        {workspaceId, reason, requiredAction},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/${definitionId}/fire-manual`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: 'admission-denied',
+      details: {workspace_id: workspaceId, reason, required_action: requiredAction},
+    });
+  });
+
   test('maps missing workspace to 404', async () => {
     const definitionId = crypto.randomUUID();
     await triggerSubscriptionFactory.create({workspaceId, workflowDefinitionId: definitionId});

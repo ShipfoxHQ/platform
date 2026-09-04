@@ -8,18 +8,29 @@ import {
   NoFailedJobsError,
   RunNotTerminalError,
   SourceRunNotFoundError,
+  WorkflowAdmissionDeniedError,
   WorkspaceDeletedError,
   WorkspaceNotFoundError,
   WorkspaceSuspendedError,
 } from '#core/errors.js';
-import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
+import {
+  assertWorkspaceAdmitsNewJobs,
+  type WorkflowAdmissionPolicy,
+} from '#core/workspace-admission.js';
 import {createRerunWorkflowRun} from '#db/index.js';
 import {toRunDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
 
+const errorResponseSchema = z.object({
+  code: z.string(),
+  message: z.string().optional(),
+  details: z.unknown().optional(),
+});
+
 export function rerunRunRoute(
   projects: ProjectsModuleClient,
   workspaces: WorkspacesInterModuleClient,
+  admission?: {policy: WorkflowAdmissionPolicy} | undefined,
 ) {
   return defineRoute({
     method: 'POST',
@@ -32,6 +43,7 @@ export function rerunRunRoute(
       body: rerunWorkflowRunBodySchema,
       response: {
         200: workflowRunResponseSchema,
+        409: errorResponseSchema,
       },
     },
     errorHandler: (error) => {
@@ -62,13 +74,24 @@ export function rerunRunRoute(
           cause: error,
         });
       }
+      if (error instanceof WorkflowAdmissionDeniedError) {
+        throw new ClientError('Workflow admission denied', 'admission-denied', {
+          status: 409,
+          details: admissionDeniedDetails(error),
+          cause: error,
+        });
+      }
       throw error;
     },
     handler: async (request) => {
       const {id} = request.params;
       const sourceRun = await requireAccessibleRun({request, id, projects});
 
-      await assertWorkspaceAdmitsNewJobs(workspaces, sourceRun.workspaceId);
+      await assertWorkspaceAdmitsNewJobs(workspaces, sourceRun.workspaceId, {
+        policy: admission?.policy,
+        source: sourceRun.triggerSource,
+        definitionId: sourceRun.definitionId,
+      });
 
       const actor = requireUserContext(request);
       const run = await createRerunWorkflowRun({
@@ -80,4 +103,20 @@ export function rerunRunRoute(
       return toRunDto(run, run.currentAttempt);
     },
   });
+}
+
+function admissionDeniedDetails(error: WorkflowAdmissionDeniedError) {
+  return {
+    workspace_id: error.workspaceId,
+    reason: error.reason,
+    ...(error.requiredAction === undefined
+      ? {}
+      : {
+          required_action: {
+            reason: error.requiredAction.reason,
+            message: error.requiredAction.message,
+            url: error.requiredAction.url,
+          },
+        }),
+  };
 }

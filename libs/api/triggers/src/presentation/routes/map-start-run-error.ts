@@ -25,6 +25,24 @@ export function mapStartRunError(error: unknown, method: StartRunMethod): Client
         status: 404,
         cause: error,
       });
+    case 'admission-denied':
+      return new ClientError('Workflow admission denied', 'admission-denied', {
+        status: 409,
+        details: {
+          workspace_id: error.details.workspaceId,
+          reason: error.details.reason,
+          ...(error.details.requiredAction === undefined
+            ? {}
+            : {
+                required_action: {
+                  reason: error.details.requiredAction.reason,
+                  message: error.details.requiredAction.message,
+                  url: error.details.requiredAction.url,
+                },
+              }),
+        },
+        cause: error,
+      });
     case 'agent-config-unresolvable':
       return new ClientError(
         'Agent configuration cannot be resolved',

@@ -8,6 +8,7 @@ import type {RunnersInterModuleClient} from '@shipfox/api-runners-dto/inter-modu
 import type {SecretsInterModuleClient} from '@shipfox/api-secrets-dto/inter-module';
 import type {WorkspacesInterModuleClient} from '@shipfox/api-workspaces-dto/inter-module';
 import type {RouteGroup} from '@shipfox/node-fastify';
+import type {WorkflowAdmissionPolicy} from '#core/workspace-admission.js';
 import {createAgentRuntimeConfigRoute} from './agent-runtime-config.js';
 import {cancelRunRoute} from './cancel-run.js';
 import {createCheckoutTokenRoute} from './checkout-token.js';
@@ -43,6 +44,7 @@ type WorkflowRouteClients = {
   runners: RunnersInterModuleClient;
   secrets: SecretsInterModuleClient;
   workspaces: WorkspacesInterModuleClient;
+  admission?: {policy: WorkflowAdmissionPolicy} | undefined;
 };
 
 type LeaseTokenRouteClients = Omit<WorkflowRouteClients, 'workspaces'>;
@@ -91,7 +93,7 @@ export function createWorkflowRoutes(params: WorkflowRouteClients): RouteGroup[]
         getRunRoute(params.projects),
         getStepAttemptDetailRoute(params.projects),
         cancelRunRoute(params.projects),
-        rerunRunRoute(params.projects, params.workspaces),
+        rerunRunRoute(params.projects, params.workspaces, params.admission),
       ],
     },
     createLeaseTokenRouteGroup(params),

@@ -311,6 +311,18 @@ describe('workflowsInterModuleContract', () => {
     ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    [
+      'admission-denied',
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        reason: 'billing-payment-method-required',
+        requiredAction: {
+          reason: 'billing-payment-method-required',
+          message: 'Add a payment method to continue.',
+          url: '/settings/billing',
+        },
+      },
+    ],
     ['definition-not-found', {definitionId: '00000000-0000-4000-8000-000000000001'}],
     ['project-mismatch', {}],
     ['agent-config-unresolvable', {definitionId: '00000000-0000-4000-8000-000000000001'}],
@@ -438,6 +450,13 @@ describe('workflowsInterModuleContract', () => {
     ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    [
+      'admission-denied',
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        reason: 'billing-payment-method-required',
+      },
+    ],
     ['agent-config-unresolvable', {definitionId: '00000000-0000-4000-8000-000000000001'}],
     ['agent-integration-materialization-failed', {}],
     [
@@ -461,6 +480,13 @@ describe('workflowsInterModuleContract', () => {
     ['workspace-not-found', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-suspended', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
     ['workspace-deleted', {workspaceId: '00000000-0000-4000-8000-000000000010'}],
+    [
+      'admission-denied',
+      {
+        workspaceId: '00000000-0000-4000-8000-000000000010',
+        reason: 'billing-payment-method-required',
+      },
+    ],
   ] as const)('defines the %s listener-delivery failure', (code, details) => {
     const schema = workflowsInterModuleContract.methods.deliverEventToJobListener.errors[code];
 

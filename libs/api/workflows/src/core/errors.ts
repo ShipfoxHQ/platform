@@ -1,6 +1,7 @@
 import type {WorkflowExecutionPayloadFieldDto} from '@shipfox/api-workflows-dto';
 import type {JobStatus} from './entities/job.js';
 import type {WorkflowRunStatus} from './entities/workflow-run.js';
+import type {RequiredAction} from './workspace-admission.js';
 
 export class DefinitionNotFoundError extends Error {
   constructor(definitionId: string) {
@@ -36,6 +37,17 @@ export class WorkspaceNotFoundError extends Error {
   constructor(readonly workspaceId: string) {
     super(`Workspace not found: ${workspaceId}`);
     this.name = 'WorkspaceNotFoundError';
+  }
+}
+
+export class WorkflowAdmissionDeniedError extends Error {
+  constructor(
+    readonly workspaceId: string,
+    readonly reason: string,
+    readonly requiredAction?: RequiredAction | undefined,
+  ) {
+    super(`Workflow admission denied: ${reason}`);
+    this.name = 'WorkflowAdmissionDeniedError';
   }
 }
 

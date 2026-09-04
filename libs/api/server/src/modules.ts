@@ -26,7 +26,7 @@ import {
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
-import {createWorkflowsModule} from '@shipfox/api-workflows';
+import {type CreateWorkflowsModuleOptions, createWorkflowsModule} from '@shipfox/api-workflows';
 import {
   type WorkflowsModuleClient,
   workflowsInterModuleContract,
@@ -50,6 +50,7 @@ export interface DefaultModulesOptions {
   authModuleOptions?: DefaultAuthModuleOptions | undefined;
   agentModuleOptions?: DefaultAgentModuleOptions | undefined;
   runnersModuleOptions?: DefaultRunnersModuleOptions | undefined;
+  workflowsModuleOptions?: DefaultWorkflowsModuleOptions | undefined;
   authModuleFactory?: DefaultAuthModuleFactory | undefined;
   agentModuleFactory?: DefaultAgentModuleFactory | undefined;
   runnersModuleFactory?: DefaultRunnersModuleFactory | undefined;
@@ -96,6 +97,9 @@ export type DefaultRunnersModuleOptions = Pick<
   CreateRunnersModuleOptions,
   'installationProvisioning'
 >;
+
+/** Options for the standard Workflows module. */
+export type DefaultWorkflowsModuleOptions = Pick<CreateWorkflowsModuleOptions, 'admission'>;
 
 /** Full replacement escape hatch for the standard Runners module. */
 export type DefaultRunnersModuleFactory = (options: {auth: AuthInterModuleClient}) => ShipfoxModule;
@@ -307,6 +311,7 @@ export async function defaultModules(
     projectsModule,
     definitionsModule,
     createWorkflowsModule({
+      ...options.workflowsModuleOptions,
       annotations: annotationsClient,
       agent: agentClient,
       definitions: definitionsClient,

@@ -20,6 +20,7 @@ import type {
   DefaultAgentModuleFactory,
   DefaultAgentModuleOptions,
   DefaultModulesOptions,
+  DefaultWorkflowsModuleOptions,
 } from './modules.js';
 import {defaultModules} from './modules.js';
 
@@ -760,6 +761,17 @@ describe('defaultModules', () => {
       auth: expect.any(Object),
       installationProvisioning: {policy},
     });
+  });
+
+  it('composes Workflows admission options', async () => {
+    const policy = {admit: vi.fn().mockResolvedValue({allowed: true})};
+    const options: DefaultWorkflowsModuleOptions = {admission: {policy}};
+
+    await defaultModules({workflowsModuleOptions: options});
+
+    expect(mocks.createWorkflowsModule).toHaveBeenCalledWith(
+      expect.objectContaining({admission: {policy}}),
+    );
   });
 
   it('extends the default module list with the composed Workspaces client', async () => {

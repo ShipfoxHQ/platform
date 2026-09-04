@@ -7,6 +7,7 @@ export {
   type DefaultModulesOptions,
   type DefaultRunnersModuleFactory,
   type DefaultRunnersModuleOptions,
+  type DefaultWorkflowsModuleOptions,
   defaultModules,
 } from './modules.js';
 export {createLoginMethodsRoute} from './routes/login-methods.js';

@@ -75,6 +75,7 @@ export async function getJobById(id: string): Promise<Job | undefined> {
 export interface JobScope {
   workspaceId: string;
   projectId: string;
+  definitionId: string;
   triggerReference: WorkflowRunTriggerReference | null;
   /** The run's origin state, so checkout fallbacks can read the dev source. */
   run: WorkflowRunOriginState;
@@ -85,6 +86,7 @@ export async function getJobScope(jobId: string): Promise<JobScope | undefined> 
     .select({
       workspaceId: workflowRuns.workspaceId,
       projectId: workflowRuns.projectId,
+      definitionId: workflowRuns.definitionId,
       triggerReference: workflowRuns.triggerReference,
       origin: workflowRuns.origin,
       devSource: workflowRuns.devSource,
@@ -99,6 +101,7 @@ export async function getJobScope(jobId: string): Promise<JobScope | undefined> 
   return {
     workspaceId: row.workspaceId,
     projectId: row.projectId,
+    definitionId: row.definitionId,
     triggerReference: row.triggerReference,
     run: toWorkflowRunOriginState(row),
   };

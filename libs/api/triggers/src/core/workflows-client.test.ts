@@ -179,11 +179,14 @@ describe('WorkflowsModuleClient consumer parity', () => {
     'workspace-not-found',
     'workspace-suspended',
     'workspace-deleted',
+    'admission-denied',
   ] as const)('treats a %s listener delivery as permanent', (code) => {
     const error = createInterModuleKnownError(
       workflowsInterModuleContract.methods.deliverEventToJobListener,
       code,
-      {workspaceId: input.workspaceId},
+      code === 'admission-denied'
+        ? {workspaceId: input.workspaceId, reason: 'billing-payment-method-required'}
+        : {workspaceId: input.workspaceId},
     );
 
     expect(isPermanentDeliverEventToJobListenerError(error)).toBe(true);

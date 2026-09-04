@@ -209,6 +209,7 @@ describe('GET /runs/jobs/current/steps/:stepId/secrets', () => {
     expect(scope).toEqual({
       workspaceId: run.workspaceId,
       projectId: run.projectId,
+      definitionId: run.definitionId,
       triggerReference: null,
       run: {origin: 'synced', devSource: null},
     });

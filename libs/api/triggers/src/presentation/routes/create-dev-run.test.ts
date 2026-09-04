@@ -422,6 +422,34 @@ describe('POST /dev-runs', () => {
     });
   });
 
+  test('maps admission denial to 409 with required action details', async () => {
+    const reason = 'billing-payment-method-required';
+    const requiredAction = {
+      reason,
+      message: 'Add a payment method to continue.',
+      url: '/settings/billing',
+    };
+    createDevRunMock.mockRejectedValue(
+      createInterModuleKnownError(
+        workflowsInterModuleContract.methods.startDevRun,
+        'admission-denied',
+        {workspaceId, reason, requiredAction},
+      ),
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/dev-runs',
+      payload: VALID_BODY,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: 'admission-denied',
+      details: {workspace_id: workspaceId, reason, required_action: requiredAction},
+    });
+  });
+
   test.each([
     ['workspace-deleted', 404, 'workspace-deleted', 'Workspace is deleted'],
     ['workspace-not-found', 404, 'workspace-not-found', 'Workspace not found'],

@@ -59,6 +59,14 @@ function definitionNotFound(_definitionId: string) {
   );
 }
 
+function admissionDenied(workspaceId: string) {
+  return createInterModuleKnownError(
+    workflowsInterModuleContract.methods.startRunFromTrigger,
+    'admission-denied',
+    {workspaceId, reason: 'billing-payment-method-required'},
+  );
+}
+
 function projectMismatch() {
   return createInterModuleKnownError(
     workflowsInterModuleContract.methods.startRunFromTrigger,
@@ -976,6 +984,29 @@ describe('dispatchIntegrationEvent trigger history', () => {
     expect(errored?.reason).toContain('definition-not-found');
     expect(triggered?.decision).toBe('triggered');
     expect(triggered?.runId).toBe(run.id);
+  });
+
+  test('records an admission denial reason as a terminal integration event', async () => {
+    const workspaceId = crypto.randomUUID();
+    const eventRef = crypto.randomUUID();
+    await triggerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+      config: {},
+    });
+    runWorkflow.mockRejectedValue(admissionDenied(workspaceId));
+
+    await dispatch({workspaceId, eventRef});
+
+    const event = await receivedEvent(eventRef);
+    if (!event) throw new Error('received event not found');
+    expect(event.outcome).toBe('errored');
+    const [decision] = await decisionsForEvent(event.id);
+    expect(decision).toMatchObject({
+      decision: 'dispatch-error',
+      reason: 'billing-payment-method-required',
+    });
   });
 
   test('marks the event errored when every subscription errors permanently', async () => {

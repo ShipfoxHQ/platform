@@ -10,6 +10,7 @@ import {decodeNumberIdCursor} from '@shipfox/node-drizzle';
 import type {WorkflowRun} from '#core/entities/workflow-run.js';
 import {
   InvalidJobRunnerLabelsError,
+  WorkflowAdmissionDeniedError,
   WorkflowDiagnosticTooLargeError,
   WorkflowExecutionPayloadTooLargeError,
   WorkflowSourceSnapshotTooLargeError,
@@ -904,6 +905,15 @@ describe('Workflows inter-module presentation', () => {
 
   test.each([
     ['definition-not-found', () => new DefinitionNotFoundError(input.definitionId)],
+    [
+      'admission-denied',
+      () =>
+        new WorkflowAdmissionDeniedError(input.workspaceId, 'billing-payment-method-required', {
+          reason: 'billing-payment-method-required',
+          message: 'Add a payment method to continue.',
+          url: '/settings/billing',
+        }),
+    ],
     ['project-mismatch', () => new ProjectMismatchError(input.projectId, input.definitionId)],
     ['agent-config-unresolvable', () => new AgentConfigUnresolvableError(input.definitionId)],
     [
@@ -950,6 +960,52 @@ describe('Workflows inter-module presentation', () => {
     const error = new WorkflowDiagnosticTooLargeError('config', 64 * 1024, 64 * 1024 + 1);
 
     expect(toStartRunKnownError(error, input.definitionId)).toBe(error);
+  });
+
+  test('denies a start-run before loading the workflow definition', async () => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+    const admit = vi.fn().mockResolvedValue({
+      allowed: false,
+      reason: 'billing-payment-method-required',
+      requiredAction: {
+        reason: 'billing-payment-method-required',
+        message: 'Add a payment method to continue.',
+        url: '/settings/billing',
+      },
+    });
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+      admission: {policy: {admit}},
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.startRunFromTrigger(input, {
+        signal: new AbortController().signal,
+      }),
+    ).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startRunFromTrigger, error) &&
+        error.code,
+    ).toBe('admission-denied');
+    expect(error).toMatchObject({
+      details: {
+        workspaceId: input.workspaceId,
+        reason: 'billing-payment-method-required',
+        requiredAction: {url: '/settings/billing'},
+      },
+    });
+    expect(admit).toHaveBeenCalledWith({
+      workspaceId: input.workspaceId,
+      source: 'manual',
+      definitionId: input.definitionId,
+    });
   });
 
   test('maps a missing workspace from the Workspace contract for start-run', async () => {
@@ -1051,6 +1107,45 @@ describe('Workflows inter-module presentation', () => {
     const error = new WorkflowDiagnosticTooLargeError('evaluation_trace', 64 * 1024, 64 * 1024 + 1);
 
     expect(toStartDevRunKnownError(error)).toBe(error);
+  });
+
+  test('denies a dev run before creating the run', async () => {
+    const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'active'});
+    const admit = vi
+      .fn()
+      .mockResolvedValue({allowed: false, reason: 'billing-payment-method-required'});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {getWorkspaceOperatingState} as never,
+      admission: {policy: {admit}},
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.startDevRun(devInput, {
+        signal: new AbortController().signal,
+      }),
+    ).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(workflowsInterModuleContract.methods.startDevRun, error) &&
+        error.code,
+    ).toBe('admission-denied');
+    expect(error).toMatchObject({
+      details: {
+        workspaceId: devInput.workspaceId,
+        reason: 'billing-payment-method-required',
+      },
+    });
+    expect(admit).toHaveBeenCalledWith({
+      workspaceId: devInput.workspaceId,
+      source: 'manual',
+      definitionId: devInput.workflowId,
+    });
   });
 
   test.each([
@@ -1206,6 +1301,59 @@ describe('Workflows inter-module presentation', () => {
     ).toBe('workspace-not-found');
   });
 
+  test('denies fire listener deliveries before materialization', async () => {
+    const jobId = '00000000-0000-4000-8000-000000000006';
+    const workspaceId = '00000000-0000-4000-8000-000000000007';
+    const definitionId = '00000000-0000-4000-8000-000000000008';
+    const admit = vi
+      .fn()
+      .mockResolvedValue({allowed: false, reason: 'billing-payment-method-required'});
+    mocks.getJobScope.mockResolvedValue({workspaceId, projectId: input.projectId, definitionId});
+    const presentation = createWorkflowsInterModulePresentation({
+      agent: {} as never,
+      definitions: {} as never,
+      integrations: {} as never,
+      projects: {} as never,
+      runners: {} as never,
+      secrets: {} as never,
+      workspaces: {
+        getWorkspaceOperatingState: vi.fn().mockResolvedValue({status: 'active'}),
+      } as never,
+      admission: {policy: {admit}},
+    });
+
+    const error = await Promise.resolve(
+      presentation.handlers.deliverEventToJobListener(
+        {
+          ...input,
+          jobId,
+          disposition: 'fire',
+          eventRef: 'event-1',
+          deliveryId: 'delivery-1',
+          source: 'github',
+          event: 'push',
+          provider: 'github',
+          payload: {},
+          receivedAt: '2026-07-20T12:00:00.000Z',
+        },
+        {signal: new AbortController().signal},
+      ),
+    ).catch((caught: unknown) => caught);
+
+    expect(
+      isInterModuleKnownError(
+        workflowsInterModuleContract.methods.deliverEventToJobListener,
+        error,
+      ) && error.code,
+    ).toBe('admission-denied');
+    expect(admit).toHaveBeenCalledWith({
+      workspaceId,
+      source: 'github',
+      definitionId,
+    });
+    expect(mocks.deliverEventToListener).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['suspended', 'workspace-suspended'],
     ['deleted', 'workspace-deleted'],
@@ -1307,6 +1455,9 @@ describe('Workflows inter-module presentation', () => {
     const jobId = '00000000-0000-4000-8000-000000000006';
     mocks.getJobScope.mockResolvedValue({workspaceId: input.workspaceId});
     const getWorkspaceOperatingState = vi.fn().mockResolvedValue({status: 'suspended'});
+    const admit = vi
+      .fn()
+      .mockResolvedValue({allowed: false, reason: 'billing-payment-method-required'});
     const presentation = createWorkflowsInterModulePresentation({
       agent: {} as never,
       definitions: {} as never,
@@ -1315,6 +1466,7 @@ describe('Workflows inter-module presentation', () => {
       runners: {} as never,
       secrets: {} as never,
       workspaces: {getWorkspaceOperatingState} as never,
+      admission: {policy: {admit}},
     });
 
     await expect(
@@ -1335,6 +1487,7 @@ describe('Workflows inter-module presentation', () => {
     ).resolves.toEqual({buffered: true, skipped: false});
     expect(mocks.getJobScope).not.toHaveBeenCalled();
     expect(getWorkspaceOperatingState).not.toHaveBeenCalled();
+    expect(admit).not.toHaveBeenCalled();
     expect(mocks.deliverEventToListener).toHaveBeenCalled();
   });
 
