@@ -78,8 +78,19 @@ function boundedText(value: string, maxBytes: number): string {
   const measuredBytes = Buffer.byteLength(value, 'utf8');
   if (measuredBytes <= maxBytes) return value;
 
-  let end = value.length;
-  while (end > 0 && Buffer.byteLength(value.slice(0, end), 'utf8') > maxBytes) end -= 1;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const midpoint = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, midpoint), 'utf8') <= maxBytes) {
+      low = midpoint;
+    } else {
+      high = midpoint - 1;
+    }
+  }
+  const endsWithHighSurrogate =
+    low > 0 && value.charCodeAt(low - 1) >= 0xd800 && value.charCodeAt(low - 1) <= 0xdbff;
+  const end = endsWithHighSurrogate ? low - 1 : low;
   return `${value.slice(0, end)}\n[e2e diagnostic text omitted after ${maxBytes} UTF-8 bytes; measured=${measuredBytes}]`;
 }
 

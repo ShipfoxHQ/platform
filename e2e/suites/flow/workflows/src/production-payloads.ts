@@ -172,9 +172,9 @@ export function productionPayloadListenerWorkflow(params: {batchMaxSize?: number
     params.batchMaxSize === undefined
       ? ''
       : `      batch:
-        debounce: 1s
+        debounce: 5s
         max_size: ${params.batchMaxSize}
-        max_wait: 5s
+        max_wait: 30s
 `;
   return `
 name: Production payload listener

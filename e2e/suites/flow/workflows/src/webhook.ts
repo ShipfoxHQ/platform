@@ -97,26 +97,35 @@ export async function waitForTriggerEvent(params: {
       describe: () => `Timed out waiting for trigger event: ${lastObserved}`,
     },
     async () => {
-      const search = new URLSearchParams({
-        workspace_id: params.workspaceId,
-        source: params.source,
-        event: params.event,
-        outcome: params.outcome,
-        limit: '100',
-      });
-      const events = await client.requestJson<TriggerEventListResponseDto>(
-        'get',
-        `/trigger-events?${search}`,
-      );
-      lastObserved = `count=${events.trigger_events.length}, deliveryId=${params.deliveryId}`;
-      const event = events.trigger_events.find(
-        (candidate) => candidate.delivery_id === params.deliveryId,
-      );
-      if (!event) return null;
-      return await client.requestJson<TriggerEventDetailResponseDto>(
-        'get',
-        `/trigger-events/${event.id}`,
-      );
+      let cursor: string | null = null;
+      let page = 0;
+      while (true) {
+        const search = new URLSearchParams({
+          workspace_id: params.workspaceId,
+          source: params.source,
+          event: params.event,
+          outcome: params.outcome,
+          limit: '100',
+        });
+        if (cursor !== null) search.set('cursor', cursor);
+        const events = await client.requestJson<TriggerEventListResponseDto>(
+          'get',
+          `/trigger-events?${search}`,
+        );
+        page += 1;
+        lastObserved = `page=${page}, count=${events.trigger_events.length}, deliveryId=${params.deliveryId}`;
+        const event = events.trigger_events.find(
+          (candidate) => candidate.delivery_id === params.deliveryId,
+        );
+        if (event) {
+          return await client.requestJson<TriggerEventDetailResponseDto>(
+            'get',
+            `/trigger-events/${event.id}`,
+          );
+        }
+        if (events.next_cursor === null) return null;
+        cursor = events.next_cursor;
+      }
     },
   );
 }
