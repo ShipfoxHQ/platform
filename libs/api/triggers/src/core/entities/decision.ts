@@ -1,7 +1,9 @@
+import type {TriggerDecisionDiagnostic} from './diagnostic.js';
 import type {JobListenerMatcherKind} from './job-listener-subscription.js';
 
 export const triggerDecisionOutcomes = [
   'triggered',
+  'filtered',
   'filter-error',
   'dispatch-error',
   'rejected',
@@ -26,5 +28,6 @@ export interface TriggerDecision {
   runId: string | null;
   runName: string | null;
   reason: string | null;
+  diagnostic?: TriggerDecisionDiagnostic | null;
   createdAt: Date;
 }

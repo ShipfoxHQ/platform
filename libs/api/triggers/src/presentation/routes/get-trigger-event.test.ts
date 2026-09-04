@@ -74,7 +74,7 @@ describe('GET /trigger-events/:id', () => {
     ).toEqual(['Deploy production', 'Lint checks']);
     expect(body.decisions[1].decision).toBe('dispatch-error');
     expect(body.decisions[1].run_id).toBeNull();
-    expect(body.decisions[1].reason).toBe('boom');
+    expect(body.decisions[1].reason).toBeNull();
   });
 
   test('normalizes legacy errored decisions before serializing the response', async () => {
@@ -100,9 +100,7 @@ describe('GET /trigger-events/:id', () => {
     const res = await app.inject({method: 'GET', url: `/trigger-events/${event.id}`});
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().decisions).toMatchObject([
-      {decision: 'dispatch-error', reason: 'legacy failure'},
-    ]);
+    expect(res.json().decisions).toMatchObject([{decision: 'dispatch-error', reason: null}]);
   });
 
   test('returns mixed trigger and listener decisions', async () => {
@@ -185,7 +183,7 @@ describe('GET /trigger-events/:id', () => {
           subscription_kind: 'dev',
           subscription_id: null,
           decision: 'filter-error',
-          reason: 'filter is false',
+          reason: null,
         },
       ],
     });

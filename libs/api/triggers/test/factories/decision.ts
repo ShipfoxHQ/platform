@@ -22,6 +22,7 @@ export const decisionFactory = Factory.define<TriggerDecision>(({onCreate}) => {
         runId: decision.runId,
         runName: decision.runName,
         reason: decision.reason,
+        diagnostic: decision.diagnostic ?? null,
       })
       .returning();
     if (!row) throw new Error('Insert returned no rows');
@@ -44,6 +45,7 @@ export const decisionFactory = Factory.define<TriggerDecision>(({onCreate}) => {
     runId: crypto.randomUUID(),
     runName: 'deploy',
     reason: null,
+    diagnostic: null,
     createdAt: new Date(),
   };
 });

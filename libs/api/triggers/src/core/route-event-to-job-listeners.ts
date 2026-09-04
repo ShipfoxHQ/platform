@@ -8,9 +8,11 @@ import {findMatchingJobListenerSubscriptions} from '#db/job-listener-subscriptio
 import {listenerDeliveryRejectionsCount} from '#metrics/instance.js';
 import {evaluateStoredFilter, type StoredFilterEvaluation} from './config.js';
 import type {JobListenerSubscription} from './entities/job-listener-subscription.js';
+import {TriggerReferenceResolutionError} from './errors.js';
 import {type TriggerHistoryRecorder, toReason} from './record-trigger-history.js';
 import {
   isPermanentDeliverEventToJobListenerError,
+  listenerDeliveryDiagnostic,
   type WorkflowsModuleClient,
 } from './workflows-client.js';
 
@@ -66,17 +68,7 @@ export async function routeEventToJobListeners(
     (subscription) => listenerDisposition(subscription) === 'fire',
   );
   const triggerReference = fireDeliveryNeeded
-    ? await params.workflows.resolveWorkflowRunTriggerReference({
-        workspaceId: params.workspaceId,
-        triggerConnectionId: params.connectionId,
-        triggerPayload: {
-          provider: params.provider,
-          source: params.source,
-          event: params.event,
-          deliveryId: params.deliveryId,
-          data: params.payload,
-        },
-      })
+    ? await resolveTriggerReference(params, filterErrorCount)
     : null;
 
   const delivery = await deliverEventToMatchedListeners(
@@ -99,6 +91,27 @@ export async function routeEventToJobListeners(
   };
 }
 
+async function resolveTriggerReference(
+  params: RouteEventToJobListenersParams,
+  engagedCount: number,
+) {
+  try {
+    return await params.workflows.resolveWorkflowRunTriggerReference({
+      workspaceId: params.workspaceId,
+      triggerConnectionId: params.connectionId,
+      triggerPayload: {
+        provider: params.provider,
+        source: params.source,
+        event: params.event,
+        deliveryId: params.deliveryId,
+        data: params.payload,
+      },
+    });
+  } catch (error) {
+    throw new TriggerReferenceResolutionError(error, engagedCount);
+  }
+}
+
 async function collectEffectiveListenerMatches(
   params: Pick<RouteEventToJobListenersParams, 'history' | 'payload'>,
   subscriptions: readonly JobListenerSubscription[],
@@ -113,7 +126,11 @@ async function collectEffectiveListenerMatches(
     if (filterResult.kind === 'filtered') continue;
     if (filterResult.kind === 'filter-error') {
       filterErrorCount += 1;
-      await params.history.listenerFilterErrored(subscription, filterResult.reason);
+      await params.history.listenerFilterErrored(
+        subscription,
+        filterResult.reason,
+        filterResult.diagnostic,
+      );
       continue;
     }
     const previous = effectiveMatchByJobId.get(subscription.jobId);
@@ -178,7 +195,13 @@ async function deliverEventToMatchedListener(
     });
     if (result.rejection !== undefined) {
       state.rejectedJobCount += 1;
-      await params.history.listenerDeliveryRejected(subscription, result.rejection.reason);
+      await params.history.listenerDeliveryRejected(subscription, result.rejection.reason, {
+        version: 1,
+        code: 'listener-event-payload-too-large',
+        limitBytes: result.rejection.limitBytes,
+        measuredBytes: result.rejection.measuredBytes,
+        overshootBytes: result.rejection.measuredBytes - result.rejection.limitBytes,
+      });
       listenerDeliveryRejectionsCount.add(1, {reason: 'payload_too_large'});
     } else {
       if (!result.skipped) {
@@ -189,7 +212,11 @@ async function deliverEventToMatchedListener(
     }
   } catch (error) {
     state.dispatchErrorCount += 1;
-    await params.history.listenerDispatchErrored(subscription, toReason(error));
+    await params.history.listenerDispatchErrored(
+      subscription,
+      toReason(error),
+      listenerDeliveryDiagnostic(error),
+    );
     if (!isPermanentDeliverEventToJobListenerError(error) && !state.sawTransientError) {
       state.sawTransientError = true;
       state.firstTransientError = error;
@@ -214,6 +241,7 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
       ),
       invalidReason: 'Listener subscription filter must be a non-empty string when set',
       evaluationFailedReason: 'Listener filter evaluation failed',
+      invalidDiagnosticCode: 'filter-config-invalid',
     });
   }
 
@@ -231,6 +259,7 @@ function evaluateListenerFilter(params: EvaluateListenerFilterParams): StoredFil
     ),
     invalidReason: 'Listener subscription filter must be a non-empty string when set',
     evaluationFailedReason: 'Listener filter evaluation failed',
+    invalidDiagnosticCode: 'filter-config-invalid',
   });
 }
 
@@ -249,6 +278,7 @@ function readFilterSnapshot(
       result: {
         kind: 'filter-error',
         reason: 'Listener filter snapshot must be an object when set',
+        diagnostic: {version: 1, code: 'listener-snapshot-invalid'},
       },
     };
   }
@@ -262,6 +292,7 @@ function readFilterSnapshot(
         result: {
           kind: 'filter-error',
           reason: 'Listener filter output types must be valid when set',
+          diagnostic: {version: 1, code: 'listener-output-types-invalid'},
         },
       };
     }

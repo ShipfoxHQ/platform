@@ -145,6 +145,16 @@ const triggerTypeEnvironment = {
   },
 } as const satisfies ExpressionTypeEnvironment;
 
+const triggerFilterTypeEnvironment = {
+  trigger: {
+    kind: 'object',
+    fields: {
+      source: 'string',
+      event: 'string',
+    },
+  },
+} as const satisfies ExpressionTypeEnvironment;
+
 const jobTypeEnvironment = {
   job: {
     kind: 'object',
@@ -669,6 +679,7 @@ const workflowPredicateFieldMinimumFillTargets = {
 const workflowPredicateFieldTypeEnvironments: Partial<
   Record<WorkflowPredicateField, ExpressionTypeEnvironment>
 > = {
+  'trigger.filter': triggerFilterTypeEnvironment,
   'step.success': stepReportTypeEnvironment,
   'step.if': stepDispatchTypeEnvironment,
 };

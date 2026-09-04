@@ -22,8 +22,9 @@ import {
 const resolveDefinitionAtRef = vi.fn();
 const startDevRun = vi.fn();
 const devRunsCount = vi.hoisted(() => ({add: vi.fn()}));
+const diagnosticCount = vi.hoisted(() => ({add: vi.fn()}));
 
-vi.mock('#metrics/instance.js', () => ({devRunsCount}));
+vi.mock('#metrics/instance.js', () => ({devRunsCount, diagnosticCount}));
 
 const {createDevRun} = await import('./create-dev-run.js');
 
@@ -118,6 +119,7 @@ describe('createDevRun', () => {
     resolveDefinitionAtRef.mockReset();
     startDevRun.mockReset();
     devRunsCount.add.mockReset();
+    diagnosticCount.add.mockReset();
   });
 
   test('creates a manual dev run with the trigger `with` inputs and journals one dev decision', async () => {
@@ -525,7 +527,7 @@ describe('createDevRun', () => {
     expect(await devEventsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
 
-  test('refuses a filter-false replay with the reason and journals a filter-error decision', async () => {
+  test('refuses a filter-false replay and journals a filtered decision', async () => {
     const params = buildParams({
       triggerKey: 'on_push',
       triggers: {
@@ -575,9 +577,10 @@ describe('createDevRun', () => {
       subscriptionKind: 'dev',
       subscriptionName: 'on_push',
       workflowDefinitionId: WORKFLOW_ID,
-      decision: 'filter-error',
+      decision: 'filtered',
       runId: null,
-      reason: 'Trigger filter evaluated to false',
+      reason: null,
+      diagnostic: null,
     });
     expect(await subscriptionsForWorkspace(params.workspaceId)).toHaveLength(0);
   });
@@ -609,7 +612,11 @@ describe('createDevRun', () => {
     expect(startDevRun).not.toHaveBeenCalled();
     expect(devRunsCount.add).toHaveBeenCalledWith(1, {
       trigger_kind: 'replay',
-      outcome: 'filtered',
+      outcome: 'errored',
+    });
+    expect(diagnosticCount.add).toHaveBeenCalledWith(1, {
+      scope: 'decision',
+      code: 'expression-evaluation-failed',
     });
 
     const events = await devEventsForWorkspace(params.workspaceId);
@@ -618,7 +625,7 @@ describe('createDevRun', () => {
     if (!event) throw new Error('received event not found');
     expect(event).toMatchObject({
       replayOfEventId: sourceEvent.id,
-      outcome: 'discarded',
+      outcome: 'errored',
     });
     expect(event.processedAt).toBeInstanceOf(Date);
     const decisions = await decisionsForEvent(event.id);
@@ -628,6 +635,7 @@ describe('createDevRun', () => {
       decision: 'filter-error',
       runId: null,
       reason: 'Trigger filter evaluation failed',
+      diagnostic: expect.objectContaining({version: 1, code: 'expression-evaluation-failed'}),
     });
   });
 

@@ -1,7 +1,7 @@
 import {useProjectQuery, useProjectsInfiniteQuery} from '@shipfox/client-projects';
 import {Badge} from '@shipfox/react-ui/badge';
 import {Button} from '@shipfox/react-ui/button';
-import {Callout} from '@shipfox/react-ui/callout';
+import {Callout, CalloutContent, CalloutDescription, CalloutTitle} from '@shipfox/react-ui/callout';
 import {
   CodeBlock,
   CodeBlockBody,
@@ -19,13 +19,14 @@ import {RelativeTime} from '@shipfox/react-ui/relative-time';
 import {Skeleton} from '@shipfox/react-ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Code, Text} from '@shipfox/react-ui/typography';
-import {cn} from '@shipfox/react-ui/utils';
+import {cn, formatBytes} from '@shipfox/react-ui/utils';
 import {Link} from '@tanstack/react-router';
 import {useMemo} from 'react';
 import type {
   TriggerEventDetail as TriggerEventDetailModel,
   TriggerEventMatchedWorkflowResult,
 } from '#core/trigger-event.js';
+import {getTriggerEventIssueCallout, type TriggerEventIssue} from '#core/trigger-event-issues.js';
 import {useTriggerEventQuery} from '#hooks/api/trigger-events.js';
 import {triggerEventResult} from './trigger-event-result.js';
 import {TriggerSourceIcon} from './trigger-source-icon.js';
@@ -139,11 +140,69 @@ export function TriggerEventDetailView({
         key={event.id}
         className="flex min-h-0 flex-1 flex-col gap-group overflow-y-auto scrollbar"
       >
+        <EventIssueCallout event={event} />
         <EventRuns workspaceId={workspaceId} workspaceSlug={workspaceSlug} event={event} />
         <EventPayload payload={formattedPayload} />
       </div>
     </aside>
   );
+}
+
+function EventIssueCallout({event}: {event: TriggerEventDetailModel}) {
+  const callout = getTriggerEventIssueCallout(event);
+  if (callout === null) return null;
+  const firstIssue = callout.issues[0];
+  if (firstIssue === undefined) return null;
+
+  return (
+    <Callout type={callout.type}>
+      <CalloutContent>
+        <CalloutTitle>{callout.title}</CalloutTitle>
+        <CalloutDescription>
+          {callout.successSummary === null ? null : (
+            <p className="mb-tight">{callout.successSummary}</p>
+          )}
+          {callout.issues.length === 1 ? (
+            <IssueDescription issue={firstIssue} />
+          ) : (
+            <ul className="flex flex-col gap-tight">
+              {callout.issues.map((issue) => (
+                <li key={issue.id}>
+                  <span className="font-medium text-foreground-neutral-base">
+                    {issue.affectedCount > 1
+                      ? `${issue.affectedCount} affected decisions`
+                      : (issue.targetName ?? issue.title)}
+                    :
+                  </span>{' '}
+                  <IssueDescription issue={issue} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {callout.hiddenIssueCount > 0 ? (
+            <Text as="p" size="xs" className="mt-tight text-foreground-neutral-muted">
+              {callout.hiddenIssueCount} more{' '}
+              {callout.hiddenIssueCount === 1 ? 'issue was' : 'issues were'} recorded.
+            </Text>
+          ) : null}
+        </CalloutDescription>
+      </CalloutContent>
+    </Callout>
+  );
+}
+
+function IssueDescription({issue}: {issue: TriggerEventIssue}) {
+  return issue.description.map((part, index) => {
+    const key = `${part.kind}:${index}`;
+    if (part.kind === 'code') {
+      return (
+        <Code key={key} as="span" variant="label">
+          {part.value}
+        </Code>
+      );
+    }
+    return <span key={key}>{part.kind === 'bytes' ? formatBytes(part.value) : part.value}</span>;
+  });
 }
 
 function triggerEventDisplayLabel(event: Pick<TriggerEventDetailModel, 'event' | 'source'>) {
@@ -237,7 +296,7 @@ function EventRuns({
         <Panel>
           <PanelBody className="p-panel-compact">
             <Text size="sm" className="text-foreground-neutral-muted">
-              No workflows are subscribed to this event.
+              No workflow matched this event.
             </Text>
           </PanelBody>
         </Panel>
@@ -298,7 +357,7 @@ function EventRunsList({
   return (
     <Panel>
       <PanelHeader>
-        <PanelTitle>Matched workflows</PanelTitle>
+        <PanelTitle>Workflow activity</PanelTitle>
       </PanelHeader>
       <PanelBody>
         <ul>
@@ -337,6 +396,7 @@ function DecisionRow({
     canRenderRunLink && projectDetailLookupEnabled && !projectSlug ? projectId : undefined,
   );
   const resolvedProjectSlug = projectSlug ?? projectQuery.data?.slug;
+  const status = failedDecisionStatus(decision.decision);
 
   if (decision.decision !== 'triggered' || !decision.runId || !decision.runName) {
     return (
@@ -351,15 +411,9 @@ function DecisionRow({
             <Text size="sm" className="min-w-0 truncate text-foreground-neutral-base">
               {decision.subscriptionName}
             </Text>
-            {decision.reason ? (
-              <Text size="xs" className="text-foreground-highlight-error">
-                {decision.reason}
-              </Text>
-            ) : (
-              <Text size="xs" className="text-foreground-neutral-disabled">
-                No run created
-              </Text>
-            )}
+            <Text size="xs" className={status.className}>
+              {status.label}
+            </Text>
           </div>
         </div>
       </li>
@@ -405,6 +459,19 @@ function DecisionRow({
       )}
     </li>
   );
+}
+
+function failedDecisionStatus(decision: TriggerEventMatchedWorkflowResult['decision']): {
+  label: string;
+  className: string;
+} {
+  if (decision === 'filtered') {
+    return {label: 'Filter did not match', className: 'text-foreground-neutral-disabled'};
+  }
+  if (decision === 'filter-error') {
+    return {label: 'Filter could not be evaluated', className: 'text-foreground-highlight-error'};
+  }
+  return {label: 'No run created', className: 'text-foreground-highlight-error'};
 }
 
 function EventPayload({payload}: {payload: string}) {

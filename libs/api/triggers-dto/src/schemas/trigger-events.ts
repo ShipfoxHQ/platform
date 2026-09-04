@@ -14,6 +14,7 @@ export type TriggerEventOutcomeDto = z.infer<typeof triggerEventOutcomeSchema>;
 
 export const triggerDecisionOutcomeSchema = z.enum([
   'triggered',
+  'filtered',
   'filter-error',
   'dispatch-error',
   'rejected',
@@ -28,8 +29,124 @@ export type TriggerDecisionSubscriptionKindDto = z.infer<
 export const listenerMatcherKindSchema = z.enum(['on', 'until']);
 export type ListenerMatcherKindDto = z.infer<typeof listenerMatcherKindSchema>;
 
+const diagnosticVersionSchema = z.literal(1);
+const diagnosticPathSchema = z.string().min(1).max(200);
+const diagnosticFieldSchema = z.string().min(1).max(200);
+const diagnosticClassificationSchema = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/);
+const diagnosticByteCountSchema = z.number().int().nonnegative();
+const diagnosticIndexSchema = z.number().int().min(-999_999_999).max(999_999_999);
+
+export const triggerDecisionDiagnosticDtoSchema = z.discriminatedUnion('code', [
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-missing-path'),
+    path: diagnosticPathSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-index-out-of-bounds'),
+    index: diagnosticIndexSchema,
+    size: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-syntax-invalid'),
+    summary: z.string().min(1).max(200),
+    offset: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-evaluation-failed'),
+    classification: diagnosticClassificationSchema.optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('expression-result-not-boolean'),
+    actual_type: z.enum(['string', 'int', 'double', 'null', 'list', 'map', 'unknown']),
+  }),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('filter-config-invalid')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('listener-snapshot-invalid')}),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('listener-output-types-invalid'),
+  }),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('admission-denied')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('workspace-not-found')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('workspace-suspended')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('workspace-deleted')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('definition-not-found')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('project-mismatch')}),
+  z.strictObject({version: diagnosticVersionSchema, code: z.literal('agent-config-unresolvable')}),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('agent-integration-materialization-failed'),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('interpolation-unresolvable'),
+    field: diagnosticFieldSchema,
+    env_key: diagnosticFieldSchema.optional(),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('invalid-job-runner-labels'),
+    labels: z.array(z.string().min(1).max(64)).min(1).max(10),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('source-snapshot-too-large'),
+    limit_bytes: diagnosticByteCountSchema,
+    measured_bytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('diagnostic-too-large'),
+    field: diagnosticFieldSchema.optional(),
+    limit_bytes: diagnosticByteCountSchema,
+    measured_bytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('workflow-execution-payload-too-large'),
+    field: diagnosticFieldSchema,
+    limit_bytes: diagnosticByteCountSchema,
+    measured_bytes: diagnosticByteCountSchema,
+    overshoot_bytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('listener-event-payload-too-large'),
+    limit_bytes: diagnosticByteCountSchema,
+    measured_bytes: diagnosticByteCountSchema,
+    overshoot_bytes: diagnosticByteCountSchema,
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('unexpected-workflow-start-failure'),
+  }),
+  z.strictObject({
+    version: diagnosticVersionSchema,
+    code: z.literal('unexpected-listener-delivery-failure'),
+  }),
+]);
+export type TriggerDecisionDiagnosticDto = z.infer<typeof triggerDecisionDiagnosticDtoSchema>;
+
+export const triggerEventProcessingDiagnosticDtoSchema = z.strictObject({
+  version: diagnosticVersionSchema,
+  code: z.enum([
+    'subscription-load-failed',
+    'trigger-reference-resolution-failed',
+    'listener-routing-failed',
+    'event-processing-failed',
+  ]),
+});
+export type TriggerEventProcessingDiagnosticDto = z.infer<
+  typeof triggerEventProcessingDiagnosticDtoSchema
+>;
+
 /**
- * List rows omit payload because webhook bodies can be large/untrusted.
+ * List rows omit payload and processing diagnostics. Webhook bodies can be
+ * large or untrusted, and diagnostics belong to the event detail view.
  * The full payload lives only on the detail response.
  */
 export const triggerEventListItemDtoSchema = z.object({
@@ -55,6 +172,7 @@ export type TriggerEventListItemDto = z.infer<typeof triggerEventListItemDtoSche
 export const triggerEventDtoSchema = triggerEventListItemDtoSchema.extend({
   connection_name: z.string().nullable(),
   payload: z.record(z.string(), z.unknown()).nullable(),
+  processing_diagnostic: triggerEventProcessingDiagnosticDtoSchema.nullable().optional(),
 });
 export type TriggerEventDto = z.infer<typeof triggerEventDtoSchema>;
 
@@ -88,6 +206,7 @@ const triggerDecisionDtoBaseSchema = z.object({
   run_id: z.string().uuid().nullable(),
   run_name: z.string().nullable(),
   reason: z.string().nullable(),
+  diagnostic: triggerDecisionDiagnosticDtoSchema.nullable().optional(),
   created_at: z.string(),
 });
 

@@ -1,7 +1,15 @@
+import {
+  triggerDecisionDiagnosticSchema,
+  triggerEventProcessingDiagnosticSchema,
+} from '@shipfox/api-triggers-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
+import type {
+  TriggerDecisionDiagnostic,
+  TriggerEventProcessingDiagnostic,
+} from '#core/entities/diagnostic.js';
 import type {JobListenerSubscription} from '#core/entities/job-listener-subscription.js';
 import type {TriggerEventOrigin} from '#core/entities/received-event.js';
 import type {TriggerSubscription} from '#core/entities/subscription.js';
@@ -13,6 +21,7 @@ import {
   markReceivedEventRouted,
   upsertDevDispatchErrorDecision,
   upsertDevFilterErrorDecision,
+  upsertDevFilteredDecision,
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
@@ -22,6 +31,7 @@ import {
   upsertListenerTriggeredDecision,
   upsertTriggeredDecision,
 } from '#db/event-history.js';
+import {diagnosticCount} from '#metrics/instance.js';
 
 const MAX_REASON_LENGTH = 2000;
 
@@ -60,24 +70,52 @@ export interface TriggerHistoryRecorder {
   // Dev journal entries carry no subscription row: subscription_name is the
   // trigger key and workflow_definition_id the workflow lineage id.
   devTriggered(triggerKey: string, workflowDefinitionId: string, run: TriggerRun): Promise<void>;
-  devFilterErrored(triggerKey: string, workflowDefinitionId: string, reason: string): Promise<void>;
+  devFiltered(triggerKey: string, workflowDefinitionId: string): Promise<void>;
+  devFilterErrored(
+    triggerKey: string,
+    workflowDefinitionId: string,
+    reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
+  ): Promise<void>;
   devDispatchErrored(
     triggerKey: string,
     workflowDefinitionId: string,
     reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
   ): Promise<void>;
-  filterErrored(subscription: TriggerSubscription, reason: string): Promise<void>;
-  dispatchErrored(subscription: TriggerSubscription, reason: string): Promise<void>;
+  filterErrored(
+    subscription: TriggerSubscription,
+    reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
+  ): Promise<void>;
+  dispatchErrored(
+    subscription: TriggerSubscription,
+    reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
+  ): Promise<void>;
   listenerTriggered(subscription: JobListenerSubscription): Promise<void>;
-  listenerFilterErrored(subscription: JobListenerSubscription, reason: string): Promise<void>;
-  listenerDispatchErrored(subscription: JobListenerSubscription, reason: string): Promise<void>;
+  listenerFilterErrored(
+    subscription: JobListenerSubscription,
+    reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
+  ): Promise<void>;
+  listenerDispatchErrored(
+    subscription: JobListenerSubscription,
+    reason: string,
+    diagnostic: TriggerDecisionDiagnostic,
+  ): Promise<void>;
   listenerDeliveryRejected(
     subscription: JobListenerSubscription,
     reason: 'payload-too-large',
+    diagnostic: TriggerDecisionDiagnostic,
   ): Promise<void>;
   discarded(): Promise<void>;
   routed(matchedCount: number): Promise<void>;
   failed(matchedCount: number): Promise<void>;
+  processingFailed(
+    matchedCount: number,
+    diagnostic: TriggerEventProcessingDiagnostic,
+  ): Promise<void>;
   allErrored(matchedCount: number): Promise<void>;
 }
 
@@ -115,6 +153,61 @@ export async function beginTriggerHistory(
     await safe(params.eventRef, label, () => write(receivedEventId), subscriptionId);
   };
 
+  const recordDecisionDiagnostic = (
+    label: string,
+    diagnostic: TriggerDecisionDiagnostic,
+    write: (receivedEventId: string, diagnostic: TriggerDecisionDiagnostic) => Promise<unknown>,
+    subscriptionId?: string,
+  ): Promise<void> =>
+    recordDiagnostic(
+      label,
+      diagnostic,
+      (value) => validateDecisionDiagnostic(value),
+      (code) => diagnosticCount.add(1, {scope: 'decision', code}),
+      write,
+      subscriptionId,
+    );
+
+  const recordProcessingDiagnostic = (
+    label: string,
+    diagnostic: TriggerEventProcessingDiagnostic,
+    write: (
+      receivedEventId: string,
+      diagnostic: TriggerEventProcessingDiagnostic,
+    ) => Promise<unknown>,
+  ): Promise<void> =>
+    recordDiagnostic(
+      label,
+      diagnostic,
+      (value) => validateProcessingDiagnostic(value),
+      (code) => diagnosticCount.add(1, {scope: 'event', code}),
+      write,
+    );
+
+  async function recordDiagnostic<
+    T extends TriggerDecisionDiagnostic | TriggerEventProcessingDiagnostic,
+  >(
+    label: string,
+    diagnostic: T,
+    validate: (diagnostic: T) => T,
+    count: (code: T['code']) => void,
+    write: (receivedEventId: string, diagnostic: T) => Promise<unknown>,
+    subscriptionId?: string,
+  ): Promise<void> {
+    const checkedDiagnostic = await safe(
+      params.eventRef,
+      `${label}-diagnostic`,
+      () => {
+        const checked = validate(diagnostic);
+        count(checked.code);
+        return Promise.resolve(checked);
+      },
+      subscriptionId,
+    );
+    if (checkedDiagnostic === undefined) return;
+    await record(label, (id) => write(id, checkedDiagnostic), subscriptionId);
+  }
+
   return {
     triggered: (subscription, run) =>
       record(
@@ -126,34 +219,54 @@ export async function beginTriggerHistory(
       record('dev-triggered-decision', (id) =>
         upsertDevTriggeredDecision({receivedEventId: id, triggerKey, workflowDefinitionId, run}),
       ),
-    devFilterErrored: (triggerKey, workflowDefinitionId, reason) =>
-      record('dev-filter-error-decision', (id) =>
+    devFiltered: (triggerKey, workflowDefinitionId) =>
+      record('dev-filtered-decision', (id) =>
+        upsertDevFilteredDecision({receivedEventId: id, triggerKey, workflowDefinitionId}),
+      ),
+    devFilterErrored: (triggerKey, workflowDefinitionId, reason, diagnostic) =>
+      recordDecisionDiagnostic('dev-filter-error-decision', diagnostic, (id, checkedDiagnostic) =>
         upsertDevFilterErrorDecision({
           receivedEventId: id,
           triggerKey,
           workflowDefinitionId,
           reason,
+          diagnostic: checkedDiagnostic,
         }),
       ),
-    devDispatchErrored: (triggerKey, workflowDefinitionId, reason) =>
-      record('dev-dispatch-error-decision', (id) =>
+    devDispatchErrored: (triggerKey, workflowDefinitionId, reason, diagnostic) =>
+      recordDecisionDiagnostic('dev-dispatch-error-decision', diagnostic, (id, checkedDiagnostic) =>
         upsertDevDispatchErrorDecision({
           receivedEventId: id,
           triggerKey,
           workflowDefinitionId,
           reason,
+          diagnostic: checkedDiagnostic,
         }),
       ),
-    filterErrored: (subscription, reason) =>
-      record(
+    filterErrored: (subscription, reason, diagnostic) =>
+      recordDecisionDiagnostic(
         'filter-error-decision',
-        (id) => upsertFilterErrorDecision({receivedEventId: id, subscription, reason}),
+        diagnostic,
+        (id, checkedDiagnostic) =>
+          upsertFilterErrorDecision({
+            receivedEventId: id,
+            subscription,
+            reason,
+            diagnostic: checkedDiagnostic,
+          }),
         subscription.id,
       ),
-    dispatchErrored: (subscription, reason) =>
-      record(
+    dispatchErrored: (subscription, reason, diagnostic) =>
+      recordDecisionDiagnostic(
         'dispatch-error-decision',
-        (id) => upsertDispatchErrorDecision({receivedEventId: id, subscription, reason}),
+        diagnostic,
+        (id, checkedDiagnostic) =>
+          upsertDispatchErrorDecision({
+            receivedEventId: id,
+            subscription,
+            reason,
+            diagnostic: checkedDiagnostic,
+          }),
         subscription.id,
       ),
     listenerTriggered: (subscription) =>
@@ -162,22 +275,43 @@ export async function beginTriggerHistory(
         (id) => upsertListenerTriggeredDecision({receivedEventId: id, subscription}),
         subscription.id,
       ),
-    listenerFilterErrored: (subscription, reason) =>
-      record(
+    listenerFilterErrored: (subscription, reason, diagnostic) =>
+      recordDecisionDiagnostic(
         'listener-filter-error-decision',
-        (id) => upsertListenerFilterErrorDecision({receivedEventId: id, subscription, reason}),
+        diagnostic,
+        (id, checkedDiagnostic) =>
+          upsertListenerFilterErrorDecision({
+            receivedEventId: id,
+            subscription,
+            reason,
+            diagnostic: checkedDiagnostic,
+          }),
         subscription.id,
       ),
-    listenerDispatchErrored: (subscription, reason) =>
-      record(
+    listenerDispatchErrored: (subscription, reason, diagnostic) =>
+      recordDecisionDiagnostic(
         'listener-dispatch-error-decision',
-        (id) => upsertListenerDispatchErrorDecision({receivedEventId: id, subscription, reason}),
+        diagnostic,
+        (id, checkedDiagnostic) =>
+          upsertListenerDispatchErrorDecision({
+            receivedEventId: id,
+            subscription,
+            reason,
+            diagnostic: checkedDiagnostic,
+          }),
         subscription.id,
       ),
-    listenerDeliveryRejected: (subscription, reason) =>
-      record(
+    listenerDeliveryRejected: (subscription, reason, diagnostic) =>
+      recordDecisionDiagnostic(
         'listener-rejected-decision',
-        (id) => upsertListenerDeliveryRejectedDecision({receivedEventId: id, subscription, reason}),
+        diagnostic,
+        (id, checkedDiagnostic) =>
+          upsertListenerDeliveryRejectedDecision({
+            receivedEventId: id,
+            subscription,
+            reason,
+            diagnostic: checkedDiagnostic,
+          }),
         subscription.id,
       ),
     discarded: () => record('discard-event', (id) => markReceivedEventDiscarded(id)),
@@ -185,9 +319,27 @@ export async function beginTriggerHistory(
       record('route-event', (id) => markReceivedEventRouted(id, matchedCount)),
     failed: (matchedCount) =>
       record('fail-event', (id) => markReceivedEventFailed(id, matchedCount)),
+    processingFailed: (matchedCount, diagnostic) =>
+      recordProcessingDiagnostic('fail-event-processing', diagnostic, (id, checkedDiagnostic) =>
+        markReceivedEventFailed(id, matchedCount, checkedDiagnostic),
+      ),
     allErrored: (matchedCount) =>
       record('all-errored-event', (id) => markReceivedEventErrored(id, matchedCount)),
   };
+}
+
+function validateDecisionDiagnostic(
+  diagnostic: TriggerDecisionDiagnostic,
+): TriggerDecisionDiagnostic {
+  triggerDecisionDiagnosticSchema.parse(diagnostic);
+  return diagnostic;
+}
+
+function validateProcessingDiagnostic(
+  diagnostic: TriggerEventProcessingDiagnostic,
+): TriggerEventProcessingDiagnostic {
+  triggerEventProcessingDiagnosticSchema.parse(diagnostic);
+  return diagnostic;
 }
 
 async function safe<T>(

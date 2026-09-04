@@ -12,7 +12,11 @@ import {
   TriggerWorkspaceMismatchError,
 } from './errors.js';
 import {beginTriggerHistory, toReason} from './record-trigger-history.js';
-import {isPermanentStartRunError, type WorkflowsModuleClient} from './workflows-client.js';
+import {
+  isPermanentStartRunError,
+  startRunDiagnostic,
+  type WorkflowsModuleClient,
+} from './workflows-client.js';
 
 export interface FireManualSubscriptionParams {
   workflows: WorkflowsModuleClient;
@@ -78,7 +82,7 @@ export async function fireManualSubscription(
     });
   } catch (error) {
     const failure = await beginTriggerHistory({...historyBase, eventRef: randomUUID()});
-    await failure.dispatchErrored(subscription, toReason(error));
+    await failure.dispatchErrored(subscription, toReason(error), startRunDiagnostic(error));
     if (isPermanentStartRunError(error)) {
       eventOutcomeCount.add(1, {provider: 'manual', outcome: 'errored'});
       await failure.allErrored(1);

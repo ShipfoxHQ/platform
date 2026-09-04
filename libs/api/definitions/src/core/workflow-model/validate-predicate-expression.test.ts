@@ -104,6 +104,20 @@ describe('validatePredicateExpression', () => {
     ]);
   });
 
+  it('rejects trigger reference fields that are not present while a trigger filter runs', () => {
+    const source = 'trigger.repository.lowerAscii().contains("poc")';
+
+    const result = validate({field: 'trigger.filter', source});
+
+    expect(result.expression).toBeUndefined();
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        code: 'invalid-job-success',
+        details: expect.objectContaining({source, reason: expect.stringContaining('repository')}),
+      }),
+    ]);
+  });
+
   it.each([
     ['runner.os == "linux"', 'runner-context-in-server-predicate'],
   ])('rejects forbidden server predicate roots: %s', (source, code) => {

@@ -27,6 +27,7 @@ describe('toTriggerDecision', () => {
       runId: '019e98ab-b90f-7265-b13c-8b441c991385',
       runName: 'Build and test',
       reason: null,
+      diagnostic: null,
       createdAt: new Date('2026-06-09T10:00:02.000Z'),
     };
 
@@ -48,6 +49,7 @@ describe('toTriggerDecision', () => {
       runId: row.runId,
       runName: 'Build and test',
       reason: null,
+      diagnostic: null,
       createdAt: row.createdAt,
     });
   });
@@ -69,6 +71,7 @@ describe('toTriggerDecision', () => {
       runId: null,
       runName: null,
       reason: 'runWorkflow threw',
+      diagnostic: null,
       createdAt: new Date('2026-06-09T10:00:02.000Z'),
     };
 

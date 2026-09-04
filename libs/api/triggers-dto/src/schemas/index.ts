@@ -13,6 +13,7 @@ export {
 export {
   type ListenerMatcherKindDto,
   listenerMatcherKindSchema,
+  type TriggerDecisionDiagnosticDto,
   type TriggerDecisionDto,
   type TriggerDecisionOutcomeDto,
   type TriggerDecisionSubscriptionKindDto,
@@ -26,7 +27,9 @@ export {
   type TriggerEventListResponseDto,
   type TriggerEventOriginDto,
   type TriggerEventOutcomeDto,
+  type TriggerEventProcessingDiagnosticDto,
   type TriggerEventReplayDto,
+  triggerDecisionDiagnosticDtoSchema,
   triggerDecisionDtoSchema,
   triggerDecisionOutcomeSchema,
   triggerDecisionSubscriptionKindSchema,
@@ -40,5 +43,6 @@ export {
   triggerEventListResponseSchema,
   triggerEventOriginSchema,
   triggerEventOutcomeSchema,
+  triggerEventProcessingDiagnosticDtoSchema,
   triggerEventReplayDtoSchema,
 } from './trigger-events.js';

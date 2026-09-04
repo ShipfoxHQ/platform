@@ -493,6 +493,10 @@ describe('evaluateWorkflowExpression', () => {
 
     expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
     expect((error as WorkflowExpressionEvaluationError).reason).toBe('missing-path');
+    expect((error as WorkflowExpressionEvaluationError).detail).toEqual({
+      kind: 'missing-path',
+      path: 'event.nope',
+    });
   });
 
   it('classifies absent context roots as missing paths', () => {
@@ -510,6 +514,32 @@ describe('evaluateWorkflowExpression', () => {
 
     expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
     expect((error as WorkflowExpressionEvaluationError).reason).toBe('missing-path');
+    expect((error as WorkflowExpressionEvaluationError).detail).toEqual({
+      kind: 'missing-path',
+      path: 'inputs',
+    });
+  });
+
+  it('returns bounded index details without the indexed value', () => {
+    const expression = createWorkflowExpression({
+      source: 'event.values[2]',
+      check: {mode: 'syntax'},
+    });
+
+    let error: unknown;
+    try {
+      evaluateWorkflowExpression(expression, {event: {values: ['secret']}});
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(WorkflowExpressionEvaluationError);
+    expect((error as WorkflowExpressionEvaluationError).detail).toEqual({
+      kind: 'index-out-of-bounds',
+      index: 2,
+      size: 1,
+    });
+    expect((error as WorkflowExpressionEvaluationError).summary).not.toContain('secret');
   });
 
   it('classifies genuine evaluation failures as evaluation errors', () => {

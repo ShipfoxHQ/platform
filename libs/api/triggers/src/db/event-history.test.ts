@@ -11,6 +11,7 @@ import {
   markReceivedEventRouted,
   upsertDevDispatchErrorDecision,
   upsertDevFilterErrorDecision,
+  upsertDevFilteredDecision,
   upsertDevTriggeredDecision,
   upsertDispatchErrorDecision,
   upsertFilterErrorDecision,
@@ -22,6 +23,20 @@ import {
 } from './event-history.js';
 import {triggersDecisions} from './schema/decisions.js';
 import {triggersReceivedEvents} from './schema/received-events.js';
+
+const filterDiagnostic = {version: 1, code: 'expression-evaluation-failed'} as const;
+const dispatchDiagnostic = {version: 1, code: 'unexpected-workflow-start-failure'} as const;
+const listenerDispatchDiagnostic = {
+  version: 1,
+  code: 'unexpected-listener-delivery-failure',
+} as const;
+const listenerRejectionDiagnostic = {
+  version: 1,
+  code: 'listener-event-payload-too-large',
+  limitBytes: 786_432,
+  measuredBytes: 786_433,
+  overshootBytes: 1,
+} as const;
 
 function buildEventParams(
   overrides: Partial<InsertReceivedEventParams> = {},
@@ -172,6 +187,30 @@ describe('received-event outcome transitions', () => {
     expect(row?.processedAt).toBeNull();
   });
 
+  it('stores a processing diagnostic on failure and clears it on success', async () => {
+    const id = await insertReceivedEvent(buildEventParams());
+
+    await markReceivedEventFailed(id, 0, {
+      version: 1,
+      code: 'trigger-reference-resolution-failed',
+    });
+    let [row] = await db()
+      .select()
+      .from(triggersReceivedEvents)
+      .where(eq(triggersReceivedEvents.id, id));
+    expect(row?.processingDiagnostic).toEqual({
+      version: 1,
+      code: 'trigger-reference-resolution-failed',
+    });
+
+    await markReceivedEventRouted(id, 1);
+    [row] = await db()
+      .select()
+      .from(triggersReceivedEvents)
+      .where(eq(triggersReceivedEvents.id, id));
+    expect(row?.processingDiagnostic).toBeNull();
+  });
+
   it('does not downgrade a routed event to failed (terminal success wins under a stale failed write)', async () => {
     const id = await insertReceivedEvent(buildEventParams());
     await markReceivedEventRouted(id, 2);
@@ -287,6 +326,7 @@ describe('dev decision inserts', () => {
       runId: run.id,
       runName: run.name,
       reason: null,
+      diagnostic: null,
     });
   });
 
@@ -299,6 +339,7 @@ describe('dev decision inserts', () => {
       triggerKey: 'on_push',
       workflowDefinitionId,
       reason: 'filter is false',
+      diagnostic: filterDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -313,6 +354,7 @@ describe('dev decision inserts', () => {
       runId: null,
       runName: null,
       reason: 'filter is false',
+      diagnostic: filterDiagnostic,
     });
   });
 
@@ -325,6 +367,7 @@ describe('dev decision inserts', () => {
       triggerKey: 'on_demand',
       workflowDefinitionId,
       reason: 'workspace suspended',
+      diagnostic: dispatchDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -339,6 +382,7 @@ describe('dev decision inserts', () => {
       runId: null,
       runName: null,
       reason: 'workspace suspended',
+      diagnostic: dispatchDiagnostic,
     });
   });
 
@@ -386,6 +430,7 @@ describe('dev decision inserts', () => {
       triggerKey: 'on_issue',
       workflowDefinitionId,
       reason: 'late filter failure',
+      diagnostic: filterDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -395,6 +440,35 @@ describe('dev decision inserts', () => {
       runId: run.id,
       runName: run.name,
       reason: null,
+      diagnostic: null,
+    });
+  });
+
+  it('does not downgrade a dev triggered decision on a filtered replay', async () => {
+    const receivedEventId = await insertReceivedEvent(buildEventParams());
+    const workflowDefinitionId = crypto.randomUUID();
+    const run = {id: crypto.randomUUID(), name: 'Dev run'};
+
+    await upsertDevTriggeredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+      run,
+    });
+    await upsertDevFilteredDecision({
+      receivedEventId,
+      triggerKey: 'on_issue',
+      workflowDefinitionId,
+    });
+
+    const rows = await decisionsFor(receivedEventId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      decision: 'triggered',
+      runId: run.id,
+      runName: run.name,
+      reason: null,
+      diagnostic: null,
     });
   });
 });
@@ -424,7 +498,12 @@ describe('decision upserts', () => {
     const renamedSubscription = buildSubscription({...subscription, name: 'renamed trigger'});
     const run = {id: crypto.randomUUID(), name: 'Build and test'};
 
-    await upsertDispatchErrorDecision({receivedEventId, subscription, reason: 'boom'});
+    await upsertDispatchErrorDecision({
+      receivedEventId,
+      subscription,
+      reason: 'boom',
+      diagnostic: dispatchDiagnostic,
+    });
     await upsertTriggeredDecision({receivedEventId, subscription: renamedSubscription, run});
 
     const rows = await decisionsFor(receivedEventId);
@@ -434,6 +513,7 @@ describe('decision upserts', () => {
     expect(rows[0]?.subscriptionName).toBe(subscription.name);
     expect(rows[0]?.runId).toBe(run.id);
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 
   it('never downgrades an existing triggered decision to dispatch-error', async () => {
@@ -447,6 +527,7 @@ describe('decision upserts', () => {
       receivedEventId,
       subscription: renamedSubscription,
       reason: 'definition deleted',
+      diagnostic: dispatchDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -463,11 +544,17 @@ describe('decision upserts', () => {
     const subscription = buildSubscription();
     const renamedSubscription = buildSubscription({...subscription, name: 'renamed trigger'});
 
-    await upsertDispatchErrorDecision({receivedEventId, subscription, reason: 'boom'});
+    await upsertDispatchErrorDecision({
+      receivedEventId,
+      subscription,
+      reason: 'boom',
+      diagnostic: dispatchDiagnostic,
+    });
     await upsertDispatchErrorDecision({
       receivedEventId,
       subscription: renamedSubscription,
       reason: 'still broken',
+      diagnostic: dispatchDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -476,6 +563,7 @@ describe('decision upserts', () => {
     expect(rows[0]?.decision).toBe('dispatch-error');
     expect(rows[0]?.subscriptionName).toBe(subscription.name);
     expect(rows[0]?.reason).toBe('still broken');
+    expect(rows[0]?.diagnostic).toEqual(dispatchDiagnostic);
   });
 
   it('records a filter-error decision', async () => {
@@ -486,6 +574,7 @@ describe('decision upserts', () => {
       receivedEventId,
       subscription,
       reason: 'Trigger filter evaluation failed',
+      diagnostic: filterDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -493,6 +582,7 @@ describe('decision upserts', () => {
     expect(rows[0]?.subscriptionKind).toBe('trigger');
     expect(rows[0]?.decision).toBe('filter-error');
     expect(rows[0]?.reason).toBe('Trigger filter evaluation failed');
+    expect(rows[0]?.diagnostic).toEqual(filterDiagnostic);
   });
 
   it('records a listener triggered decision with matcher identity', async () => {
@@ -515,6 +605,7 @@ describe('decision upserts', () => {
       matcherOrdinal: 2,
       decision: 'triggered',
       reason: null,
+      diagnostic: null,
     });
   });
 
@@ -532,13 +623,19 @@ describe('decision upserts', () => {
     const receivedEventId = await insertReceivedEvent(buildEventParams());
     const subscription = buildListenerSubscription();
 
-    await upsertListenerDispatchErrorDecision({receivedEventId, subscription, reason: 'boom'});
+    await upsertListenerDispatchErrorDecision({
+      receivedEventId,
+      subscription,
+      reason: 'boom',
+      diagnostic: listenerDispatchDiagnostic,
+    });
     await upsertListenerTriggeredDecision({receivedEventId, subscription});
 
     const rows = await decisionsFor(receivedEventId);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 
   it('never downgrades an existing listener triggered decision to dispatch-error', async () => {
@@ -546,12 +643,18 @@ describe('decision upserts', () => {
     const subscription = buildListenerSubscription();
 
     await upsertListenerTriggeredDecision({receivedEventId, subscription});
-    await upsertListenerDispatchErrorDecision({receivedEventId, subscription, reason: 'boom'});
+    await upsertListenerDispatchErrorDecision({
+      receivedEventId,
+      subscription,
+      reason: 'boom',
+      diagnostic: listenerDispatchDiagnostic,
+    });
 
     const rows = await decisionsFor(receivedEventId);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 
   it('records a listener filter-error decision', async () => {
@@ -562,6 +665,7 @@ describe('decision upserts', () => {
       receivedEventId,
       subscription,
       reason: 'Listener filter evaluation failed',
+      diagnostic: filterDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -569,6 +673,7 @@ describe('decision upserts', () => {
     expect(rows[0]?.subscriptionKind).toBe('listener');
     expect(rows[0]?.decision).toBe('filter-error');
     expect(rows[0]?.reason).toBe('Listener filter evaluation failed');
+    expect(rows[0]?.diagnostic).toEqual(filterDiagnostic);
   });
 
   it('records a stable listener delivery rejection decision', async () => {
@@ -579,6 +684,7 @@ describe('decision upserts', () => {
       receivedEventId,
       subscription,
       reason: 'payload-too-large',
+      diagnostic: listenerRejectionDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
@@ -590,6 +696,7 @@ describe('decision upserts', () => {
       runId: null,
       runName: null,
       reason: 'payload-too-large',
+      diagnostic: listenerRejectionDiagnostic,
     });
   });
 
@@ -601,17 +708,20 @@ describe('decision upserts', () => {
       receivedEventId,
       subscription,
       reason: 'payload-too-large',
+      diagnostic: listenerRejectionDiagnostic,
     });
     await upsertListenerTriggeredDecision({receivedEventId, subscription});
     await upsertListenerDeliveryRejectedDecision({
       receivedEventId,
       subscription,
       reason: 'payload-too-large',
+      diagnostic: listenerRejectionDiagnostic,
     });
 
     const rows = await decisionsFor(receivedEventId);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.decision).toBe('triggered');
     expect(rows[0]?.reason).toBeNull();
+    expect(rows[0]?.diagnostic).toBeNull();
   });
 });

@@ -47,7 +47,7 @@ function event(overrides: Partial<TriggerReceivedEvent> = {}): TriggerReceivedEv
 }
 
 function summary(value: TriggerReceivedEvent): TriggerReceivedEventSummary {
-  const {payload: _payload, ...withoutPayload} = value;
+  const {payload: _payload, processingDiagnostic: _processingDiagnostic, ...withoutPayload} = value;
   return withoutPayload;
 }
 
@@ -182,6 +182,7 @@ describe('triggers inter-module presentation', () => {
     const detail = {
       ...summary(item),
       payload: item.payload,
+      processingDiagnostic: null,
       receivedAt: item.receivedAt.toISOString(),
       processedAt: item.processedAt?.toISOString() ?? null,
       createdAt: item.createdAt.toISOString(),
@@ -246,7 +247,7 @@ describe('triggers inter-module presentation', () => {
       decision: 'triggered',
       runId: '00000000-0000-4000-8000-000000000012',
       runName: 'deploy',
-      reason: null,
+      reason: 'internal host db.private.example failed',
       createdAt: new Date('2026-08-05T12:00:03.000Z'),
     };
     const replay: TriggerEventReplay = {
@@ -269,12 +270,15 @@ describe('triggers inter-module presentation', () => {
     expect(triggersInterModuleContract.methods.getTriggerEvent.output.parse(result)).toEqual({
       ...summary(item),
       payload: item.payload,
+      processingDiagnostic: null,
       receivedAt: item.receivedAt.toISOString(),
       processedAt: item.processedAt?.toISOString(),
       createdAt: item.createdAt.toISOString(),
       decisions: [
         {
           ...decision,
+          reason: null,
+          diagnostic: null,
           createdAt: decision.createdAt.toISOString(),
         },
       ],

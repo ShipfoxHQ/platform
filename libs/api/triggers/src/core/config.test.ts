@@ -113,7 +113,7 @@ describe('evaluateTriggerFilter', () => {
   });
 
   test('returns filter-error when the stored filter cannot be parsed', () => {
-    const subscription = subscriptionWithConfig({filter: 'event.ref =='});
+    const subscription = subscriptionWithConfig({filter: 'event.ref == "private-literal" &&'});
 
     const result = evaluateTriggerFilter({
       subscription,
@@ -124,7 +124,12 @@ describe('evaluateTriggerFilter', () => {
 
     expect(result.kind).toBe('filter-error');
     if (result.kind !== 'filter-error') throw new Error('expected filter-error');
-    expect(result.reason).not.toBe('Invalid workflow expression');
+    expect(result.diagnostic).toMatchObject({
+      version: 1,
+      code: 'expression-syntax-invalid',
+      summary: 'CEL parse failed',
+    });
+    expect(JSON.stringify(result.diagnostic)).not.toContain('private-literal');
   });
 
   test('returns filter-error when filter evaluation throws', () => {
@@ -137,10 +142,37 @@ describe('evaluateTriggerFilter', () => {
       payload: {},
     });
 
-    expect(result).toEqual({kind: 'filter-error', reason: 'Trigger filter evaluation failed'});
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: 'Trigger filter evaluation failed',
+      diagnostic: {version: 1, code: 'expression-missing-path', path: 'event.ref'},
+    });
   });
 
-  test('returns filtered when the stored filter evaluates to a non-boolean value', () => {
+  test('preserves the exact unavailable path from the customer trigger expression', () => {
+    const subscription = subscriptionWithConfig({
+      filter: '!event.pull_request.draft && !trigger.repository.lowerAscii().contains("poc")',
+    });
+
+    const result = evaluateTriggerFilter({
+      subscription,
+      source: 'github',
+      event: 'on_pr_opened',
+      payload: {pull_request: {draft: false}},
+    });
+
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: 'Trigger filter evaluation failed',
+      diagnostic: {
+        version: 1,
+        code: 'expression-missing-path',
+        path: 'trigger.repository',
+      },
+    });
+  });
+
+  test('returns filter-error when the stored filter evaluates to a non-boolean value', () => {
     const subscription = subscriptionWithConfig({filter: 'event.ref'});
 
     const result = evaluateTriggerFilter({
@@ -150,7 +182,15 @@ describe('evaluateTriggerFilter', () => {
       payload: {ref: 'refs/heads/main'},
     });
 
-    expect(result).toEqual({kind: 'filtered'});
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: 'Trigger filter evaluation failed',
+      diagnostic: {
+        version: 1,
+        code: 'expression-result-not-boolean',
+        actualType: 'string',
+      },
+    });
   });
 
   test.each([
@@ -169,6 +209,7 @@ describe('evaluateTriggerFilter', () => {
     expect(result).toEqual({
       kind: 'filter-error',
       reason: 'Trigger subscription filter must be a non-empty string when set',
+      diagnostic: {version: 1, code: 'filter-config-invalid'},
     });
   });
 });
@@ -178,7 +219,13 @@ describe('evaluateStoredFilter', () => {
   const evaluationFailedReason = 'Stored filter evaluation failed';
 
   function evaluate(value: unknown, context: Record<string, unknown>) {
-    return evaluateStoredFilter({value, context, invalidReason, evaluationFailedReason});
+    return evaluateStoredFilter({
+      value,
+      context,
+      invalidReason,
+      evaluationFailedReason,
+      invalidDiagnosticCode: 'filter-config-invalid',
+    });
   }
 
   test('returns matched when filter is missing', () => {
@@ -216,13 +263,46 @@ describe('evaluateStoredFilter', () => {
       event: {issue: {number: 42}},
     });
 
-    expect(result).toEqual({kind: 'filter-error', reason: evaluationFailedReason});
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: evaluationFailedReason,
+      diagnostic: {version: 1, code: 'expression-missing-path', path: 'jobs'},
+    });
   });
 
-  test('returns filtered when the stored filter evaluates to a non-boolean value', () => {
+  test('returns bounded index details when a filter reads outside a list', () => {
+    const result = evaluateStoredFilter({
+      value: 'event.labels[2] == "urgent"',
+      context: {event: {labels: ['bug']}},
+      invalidReason: 'invalid',
+      evaluationFailedReason: 'failed',
+      invalidDiagnosticCode: 'filter-config-invalid',
+    });
+
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: 'failed',
+      diagnostic: {
+        version: 1,
+        code: 'expression-index-out-of-bounds',
+        index: 2,
+        size: 1,
+      },
+    });
+  });
+
+  test('returns filter-error when the stored filter evaluates to a non-boolean value', () => {
     const result = evaluate('event.ref', {event: {ref: 'refs/heads/main'}});
 
-    expect(result).toEqual({kind: 'filtered'});
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: evaluationFailedReason,
+      diagnostic: {
+        version: 1,
+        code: 'expression-result-not-boolean',
+        actualType: 'string',
+      },
+    });
   });
 
   test.each([
@@ -231,6 +311,10 @@ describe('evaluateStoredFilter', () => {
   ])('returns filter-error when the stored filter is $name', ({filter}) => {
     const result = evaluate(filter, {event: {ref: 'refs/heads/main'}});
 
-    expect(result).toEqual({kind: 'filter-error', reason: invalidReason});
+    expect(result).toEqual({
+      kind: 'filter-error',
+      reason: invalidReason,
+      diagnostic: {version: 1, code: 'filter-config-invalid'},
+    });
   });
 });

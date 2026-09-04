@@ -26,6 +26,7 @@ export interface TriggerReceivedEvent {
   outcome: TriggerEventOutcome;
   matchedCount: number;
   payload: Record<string, unknown> | null;
+  processingDiagnostic?: TriggerEventProcessingDiagnostic | null;
   receivedAt: Date;
   processedAt: Date | null;
   createdAt: Date;
@@ -45,6 +46,12 @@ export interface TriggerEventReplay {
 
 /**
  * Trigger event shape for list read models.
- * It omits payload because webhook bodies can be large/untrusted and only detail views render them.
+ * It omits payload and processing diagnostics. Webhook bodies can be large or
+ * untrusted, and only detail views render diagnostics.
  */
-export type TriggerReceivedEventSummary = Omit<TriggerReceivedEvent, 'payload'>;
+export type TriggerReceivedEventSummary = Omit<
+  TriggerReceivedEvent,
+  'payload' | 'processingDiagnostic'
+>;
+
+import type {TriggerEventProcessingDiagnostic} from './diagnostic.js';

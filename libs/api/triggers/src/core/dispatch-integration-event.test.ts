@@ -577,6 +577,7 @@ describe('dispatchIntegrationEvent', () => {
     expect(decisions[0]).toMatchObject({
       subscriptionId: subscription.id,
       decision: 'filter-error',
+      diagnostic: {version: 1, code: 'expression-syntax-invalid'},
     });
   });
 
@@ -602,6 +603,7 @@ describe('dispatchIntegrationEvent', () => {
     expect(decisions[0]).toMatchObject({
       subscriptionId: subscription.id,
       decision: 'filter-error',
+      diagnostic: {version: 1, code: 'filter-config-invalid'},
     });
   });
 
@@ -680,6 +682,13 @@ describe('dispatchIntegrationEvent', () => {
       subscriptionId: subscription.id,
       decision: 'rejected',
       reason: 'payload-too-large',
+      diagnostic: {
+        version: 1,
+        code: 'listener-event-payload-too-large',
+        limitBytes: 786_432,
+        measuredBytes: 786_433,
+        overshootBytes: 1,
+      },
     });
   });
 
@@ -819,7 +828,48 @@ describe('dispatchIntegrationEvent', () => {
       matcherOrdinal: subscription.matcherOrdinal,
       decision: 'filter-error',
       reason: 'Listener filter evaluation failed',
+      diagnostic: {version: 1, code: 'expression-missing-path', path: 'jobs'},
     });
+  });
+
+  test('records an event-level diagnostic when listener context cannot be prepared', async () => {
+    const workspaceId = crypto.randomUUID();
+    const eventRef = crypto.randomUUID();
+    const filterErrorSubscription = await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+      config: {
+        filter: 'jobs.build.outputs.pr_number == 42',
+        filter_snapshot: {},
+      },
+    });
+    await jobListenerSubscriptionFactory.create({
+      workspaceId,
+      source: 'github',
+      event: 'push',
+      kind: 'on',
+      config: {},
+    });
+    resolveWorkflowRunTriggerReference.mockRejectedValue(new Error('workflow context unavailable'));
+
+    await expect(dispatch({workspaceId, eventRef})).rejects.toThrow(
+      'Workflow run trigger reference could not be resolved',
+    );
+
+    const event = await receivedEvent(eventRef);
+    if (!event) throw new Error('received event not found');
+    expect(event).toMatchObject({
+      outcome: 'failed',
+      matchedCount: 1,
+      processingDiagnostic: {version: 1, code: 'trigger-reference-resolution-failed'},
+    });
+    expect(await decisionsForEvent(event.id)).toEqual([
+      expect.objectContaining({
+        subscriptionId: filterErrorSubscription.id,
+        decision: 'filter-error',
+      }),
+    ]);
   });
 
   test('records a listener dispatch-error decision when listener delivery throws', async () => {
@@ -1020,6 +1070,7 @@ describe('dispatchIntegrationEvent trigger history', () => {
     const triggered = decisions.find((d) => d.subscriptionId === healthy.id);
     expect(errored?.decision).toBe('dispatch-error');
     expect(errored?.reason).toContain('definition-not-found');
+    expect(errored?.diagnostic).toEqual({version: 1, code: 'definition-not-found'});
     expect(triggered?.decision).toBe('triggered');
     expect(triggered?.runId).toBe(run.id);
   });

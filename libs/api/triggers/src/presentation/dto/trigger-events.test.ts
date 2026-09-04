@@ -1,4 +1,5 @@
 import {
+  triggerDecisionDiagnosticDtoSchema,
   triggerDecisionDtoSchema,
   triggerDecisionSubscriptionKindSchema,
   triggerEventDetailResponseSchema,
@@ -39,6 +40,31 @@ const baseSummary: TriggerReceivedEventSummary = {
 };
 
 describe('trigger-events mappers', () => {
+  test('validates structured decision diagnostics and rejects unknown details', () => {
+    expect(
+      triggerDecisionDiagnosticDtoSchema.parse({
+        version: 1,
+        code: 'expression-missing-path',
+        path: 'trigger.repository',
+      }),
+    ).toEqual({version: 1, code: 'expression-missing-path', path: 'trigger.repository'});
+    expect(
+      triggerDecisionDiagnosticDtoSchema.safeParse({
+        version: 1,
+        code: 'expression-missing-path',
+        path: 'trigger.repository',
+        details: {payload: 'secret'},
+      }).success,
+    ).toBe(false);
+    expect(
+      triggerDecisionDiagnosticDtoSchema.safeParse({
+        version: 1,
+        code: 'invalid-job-runner-labels',
+        labels: [],
+      }).success,
+    ).toBe(false);
+  });
+
   test('toTriggerEventListItemDto maps null fields, formats ISO dates, and omits payload', () => {
     const dto = toTriggerEventListItemDto(baseSummary);
 
@@ -89,7 +115,7 @@ describe('trigger-events mappers', () => {
     expect(toTriggerEventDto(unnamed).connection_name).toBeNull();
   });
 
-  test('toTriggerDecisionDto maps null run/reason fields', () => {
+  test('toTriggerDecisionDto redacts unclassified reasons', () => {
     const decision: TriggerDecision = {
       id: '33333333-3333-3333-3333-333333333333',
       receivedEventId: '11111111-1111-1111-1111-111111111111',
@@ -124,9 +150,33 @@ describe('trigger-events mappers', () => {
       decision: 'dispatch-error',
       run_id: null,
       run_name: null,
-      reason: 'boom',
+      reason: null,
+      diagnostic: null,
       created_at: '2026-05-07T00:00:02.000Z',
     });
+  });
+
+  test('toTriggerDecisionDto preserves a recognized legacy reason', () => {
+    const decision: TriggerDecision = {
+      id: '33333333-3333-3333-3333-333333333333',
+      receivedEventId: '11111111-1111-1111-1111-111111111111',
+      subscriptionKind: 'trigger',
+      subscriptionId: '44444444-4444-4444-4444-444444444444',
+      subscriptionName: 'Deploy production',
+      workflowDefinitionId: '55555555-5555-5555-5555-555555555555',
+      projectId: '66666666-6666-6666-6666-666666666666',
+      workflowRunId: null,
+      jobId: null,
+      matcherKind: null,
+      matcherOrdinal: null,
+      decision: 'filter-error',
+      runId: null,
+      runName: null,
+      reason: 'Trigger filter evaluation failed',
+      createdAt: new Date('2026-05-07T00:00:02.000Z'),
+    };
+
+    expect(toTriggerDecisionDto(decision).reason).toBe('Trigger filter evaluation failed');
   });
 
   test('toTriggerDecisionDto maps listener identity fields', () => {

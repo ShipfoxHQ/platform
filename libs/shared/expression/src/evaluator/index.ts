@@ -1,5 +1,6 @@
 export {MAX_JSON_OUTPUT_BYTES, MAX_RANGE_FANOUT_BYTES} from '../workflow-function-registry.js';
 export {
+  type WorkflowExpressionEvaluationDetail,
   WorkflowExpressionEvaluationError,
   type WorkflowExpressionEvaluationFailureReason,
   workflowExpressionEvaluationErrorCode,

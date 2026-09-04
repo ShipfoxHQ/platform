@@ -19,6 +19,7 @@ import {
   listTriggerEventFacets,
   listTriggerEvents,
 } from '#db/index.js';
+import {toPublicTriggerDecisionReason} from './dto/trigger-events.js';
 
 export function createTriggersInterModulePresentation(): InterModulePresentation<
   typeof triggersInterModuleContract
@@ -130,6 +131,7 @@ function toTriggerEvent(event: TriggerReceivedEvent) {
   return {
     ...toTriggerEventListItem(event),
     payload: event.payload,
+    processingDiagnostic: event.processingDiagnostic ?? null,
   };
 }
 
@@ -149,7 +151,8 @@ function toTriggerDecision(decision: TriggerDecision) {
     decision: decision.decision,
     runId: decision.runId,
     runName: decision.runName,
-    reason: decision.reason,
+    reason: toPublicTriggerDecisionReason(decision.reason),
+    diagnostic: decision.diagnostic ?? null,
     createdAt: decision.createdAt.toISOString(),
   };
 }
