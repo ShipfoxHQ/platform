@@ -26,6 +26,7 @@ import {
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
+import {createUsageModule} from '@shipfox/api-usage';
 import {type CreateWorkflowsModuleOptions, createWorkflowsModule} from '@shipfox/api-workflows';
 import {
   type WorkflowsModuleClient,
@@ -334,6 +335,7 @@ export async function defaultModules(
       workflows: workflowsClient,
       jobLeaseTokenTtlSeconds: durationToSeconds(authConfig.AUTH_JOB_LEASE_TOKEN_EXPIRES_IN),
     }),
+    createUsageModule(),
     createTriggersModule({
       workflows: workflowsClient,
       definitions: definitionsClient,

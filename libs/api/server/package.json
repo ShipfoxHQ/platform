@@ -71,6 +71,8 @@
     "@shipfox/api-secrets": "workspace:*",
     "@shipfox/api-secrets-dto": "workspace:*",
     "@shipfox/api-triggers": "workspace:*",
+    "@shipfox/api-usage": "workspace:*",
+    "@shipfox/api-usage-dto": "workspace:*",
     "@shipfox/api-workflows": "workspace:*",
     "@shipfox/api-workflows-dto": "workspace:*",
     "@shipfox/api-workspaces-dto": "workspace:*",

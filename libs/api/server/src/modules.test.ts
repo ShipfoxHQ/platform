@@ -10,6 +10,7 @@ import {
   type SecretsInterModuleClient,
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
+import {usageInterModuleContract} from '@shipfox/api-usage-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {
   type WorkspacesInterModuleClient,
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   createRunnersModule: vi.fn(),
   createSecretsModule: vi.fn(),
   createTriggersModule: vi.fn(),
+  createUsageModule: vi.fn(),
   createWorkflowsModule: vi.fn(),
   createWorkspacesModule: vi.fn(),
   createWorkspaceConnectionSnapshotLoader: vi.fn(),
@@ -94,6 +96,7 @@ vi.mock('@shipfox/api-secrets', () => ({
   setSecrets: mocks.setSecrets,
 }));
 vi.mock('@shipfox/api-triggers', () => ({createTriggersModule: mocks.createTriggersModule}));
+vi.mock('@shipfox/api-usage', () => ({createUsageModule: mocks.createUsageModule}));
 vi.mock('@shipfox/api-workflows', () => ({
   createWorkflowsModule: mocks.createWorkflowsModule,
 }));
@@ -114,6 +117,7 @@ describe('defaultModules', () => {
     mocks.createRunnersModule.mockReset();
     mocks.createSecretsModule.mockReset();
     mocks.createTriggersModule.mockReset();
+    mocks.createUsageModule.mockReset();
     mocks.createWorkflowsModule.mockReset();
     mocks.createWorkspacesModule.mockReset();
     mocks.createWorkspaceConnectionSnapshotLoader.mockReset();
@@ -303,6 +307,19 @@ describe('defaultModules', () => {
       ],
     });
     mocks.createTriggersModule.mockReturnValue({name: 'triggers'});
+    mocks.createUsageModule.mockReturnValue({
+      name: 'usage',
+      interModulePresentations: [
+        {
+          contract: usageInterModuleContract,
+          handlers: {
+            recordInferenceSegments: vi.fn(),
+            listJobExecutionUsage: vi.fn(),
+            listInferenceSegments: vi.fn(),
+          },
+        },
+      ],
+    });
     mocks.createWorkspacesModule.mockReturnValue({
       name: 'workspaces',
       interModulePresentations: [
@@ -337,6 +354,7 @@ describe('defaultModules', () => {
       'annotations',
       'runners',
       'logs',
+      'usage',
       'triggers',
       'dispatcher',
     ]);
@@ -357,6 +375,7 @@ describe('defaultModules', () => {
       projectsInterModuleContract,
       runnersInterModuleContract,
       secretsInterModuleContract,
+      usageInterModuleContract,
       workflowsInterModuleContract,
       workspacesInterModuleContract,
     ].map((contract) => contract.module);
@@ -500,6 +519,7 @@ describe('defaultModules', () => {
       'annotations',
       'runners',
       'logs',
+      'usage',
       'triggers',
       'dispatcher',
     ]);
@@ -747,6 +767,7 @@ describe('defaultModules', () => {
       'annotations',
       'runners',
       'logs',
+      'usage',
       'triggers',
       'dispatcher',
     ]);
