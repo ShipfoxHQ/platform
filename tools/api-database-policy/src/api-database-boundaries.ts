@@ -54,6 +54,8 @@ const namespaceImportExpression = /\*\s+as\s+([A-Za-z_$][\w$]*)/u;
 const defaultImportExpression = /^\s*([A-Za-z_$][\w$]*)/u;
 const dynamicSqlRawKeywordExpression =
   /\b(?:FROM|JOIN|INTO|UPDATE|TABLE|TRUNCATE|ALTER|DROP|CREATE)\b/iu;
+const staticSqlCandidateExpression =
+  /\bsql(?:\.raw)?\s*(?:`|\()|\b(?:SELECT|TRUNCATE|INSERT\s+INTO|UPDATE\s+[^\n]+\s+SET|DELETE\s+FROM|(?:ALTER|DROP|CREATE)\s+(?:TABLE|TYPE|INDEX|VIEW|SEQUENCE|TRIGGER)|LOCK\s+TABLE)\b/iu;
 
 export type DatabaseBoundaryRule =
   | 'direct-table-declaration'
@@ -129,7 +131,7 @@ interface AuditContext {
   units: DatabaseMigrationUnit[];
   objects: Map<string, DatabaseObject>;
   sortedNamespaces: readonly string[];
-  sqlObjectReferences: readonly SqlObjectReference[];
+  sqlObjectReferenceExpression: RegExp | undefined;
   namespaceOwners: Map<string, string>;
   ownerNamespaces: Map<string, Set<string>>;
   factories: Map<string, FactoryInfo>;
@@ -141,11 +143,6 @@ interface ObjectReference {
   name: string;
   index: number;
   kind: DatabaseObjectKind;
-}
-
-interface SqlObjectReference {
-  name: string;
-  expression: RegExp;
 }
 
 const namespaceSuggestion = (owner: string, namespace: string): string =>
@@ -491,12 +488,7 @@ function createAuditContext(
   const sortedNamespaces = [...namespaceOwners.keys()].sort(
     (left, right) => right.length - left.length || compareText(left, right),
   );
-  const sqlObjectReferences = [...objects.keys()]
-    .sort((left, right) => right.length - left.length || compareText(left, right))
-    .map((name) => ({
-      name,
-      expression: new RegExp(`(?<![A-Za-z0-9_$])${escapeRegExp(name)}(?![A-Za-z0-9_$])`, 'gu'),
-    }));
+  const sqlObjectReferenceExpression = buildSqlObjectReferenceExpression(objects);
 
   return {
     registry: options.registry,
@@ -504,13 +496,26 @@ function createAuditContext(
     units,
     objects,
     sortedNamespaces,
-    sqlObjectReferences,
+    sqlObjectReferenceExpression,
     namespaceOwners,
     ownerNamespaces,
     factories,
     packageOwners: new Map(),
     ownerPackages,
   };
+}
+
+function buildSqlObjectReferenceExpression(
+  objects: ReadonlyMap<string, DatabaseObject>,
+): RegExp | undefined {
+  const names = [...objects.keys()].sort(
+    (left, right) => right.length - left.length || compareText(left, right),
+  );
+  if (names.length === 0) return undefined;
+  return new RegExp(
+    `(?<![A-Za-z0-9_$])(?:${names.map(escapeRegExp).join('|')})(?![A-Za-z0-9_$])`,
+    'gu',
+  );
 }
 
 function ownerContextForPath(
@@ -1017,28 +1022,29 @@ function auditStaticRawSql(
   file: AuditFile,
   fileContext: FileOwnerContext,
 ): void {
-  for (const {name, expression} of context.sqlObjectReferences) {
-    expression.lastIndex = 0;
-    for (const match of file.source.matchAll(expression)) {
-      const offset = match.index ?? 0;
-      if (isSqlLikeReference(file.source, offset)) {
-        const reference = {kind: context.objects.get(name)?.kind ?? 'table', name, index: offset};
-        const target = objectByNamespace(context, name);
-        if (target?.owner && target.owner !== fileContext.owner) {
-          addFinding(
-            findings,
-            context,
-            file.path,
-            file.source,
-            offset,
-            name,
-            sqlRuleForObject(file.source, offset),
-            namespaceSuggestion(target.owner, target.namespace),
-            fileContext,
-          );
-        } else {
-          validateObjectReference(findings, context, file, reference, false);
-        }
+  const expression = context.sqlObjectReferenceExpression;
+  if (!expression || !staticSqlCandidateExpression.test(file.source)) return;
+  expression.lastIndex = 0;
+  for (const match of file.source.matchAll(expression)) {
+    const name = match[0];
+    const offset = match.index ?? 0;
+    if (isSqlLikeReference(file.source, offset)) {
+      const reference = {kind: context.objects.get(name)?.kind ?? 'table', name, index: offset};
+      const target = objectByNamespace(context, name);
+      if (target?.owner && target.owner !== fileContext.owner) {
+        addFinding(
+          findings,
+          context,
+          file.path,
+          file.source,
+          offset,
+          name,
+          sqlRuleForObject(file.source, offset),
+          namespaceSuggestion(target.owner, target.namespace),
+          fileContext,
+        );
+      } else {
+        validateObjectReference(findings, context, file, reference, false);
       }
     }
   }
