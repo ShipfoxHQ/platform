@@ -191,6 +191,27 @@
           "method": "btree",
           "with": {}
         },
+        "usage_inference_segments_recorded_id_idx": {
+          "name": "usage_inference_segments_recorded_id_idx",
+          "columns": [
+            {
+              "expression": "recorded_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "usage_inference_segments_workflow_run_idx": {
           "name": "usage_inference_segments_workflow_run_idx",
           "columns": [
@@ -374,6 +395,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "queued_at_known": {
+          "name": "queued_at_known",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "started_at": {
           "name": "started_at",
           "type": "timestamp with time zone",
@@ -441,6 +469,27 @@
             },
             {
               "expression": "recorded_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "usage_job_executions_recorded_job_execution_idx": {
+          "name": "usage_job_executions_recorded_job_execution_idx",
+          "columns": [
+            {
+              "expression": "recorded_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "job_execution_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

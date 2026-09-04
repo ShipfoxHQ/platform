@@ -3,6 +3,7 @@ import {z} from 'zod';
 const idSchema = z.string().uuid();
 const nonEmptyStringSchema = z.string().min(1);
 const dateTimeSchema = z.string().datetime();
+const inferenceWindowDateTimeSchema = z.string().datetime({precision: 3});
 const usageCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 export const MAX_USAGE_REPLAY_LIMIT = 500;
@@ -69,8 +70,8 @@ const inferenceSegmentInputObjectSchema = z
     upstream: nonEmptyStringSchema,
     model: nonEmptyStringSchema,
     dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
-    windowStart: dateTimeSchema,
-    windowEnd: dateTimeSchema,
+    windowStart: inferenceWindowDateTimeSchema,
+    windowEnd: inferenceWindowDateTimeSchema,
     requestCount: usageCountSchema,
     inputTokens: usageCountSchema,
     outputTokens: usageCountSchema,
@@ -143,8 +144,8 @@ const inferenceSegmentUsageHttpObjectSchema = z
     upstream: nonEmptyStringSchema,
     model: nonEmptyStringSchema,
     dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
-    window_start: dateTimeSchema,
-    window_end: dateTimeSchema,
+    window_start: inferenceWindowDateTimeSchema,
+    window_end: inferenceWindowDateTimeSchema,
     request_count: usageCountSchema,
     input_tokens: usageCountSchema,
     output_tokens: usageCountSchema,

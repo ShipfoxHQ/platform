@@ -1,4 +1,4 @@
-import {instanceMetrics} from '@shipfox/node-opentelemetry';
+import {instanceMetrics, logger} from '@shipfox/node-opentelemetry';
 
 export type UsageRecordOutcome = 'recorded' | 'duplicate';
 
@@ -10,7 +10,7 @@ export function addUsageMetric(
   try {
     counter.add(value, {outcome});
   } catch {
-    // Metrics must not cause a durable event handler to retry after its commit.
+    logger().debug({outcome, value}, 'Usage metric emission failed after durable commit');
   }
 }
 

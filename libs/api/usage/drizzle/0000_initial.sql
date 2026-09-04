@@ -20,6 +20,7 @@ CREATE TABLE "usage_job_executions" (
 	"runner_cpu" text,
 	"managed" boolean,
 	"queued_at" timestamp with time zone,
+	"queued_at_known" boolean DEFAULT false NOT NULL,
 	"started_at" timestamp with time zone,
 	"finished_at" timestamp with time zone,
 	"lease_expired_at" timestamp with time zone,
@@ -655,6 +656,8 @@ DECLARE
   upper_bound text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('shipfox.usage.monthly-partitions'));
+  LOCK TABLE "usage_job_executions", "usage_inference_segments"
+    IN SHARE ROW EXCLUSIVE MODE;
 
   FOR table_name, default_table_name, key_columns IN
     VALUES

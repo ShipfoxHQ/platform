@@ -245,6 +245,19 @@ describe('Usage projections', () => {
     ).toHaveLength(1);
   });
 
+  it('defers legacy terminal events that omit queuedAt', async () => {
+    const events = jobEvents();
+    const legacyTerminated = {...events.terminated, queuedAt: undefined};
+
+    await expect(recordJobExecutionTerminated(legacyTerminated)).resolves.toMatchObject({
+      published: false,
+      deferred: true,
+    });
+    await expect(recordJobExecutionQueued(events.queued)).resolves.toMatchObject({
+      published: true,
+    });
+  });
+
   it('recomputes duration when a late claim supplies the missing start time', async () => {
     const events = jobEvents();
     events.terminated.startedAt = null;
@@ -360,7 +373,12 @@ describe('Usage projections', () => {
       retentionDays: 29,
       now: new Date('2020-03-02T00:00:00.000Z'),
     });
-    expect(result.dropped).toBe(2);
+    expect(result.dropped).toBeGreaterThan(0);
+    expect(result.partitions).toEqual(
+      expect.arrayContaining(['usage_job_executions_2020_01', 'usage_inference_segments_2020_01']),
+    );
+    expect(result.partitions).not.toContain('usage_job_executions_2020_02');
+    expect(result.partitions).not.toContain('usage_inference_segments_2020_02');
     expect(result.partitions.every((name) => monthlyPartitionPattern.test(name))).toBe(true);
   });
 });

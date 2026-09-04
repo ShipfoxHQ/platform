@@ -115,6 +115,13 @@ describe('Usage event contracts', () => {
     expect(() =>
       usageInferenceSegmentRecordedEventSchema.parse({
         ...validSegment,
+        windowEnd: '2026-09-04T10:00:00.0001Z',
+        version: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
         inputTokens: Number.MAX_SAFE_INTEGER + 1,
         version: 1,
       }),

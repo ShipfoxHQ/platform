@@ -30,6 +30,7 @@ export const usageJobExecutions = pgTable(
     runnerCpu: text('runner_cpu'),
     managed: boolean('managed'),
     queuedAt: timestamp('queued_at', {withTimezone: true}),
+    queuedAtKnown: boolean('queued_at_known').notNull().default(false),
     startedAt: timestamp('started_at', {withTimezone: true}),
     finishedAt: timestamp('finished_at', {withTimezone: true}),
     leaseExpiredAt: timestamp('lease_expired_at', {withTimezone: true}),

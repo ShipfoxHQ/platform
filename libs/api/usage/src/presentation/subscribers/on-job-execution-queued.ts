@@ -8,5 +8,7 @@ export async function onJobExecutionQueued(
   const result = await recordJobExecutionQueued(payload);
   if (result.published) {
     addUsageMetric(usageJobExecutionRecorded, 1, 'recorded');
+  } else if (result.row.state === 'terminated' && result.row.recordedAt !== null) {
+    addUsageMetric(usageJobExecutionRecorded, 1, 'duplicate');
   }
 }

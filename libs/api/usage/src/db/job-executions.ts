@@ -72,6 +72,7 @@ async function insertQueuedJobExecution(
       runNumber: payload.runNumber ?? null,
       requestedLabels: payload.requiredLabels,
       queuedAt: new Date(payload.queuedAt),
+      queuedAtKnown: true,
       state: 'queued',
     })
     .returning();
@@ -96,6 +97,7 @@ async function updateQueuedJobExecution(
       runNumber: current.runNumber ?? payload.runNumber ?? null,
       requestedLabels: current.requestedLabels ?? payload.requiredLabels,
       queuedAt: current.queuedAt ?? new Date(payload.queuedAt),
+      queuedAtKnown: true,
       state: queuedProjectionState(current.state),
     })
     .where(eq(usageJobExecutions.jobExecutionId, payload.jobExecutionId))
@@ -287,6 +289,7 @@ async function insertTerminatedJobExecution(
       runnerCpu: parsed.runnerCpu,
       managed: parsed.managed,
       queuedAt: toDate(payload.queuedAt),
+      queuedAtKnown: payload.queuedAt !== undefined,
       startedAt,
       finishedAt,
       status: payload.status,
@@ -326,6 +329,7 @@ async function updateTerminatedJobExecution(
       providerKind: firstValue(current.providerKind, payload.providerKind),
       launchKind: firstValue(current.launchKind, payload.launchKind),
       queuedAt: firstValue(current.queuedAt, toDate(payload.queuedAt)),
+      queuedAtKnown: current.queuedAtKnown || payload.queuedAt !== undefined,
       startedAt,
       finishedAt,
       status: preferValue(current.status, payload.status),
@@ -370,10 +374,10 @@ async function publishJobExecutionIfReady(
 }
 
 function isReadyForPublication(row: UsageJobExecutionRow): boolean {
-  // A null queued_at means the execution was never queued. Otherwise, wait for
-  // the queued projection because it is the source of requiredLabels. runNumber
-  // is optional on older queued events and is still filled when present.
-  return row.queuedAt === null || row.requestedLabels !== null;
+  // An omitted queued_at is an unknown legacy state, while an explicit null
+  // means the execution was never queued. Otherwise, wait for requiredLabels
+  // from the queued projection; runNumber is optional on older queue events.
+  return row.queuedAtKnown && (row.queuedAt === null || row.requestedLabels !== null);
 }
 
 function mergeTerminatedRunnerIdentity(
