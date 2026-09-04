@@ -558,6 +558,9 @@ function listenerStoredPayloadBytes() {
   return sql<number>`case
     when ${jobListenerEvents.storedPayloadBytes} > 0 then ${jobListenerEvents.storedPayloadBytes}
     when ${jobListenerEvents.payload} is null then 0
+    when jsonb_typeof(${jobListenerEvents.payload}) = 'null' then 0
+    when jsonb_typeof(${jobListenerEvents.payload}) = 'string'
+      then octet_length(${jobListenerEvents.payload} #>> '{}')
     else octet_length(${jobListenerEvents.payload}::text)
   end`;
 }

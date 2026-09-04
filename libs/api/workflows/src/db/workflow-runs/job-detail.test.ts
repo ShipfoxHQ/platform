@@ -282,6 +282,24 @@ describe('selected workflow job reads', () => {
     await insertConsumedListenerEvent({
       jobId,
       executionId,
+      eventRef: 'event-legacy-empty-string',
+      receivedAt: new Date(receivedAt.getTime() + 500),
+      payload: '',
+      storedPayloadBytes: 0,
+      normalizedEventBytes: 0,
+    });
+
+    const emptyStringDetail = await getExecutionTriggerEvent({
+      jobId,
+      executionId,
+      eventRef: 'event-legacy-empty-string',
+    });
+    expect(emptyStringDetail?.storedPayloadBytes).toBe(0);
+    expect(emptyStringDetail?.payload).toBe('');
+
+    await insertConsumedListenerEvent({
+      jobId,
+      executionId,
       eventRef: 'event-legacy-large',
       receivedAt: new Date(receivedAt.getTime() + 1_000),
       payload: {body: 'x'.repeat(WORKFLOW_EXECUTION_TRIGGER_EVENT_PREVIEW_MAX_BYTES)},
