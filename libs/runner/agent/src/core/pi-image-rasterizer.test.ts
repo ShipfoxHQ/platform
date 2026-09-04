@@ -221,6 +221,88 @@ describe('worker lifecycle', () => {
     await rasterizer.close();
   });
 
+  it.each([
+    'error',
+    'exit',
+  ] as const)('reports a worker %s before readiness as unavailable', async (event) => {
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(renderPng, {autoReady: false});
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    const render = rasterizer.rasterize({base64: encodedSvg('<rect />')});
+    if (event === 'error') workers[0]?.emit(event, new Error('startup failed'));
+    else workers[0]?.emit(event, 1);
+
+    await expect(render).resolves.toMatchObject({
+      outcome: 'omitted',
+      reason: 'rasterizer_unavailable',
+    });
+    await vi.waitFor(() => expect(workers[0]?.terminated).toBe(true));
+    await rasterizer.close();
+  });
+
+  it('keeps queued work when another worker can recover from initialization failure', async () => {
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const index = workers.length;
+        const worker = new FakeRenderWorker(index === 0 ? () => undefined : renderPng, {
+          autoReady: index !== 1,
+        });
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    const hanging = rasterizer.rasterize({base64: encodedSvg('<rect />')});
+    const queued = rasterizer.rasterize({base64: encodedSvg('<rect />')});
+    await vi.waitFor(() => expect(workers).toHaveLength(2));
+    workers[1]?.failInitialization();
+
+    await expect(queued).resolves.toMatchObject({outcome: 'converted'});
+    await vi.waitFor(() => expect(workers).toHaveLength(3));
+    await rasterizer.close();
+    await expect(hanging).resolves.toMatchObject({
+      outcome: 'omitted',
+      reason: 'rasterizer_unavailable',
+    });
+  });
+
+  it('bounds initialization after another worker drains the queue', async () => {
+    vi.useFakeTimers();
+    const workers: FakeRenderWorker[] = [];
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        const worker = new FakeRenderWorker(renderPng, {autoReady: workers.length > 0});
+        workers.push(worker);
+        return worker;
+      }) as never,
+    });
+
+    const renders = [
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+    ];
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(Promise.all(renders)).resolves.toMatchObject([
+      {outcome: 'converted'},
+      {outcome: 'converted'},
+    ]);
+    expect(workers[0]?.terminated).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(PI_SVG_RASTERIZATION_LIMITS.resultBudgetMs);
+    expect(workers[0]?.terminated).toBe(true);
+    await expect(rasterizer.rasterize({base64: encodedSvg('<rect />')})).resolves.toMatchObject({
+      outcome: 'converted',
+    });
+    await rasterizer.close();
+  });
+
   it('discards a worker when initialization exhausts the result budget', async () => {
     vi.useFakeTimers();
     const workers: FakeRenderWorker[] = [];
@@ -244,6 +326,28 @@ describe('worker lifecycle', () => {
     const second = rasterizer.rasterize({base64: encodedSvg('<rect />')});
     await vi.advanceTimersByTimeAsync(0);
     await expect(second).resolves.toMatchObject({outcome: 'converted'});
+    await rasterizer.close();
+  });
+
+  it('reports synchronous worker construction failures as render errors', async () => {
+    const rasterizer = createPiSvgRasterizer({
+      workerFactory: (() => {
+        throw new Error('worker unavailable');
+      }) as never,
+    });
+
+    const results = await Promise.all([
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
+    ]);
+
+    expect(results).toMatchObject([
+      {outcome: 'omitted', reason: 'render_error'},
+      {outcome: 'omitted', reason: 'render_error'},
+    ]);
+    expect(
+      results.every((result) => result.durationMs < PI_SVG_RASTERIZATION_LIMITS.workerDeadlineMs),
+    ).toBe(true);
     await rasterizer.close();
   });
 

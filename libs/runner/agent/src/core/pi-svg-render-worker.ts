@@ -2,6 +2,11 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {parentPort} from 'node:worker_threads';
 import {type CustomFontsOptions, initWasm, Resvg} from '@resvg/resvg-wasm';
+import type {
+  SvgRenderWorkerRenderResponse,
+  SvgRenderWorkerRequest,
+  SvgRenderWorkerResponse,
+} from './pi-svg-render-protocol.js';
 
 const sourceExtension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
 const {validatePngOutput} = await import(`./pi-png.${sourceExtension}`);
@@ -20,20 +25,6 @@ const require = createRequire(import.meta.url);
 let fontBuffers: Uint8Array[] | undefined;
 let fontFamily: string | undefined;
 let initialization: Promise<void> | undefined;
-
-type RenderRequest = {type: 'render'; requestId: number; svg: ArrayBuffer};
-type WorkerFailureReason =
-  | 'external_resource'
-  | 'output_too_large'
-  | 'rasterizer_unavailable'
-  | 'render_error'
-  | 'unsafe_svg'
-  | 'protocol_failure';
-type WorkerStartupResponse = {type: 'ready'} | {type: 'initialization_failed'};
-type WorkerRenderResponse =
-  | {type: 'rendered'; requestId: number; png: ArrayBuffer}
-  | {type: 'failed'; requestId: number; reason: WorkerFailureReason};
-type WorkerResponse = WorkerStartupResponse | WorkerRenderResponse;
 
 if (parentPort === null) throw new Error('SVG render worker has no parent port');
 const port = parentPort;
@@ -77,7 +68,7 @@ function handleMessage(message: unknown): void {
   }
 }
 
-function renderSvg(requestId: number, svg: Uint8Array): WorkerRenderResponse {
+function renderSvg(requestId: number, svg: Uint8Array): SvgRenderWorkerRenderResponse {
   const renderer = new Resvg(svg, {
     font: fontOptions(),
   });
@@ -174,7 +165,10 @@ function fontOptions(): CustomFontsOptions {
   };
 }
 
-function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): WorkerRenderResponse {
+function renderPng(
+  requestId: number,
+  renderer: InstanceType<typeof Resvg>,
+): SvgRenderWorkerRenderResponse {
   const rendered = renderer.render();
   try {
     const png = rendered.asPng();
@@ -188,9 +182,9 @@ function renderPng(requestId: number, renderer: InstanceType<typeof Resvg>): Wor
   }
 }
 
-function isRenderRequest(value: unknown): value is RenderRequest {
+function isRenderRequest(value: unknown): value is SvgRenderWorkerRequest {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<RenderRequest>;
+  const candidate = value as Partial<SvgRenderWorkerRequest>;
   return (
     candidate.type === 'render' &&
     typeof candidate.requestId === 'number' &&
@@ -208,6 +202,6 @@ function requestIdOf(value: unknown): number {
     : 0;
 }
 
-function post(response: WorkerResponse): void {
+function post(response: SvgRenderWorkerResponse): void {
   port.postMessage(response);
 }
