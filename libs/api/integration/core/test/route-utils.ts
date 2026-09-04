@@ -104,11 +104,21 @@ export async function createTestApp(
   options: CreateTestAppOptions = {},
 ): Promise<FastifyInstance> {
   const memberships = options.memberships ?? authenticatedMemberships;
+  const repositoryAuthorizer =
+    options.repositoryAuthorizer ??
+    createRepositoryAuthorizer({
+      enabled: true,
+      projects:
+        options.projects ??
+        ({
+          getProjectBySource: async () => ({project: null}),
+          findProjectBySourceRepositoryName: async () => ({projects: []}),
+        } as unknown as ProjectsModuleClient),
+    });
   const integrationsModule = await createIntegrationsModule({
     providers,
     projects: options.projects,
-    repositoryAuthorizer:
-      options.repositoryAuthorizer ?? createRepositoryAuthorizer({enabled: false}),
+    repositoryAuthorizer,
   });
   const app = await createApp({
     auth: [createFakeUserAuth(memberships)],

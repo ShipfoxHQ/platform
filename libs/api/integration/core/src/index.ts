@@ -232,6 +232,11 @@ export interface CreateIntegrationsModuleOptions {
    */
   parts?: IntegrationModuleParts[] | undefined;
   secrets?: IntegrationProviderSecrets | undefined;
+  /**
+   * Required when `repositoryAuthorizer` is omitted because the production
+   * composition enables repository authorization unconditionally. Test callers
+   * that do not provide Projects must inject an explicit authorizer seam.
+   */
   projects?: ProjectsModuleClient | undefined;
   /** Test seam for composing repository authorization without configuration. */
   repositoryAuthorizer?: RepositoryAuthorizer | undefined;

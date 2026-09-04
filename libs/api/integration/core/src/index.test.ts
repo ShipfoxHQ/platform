@@ -180,6 +180,7 @@ describe('createIntegrationsContext', () => {
           provider: {
             provider: 'github',
             displayName: 'GitHub',
+            repositoryAuthorization: 'enforced',
             adapters: {
               source_control: {
                 listRepositories: vi.fn(),

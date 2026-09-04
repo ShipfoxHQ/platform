@@ -530,7 +530,7 @@ describe('repository authorization', () => {
     const projects = createProjects({
       getProjectBySource: vi.fn().mockRejectedValue(new Error('must not be called')),
     });
-    const authorizer = createRepositoryAuthorizer({projects});
+    const authorizer = createRepositoryAuthorizer({projects, enabled: false});
 
     expect(authorizer.enabled).toBe(false);
     await expect(
