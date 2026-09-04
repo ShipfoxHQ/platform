@@ -717,7 +717,6 @@ function toAttemptStepError(
   const rawAgentConfigIssue = error.agentConfigIssue ?? error.agent_config_issue;
   const agentConfigIssue = parsedAgentConfigIssue(rawAgentConfigIssue);
   const reason = parsedReason ?? (agentConfigIssue ? 'agent_config_invalid' : undefined);
-  if (reason === undefined) return null;
 
   const exitCode = error.exitCode ?? error.exit_code;
   const managedProviderId = selectedString(error, 'managedProviderId', 'managed_provider_id');
@@ -733,7 +732,7 @@ function toAttemptStepError(
     signal: typeof error.signal === 'string' ? error.signal : undefined,
     reason,
     agentConfigIssue,
-    category: deriveStepErrorCategory(stepType, reason),
+    category: reason === undefined ? undefined : deriveStepErrorCategory(stepType, reason),
   };
 }
 

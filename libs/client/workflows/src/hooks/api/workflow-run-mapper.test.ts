@@ -106,6 +106,22 @@ describe('workflow run step error mapping', () => {
     expect(current?.measuredBytes).toBe(0);
     expect(historical?.measuredBytes).toBe(0);
   });
+
+  test('preserves an unclassified historical attempt error', () => {
+    const error = mappedAttemptError('run', {
+      message: 'Legacy runner failed before it recorded a reason',
+      code: 'legacy-runner-failure',
+      source: 'runner',
+    });
+
+    expect(error).toMatchObject({
+      message: 'Legacy runner failed before it recorded a reason',
+      code: 'legacy-runner-failure',
+      source: 'runner',
+    });
+    expect(error?.reason).toBeUndefined();
+    expect(error?.category).toBeUndefined();
+  });
 });
 
 function mappedAttemptError(type: string, error: Record<string, unknown>) {

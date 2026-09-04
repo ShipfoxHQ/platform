@@ -386,6 +386,19 @@ describe('StepInspectorSheet', () => {
     expect(screen.queryByRole('button', {name: 'View configuration'})).toBeNull();
   });
 
+  it('does not link an oversized condition to configuration', async () => {
+    const user = userEvent.setup();
+    configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});
+
+    await renderPanel({
+      entry: stepEntry('execution_payload_too_large', undefined, {field: 'condition'}),
+    });
+    await user.click(screen.getByRole('button', {name: INSPECTOR_TRIGGER_NAME}));
+
+    expect(await screen.findByText('Condition exceeds the execution limit')).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'View configuration'})).toBeNull();
+  });
+
   it('explains a user-controlled oversized step response', async () => {
     const user = userEvent.setup();
     configureApiClient({fetchImpl: vi.fn(() => new Promise<Response>(() => undefined))});

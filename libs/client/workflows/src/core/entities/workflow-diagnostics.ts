@@ -47,11 +47,12 @@ const CONFIGURATION_PAYLOAD_FIELDS = new Set<WorkflowPayloadField>([
   'config',
   'resolved_config',
   'config_plan',
-  'condition',
 ]);
 
 export function workflowPayloadFieldLabel(field: string | undefined): string {
-  if (field === undefined || !(field in WORKFLOW_PAYLOAD_FIELD_LABELS)) return 'Workflow value';
+  if (field === undefined || !Object.hasOwn(WORKFLOW_PAYLOAD_FIELD_LABELS, field)) {
+    return 'Workflow value';
+  }
   return WORKFLOW_PAYLOAD_FIELD_LABELS[field as WorkflowPayloadField];
 }
 
