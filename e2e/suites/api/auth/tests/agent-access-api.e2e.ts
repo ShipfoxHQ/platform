@@ -332,7 +332,7 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
     expect(agentAccessEnvelopeSchema.parse(stillValidProjects.structuredContent).ok).toBe(true);
 
     let wasRateLimited = false;
-    for (let call = 0; call < 60; call += 1) {
+    for (let call = 0; call <= 60; call += 1) {
       const result = await stillValidClient.callTool(
         {name: 'list_projects', arguments: {}},
         CallToolResultSchema,
