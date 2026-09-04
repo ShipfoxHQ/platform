@@ -537,9 +537,10 @@ describe('worker lifecycle', () => {
       workerFactory: (() => new FakeRenderWorker(() => undefined)) as never,
     });
     const renders = Array.from({length: 35}, () =>
-      rasterizer.rasterize({base64: encodedSvg('<rect />'), deadlineMs: 1}),
+      rasterizer.rasterize({base64: encodedSvg('<rect />')}),
     );
 
+    await rasterizer.close();
     const results = await Promise.all(renders);
     expect(
       results.filter(
@@ -548,10 +549,9 @@ describe('worker lifecycle', () => {
     ).toHaveLength(1);
     expect(
       results.filter(
-        (result) => result.outcome === 'omitted' && result.reason === 'result_budget_exhausted',
+        (result) => result.outcome === 'omitted' && result.reason === 'rasterizer_unavailable',
       ),
     ).toHaveLength(34);
-    await rasterizer.close();
   });
 
   it('does not create a worker when the render deadline is already exhausted', async () => {
