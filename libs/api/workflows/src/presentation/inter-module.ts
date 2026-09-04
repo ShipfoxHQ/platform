@@ -28,8 +28,10 @@ import {
 import {
   decodeNumberIdCursor,
   decodeStringIdCursor,
+  decodeTimestampIdCursor,
   encodeNumberIdCursor,
   encodeStringIdCursor,
+  encodeTimestampIdCursor,
 } from '@shipfox/node-drizzle';
 import {DEFAULT_HARNESS, harnessSchema} from '@shipfox/workflow-document';
 import {z} from 'zod';
@@ -55,6 +57,7 @@ import {
 import {resolveWorkflowRunTriggerReference} from '#core/resolve-trigger-reference.js';
 import {assertWorkspaceAdmitsNewJobs} from '#core/workspace-admission.js';
 import {
+  getExecutionTriggerEvent,
   getJobScope,
   getLatestRunAttempt,
   getLatestStepAttempt,
@@ -71,6 +74,7 @@ import {
   getWorkflowRunOverview,
   getWorkflowRunSource,
   getWorkflowStepReadScope,
+  listExecutionTriggerEvents,
   listFailedStepAttempts,
   listRunAttemptsPage,
   listStepAttemptIdsByJobId,
@@ -92,6 +96,8 @@ import {
   toRunOverviewJobsPageDto,
   toStepAttemptDetailResponseDto,
   toWorkflowExecutionStepsResponseDto,
+  toWorkflowExecutionTriggerEventDetailDto,
+  toWorkflowExecutionTriggerEventSummaryDto,
   toWorkflowJobDetailDto,
   toWorkflowJobExecutionContextResponseDto,
   toWorkflowJobExecutionSummariesResponseDto,
@@ -463,6 +469,37 @@ export function createWorkflowsInterModulePresentation(params: {
       });
       return context ? toWorkflowJobExecutionContextResponseDto(context) : null;
     },
+    listExecutionTriggerEvents: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const page = await listExecutionTriggerEvents({
+        jobId: input.jobId,
+        executionId: input.executionId,
+        limit: input.limit,
+        cursor: decodeExecutionTriggerEventCursor(input.cursor),
+        scope,
+      });
+      if (!page) return null;
+
+      return {
+        items: page.items.map(toWorkflowExecutionTriggerEventSummaryDto),
+        nextCursor: page.nextCursor ? encodeTimestampIdCursor(page.nextCursor) : null,
+        ...(page.total === undefined ? {} : {total: page.total}),
+      };
+    },
+    getExecutionTriggerEvent: async (input) => {
+      const scope = await getAccessibleJobScope(input.workspaceId, input.jobId);
+      if (!scope) return null;
+
+      const event = await getExecutionTriggerEvent({
+        jobId: input.jobId,
+        executionId: input.executionId,
+        eventRef: input.eventRef,
+        scope,
+      });
+      return event ? toWorkflowExecutionTriggerEventDetailDto(event) : null;
+    },
     getWorkflowStepAttemptDetail: async (input) => {
       const scope = await getAccessibleStepScope(input.workspaceId, input.stepId);
       if (!scope) return null;
@@ -787,6 +824,13 @@ function toStepAttemptCursor(
   cursor: {value: number; id: string} | undefined,
 ): {attempt: number; id: string} | undefined {
   return cursor ? {attempt: cursor.value, id: cursor.id} : undefined;
+}
+
+function decodeExecutionTriggerEventCursor(cursor: string | undefined) {
+  if (cursor === undefined) return undefined;
+  const decoded = decodeTimestampIdCursor(cursor);
+  if (!decoded) throw new Error('Invalid workflow read cursor');
+  return decoded;
 }
 
 function isUuid(value: string): boolean {

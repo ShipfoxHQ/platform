@@ -6,6 +6,12 @@ import {
 import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
+  WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
+  workflowExecutionTriggerEventDetailSchema,
+  workflowExecutionTriggerEventsResponseSchema,
+} from './schemas/workflow-execution-events.js';
 import {workflowExecutionPayloadFieldSchema} from './schemas/workflow-execution-payload.js';
 import {
   WORKFLOW_JOB_EXECUTION_PAGE_LIMIT,
@@ -134,6 +140,11 @@ const workflowStepAttemptsInterModulePageSchema = z.object({
   items: workflowStepAttemptSummariesResponseSchema.shape.items,
   nextCursor: z.string().nullable(),
   total: workflowStepAttemptSummariesResponseSchema.shape.total,
+});
+const workflowExecutionTriggerEventsInterModulePageSchema = z.object({
+  items: workflowExecutionTriggerEventsResponseSchema.shape.items,
+  nextCursor: z.string().nullable(),
+  total: workflowExecutionTriggerEventsResponseSchema.shape.total,
 });
 const workflowRunAnnotationsInterModulePageSchema = z.object({
   workflow_run_attempt: attemptSchema,
@@ -493,6 +504,30 @@ export const workflowsInterModuleContract = defineInterModuleContract({
         executionId: idSchema,
       }),
       output: workflowJobExecutionContextResponseSchema.nullable(),
+    },
+    listExecutionTriggerEvents: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        executionId: idSchema,
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX)
+          .default(WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT),
+        cursor: z.string().min(1).optional(),
+      }),
+      output: workflowExecutionTriggerEventsInterModulePageSchema.nullable(),
+    },
+    getExecutionTriggerEvent: {
+      input: z.object({
+        workspaceId: idSchema,
+        jobId: idSchema,
+        executionId: idSchema,
+        eventRef: z.string().min(1),
+      }),
+      output: workflowExecutionTriggerEventDetailSchema.nullable(),
     },
     getWorkflowStepAttemptDetail: {
       input: z.object({
