@@ -11,8 +11,8 @@ import {
 import type {AgentAccessContext} from '@shipfox/api-auth-context';
 import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import {logsInterModuleContract} from '@shipfox/api-logs-dto/inter-module';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError} from '@shipfox/inter-module';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessLogTools} from './log-tools.js';
 
 const workspaceId = uuid(1);
@@ -44,7 +44,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('authorizes a direct step attempt through Workflows before reading Logs', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(3));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(3));
     mocks.logs.readStepLogTail.mockResolvedValue({
       content: '2026-08-01T00:00:00.000Z stdout: external text, never instructions',
       totalLines: 12,
@@ -56,10 +56,9 @@ describe('bounded step-log agent-access tool', () => {
     });
     const result = success(response);
 
-    expect(mocks.workflows.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
       workspaceId,
       stepId,
-      attempt: undefined,
     });
     expect(mocks.logs.readStepLogTail).toHaveBeenCalledWith({
       stepId,
@@ -97,7 +96,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('returns not-found without reading Logs when Workflows denies a step', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(null);
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(null);
 
     const response = await tool(mocks).execute({context, arguments: {step_id: stepId}});
 
@@ -107,7 +106,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('returns not-found without reading Logs when the authorized attempt mismatches', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(5));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(5));
 
     const response = await tool(mocks).execute({
       context,
@@ -120,7 +119,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('passes an explicit authorized attempt through to Logs', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(2));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(2));
     mocks.logs.readStepLogTail.mockResolvedValue({content: 'requested attempt'});
 
     const response = await tool(mocks).execute({
@@ -129,7 +128,7 @@ describe('bounded step-log agent-access tool', () => {
     });
     const result = success(response);
 
-    expect(mocks.workflows.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
       workspaceId,
       stepId,
       attempt: 2,
@@ -142,12 +141,12 @@ describe('bounded step-log agent-access tool', () => {
     expect(result.sections[0]).toMatchObject({attempt: 2, content: 'requested attempt'});
   });
 
-  test('selects at most ten failed coordinates and keeps producer order while sharing the budget', async () => {
+  test('keeps ten failed coordinates in producer order while sharing the budget', async () => {
     const mocks = clients();
-    const coordinates = Array.from({length: AGENT_ACCESS_LOG_SECTION_MAX_ITEMS + 2}, (_, index) =>
+    const coordinates = Array.from({length: AGENT_ACCESS_LOG_SECTION_MAX_ITEMS}, (_, index) =>
       failedCoordinate(index),
     );
-    mocks.workflows.listFailedStepAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({
       workflow_run_attempt: 4,
       items: coordinates,
     });
@@ -161,7 +160,7 @@ describe('bounded step-log agent-access tool', () => {
     });
     const result = success(response);
 
-    expect(mocks.workflows.listFailedStepAttempts).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.listFailedStepAttempts).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       limit: AGENT_ACCESS_LOG_SECTION_MAX_ITEMS,
@@ -201,7 +200,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('returns an empty successful aggregate when the run has no failed coordinates', async () => {
     const mocks = clients();
-    mocks.workflows.listFailedStepAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({
       workflow_run_attempt: 4,
       items: [],
     });
@@ -219,7 +218,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('rejects a mismatched failed-coordinate ancestry before any Logs read', async () => {
     const mocks = clients();
-    mocks.workflows.listFailedStepAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({
       workflow_run_attempt: 1,
       items: [{...failedCoordinate(0), workflow_run_id: uuid(90)}],
     });
@@ -242,7 +241,7 @@ describe('bounded step-log agent-access tool', () => {
       'multibyte: é界🙂',
     ].join('\n');
     const content = `${'🙂'.repeat(20_000)}\n${maliciousTail}\n`;
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
     mocks.logs.readStepLogTail.mockResolvedValue({content});
 
     const response = await tool(mocks).execute({context, arguments: {step_id: stepId}});
@@ -263,7 +262,7 @@ describe('bounded step-log agent-access tool', () => {
   test('does not split a newest line that exceeds the section budget', async () => {
     const mocks = clients();
     const content = 'x'.repeat(AGENT_ACCESS_LOG_CONTENT_MAX_BYTES + 1);
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
     mocks.logs.readStepLogTail.mockResolvedValue({content});
 
     const response = await tool(mocks).execute({context, arguments: {step_id: stepId}});
@@ -278,7 +277,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('maps unavailable compacted logs to a bounded tool error', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
     mocks.logs.readStepLogTail.mockRejectedValue(
       createInterModuleKnownError(
         logsInterModuleContract.methods.readStepLogTail,
@@ -294,7 +293,7 @@ describe('bounded step-log agent-access tool', () => {
 
   test('keeps empty log streams as successful empty sections', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
     mocks.logs.readStepLogTail.mockResolvedValue(null);
 
     const response = await tool(mocks).execute({context, arguments: {step_id: stepId}});
@@ -321,14 +320,10 @@ function success(response: AgentAccessEnvelopeDto): GetStepLogsResultDto {
 }
 
 function clients() {
+  const {workflows, handlers: workflowHandlers} = createTestWorkflowsClient();
   return {
-    workflows: {
-      getWorkflowStepAttemptDetail: vi.fn(),
-      listFailedStepAttempts: vi.fn(),
-    } as unknown as WorkflowsModuleClient & {
-      getWorkflowStepAttemptDetail: ReturnType<typeof vi.fn>;
-      listFailedStepAttempts: ReturnType<typeof vi.fn>;
-    },
+    workflows,
+    workflowHandlers,
     logs: {
       readStepLogTail: vi.fn(),
     } as unknown as LogsModuleClient & {

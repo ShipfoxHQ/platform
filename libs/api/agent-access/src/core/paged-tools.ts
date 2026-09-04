@@ -54,6 +54,7 @@ import {
   encodeTimestampCursor,
   invalidRequest,
   notFound,
+  optionalField,
   parseInput,
   reducePage,
   truncateAgentAccessUtf8,
@@ -101,7 +102,7 @@ function createListProjectsTool(projects: ProjectsModuleClient): AgentAccessTool
       const page = await projects.listProjectCatalogByWorkspace({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        ...optionalCursor(cursor),
+        ...optionalField('cursor', cursor),
       });
       const result = {
         projects: page.projects.map(toProjectResult),
@@ -137,7 +138,7 @@ function createListWorkflowDefinitionsTool(
           workspaceId: context.workspaceId,
           projectId: input.project_id,
           limit: input.limit,
-          ...optionalCursor(cursor),
+          ...optionalField('cursor', cursor),
         });
         const result = {
           definitions: page.definitions.map(toDefinitionResult),
@@ -210,8 +211,8 @@ function createListWorkflowRunsTool(
         workspaceId: context.workspaceId,
         projectId: input.project_id,
         limit: input.limit,
-        ...optionalCursor(cursor),
-        ...optionalFilters(workflowRunFilters(input)),
+        ...optionalField('cursor', cursor),
+        ...optionalField('filters', workflowRunFilters(input)),
       });
       const result = {
         runs: page.runs.map(toWorkflowRunResult),
@@ -288,8 +289,8 @@ function createListTriggerEventsTool(triggers: TriggersInterModuleClient): Agent
       const page = await triggers.listTriggerEvents({
         workspaceId: context.workspaceId,
         limit: input.limit,
-        ...optionalCursor(toTriggerEventReadCursor(cursor)),
-        ...optionalFilters(triggerEventFilters(input)),
+        ...optionalField('cursor', toTriggerEventReadCursor(cursor)),
+        ...optionalField('filters', triggerEventFilters(input)),
       });
       const result = {
         trigger_events: page.events.map(toTriggerEventResult),
@@ -581,14 +582,6 @@ function triggerEventFilters(input: ListTriggerEventsInputDto) {
     ...(input.from === undefined ? {} : {from: input.from}),
     ...(input.to === undefined ? {} : {to: input.to}),
   };
-}
-
-function optionalCursor<Cursor>(cursor: Cursor | undefined): {cursor?: Cursor} {
-  return cursor === undefined ? {} : {cursor};
-}
-
-function optionalFilters<Filters>(filters: Filters | undefined): {filters?: Filters} {
-  return filters === undefined ? {} : {filters};
 }
 
 function toTriggerEventReadCursor(cursor: {createdAt: string; id: string} | undefined) {

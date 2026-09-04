@@ -63,6 +63,7 @@ import {
   capNullable,
   invalidRequest,
   notFound,
+  optionalField,
   parseInput,
   reducePage,
   truncateAgentAccessUtf8,
@@ -168,7 +169,7 @@ function createListExecutionTriggerEventsTool(workflows: WorkflowsModuleClient):
         jobId: input.job_id,
         executionId: input.execution_id,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 
@@ -238,7 +239,7 @@ function createGetStepAttemptTool(workflows: WorkflowsModuleClient): AgentAccess
       const detail = await workflows.getWorkflowStepAttemptDetail({
         workspaceId: context.workspaceId,
         stepId: input.step_id,
-        attempt: input.attempt,
+        ...optionalField('attempt', input.attempt),
       });
       if (detail === null) return notFound();
 
@@ -278,7 +279,7 @@ function createListWorkflowRunJobExplanationsTool(
         workflowRunId: input.run_id,
         attempt: input.attempt,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 

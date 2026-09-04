@@ -54,6 +54,7 @@ import {
   capNullable,
   invalidRequest,
   notFound,
+  optionalField,
   parseInput,
   reducePage,
   validateBoundedNumberCursor,
@@ -92,7 +93,7 @@ function createGetWorkflowRunTool(workflows: WorkflowsModuleClient): AgentAccess
       const overview = await workflows.getWorkflowRunOverview({
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
-        attempt: input.attempt,
+        ...optionalField('attempt', input.attempt),
       });
       if (overview === null) return notFound();
       return agentAccessSuccess(toWorkflowRunResult(overview));
@@ -120,7 +121,7 @@ function createListWorkflowRunAttemptsTool(workflows: WorkflowsModuleClient): Ag
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 
@@ -160,7 +161,7 @@ function createListWorkflowRunJobsTool(workflows: WorkflowsModuleClient): AgentA
         workflowRunId: input.run_id,
         attempt: input.attempt,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 
@@ -199,7 +200,7 @@ function createGetWorkflowJobTool(workflows: WorkflowsModuleClient): AgentAccess
       const detail = await workflows.getWorkflowJobDetail({
         workspaceId: context.workspaceId,
         jobId: input.job_id,
-        executionId: input.execution_id,
+        ...optionalField('executionId', input.execution_id),
       });
       if (detail === null) return notFound();
 
@@ -237,7 +238,7 @@ function createListWorkflowJobExecutionsTool(workflows: WorkflowsModuleClient): 
         workspaceId: context.workspaceId,
         jobId: input.job_id,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 
@@ -279,7 +280,7 @@ function createListWorkflowExecutionStepsTool(workflows: WorkflowsModuleClient):
         jobId: input.job_id,
         executionId: input.execution_id,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 
@@ -321,7 +322,7 @@ function createListWorkflowStepAttemptsTool(workflows: WorkflowsModuleClient): A
         workspaceId: context.workspaceId,
         stepId: input.step_id,
         limit: input.limit,
-        cursor,
+        ...optionalField('cursor', cursor),
       });
       if (page === null) return notFound();
 

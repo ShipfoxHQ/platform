@@ -3,4 +3,4 @@
 "@shipfox/api-workflows": patch
 ---
 
-Fix annotation reads when optional cursors or filters are absent.
+Omit absent cursors, attempts, filters, and execution IDs from agent tool requests.

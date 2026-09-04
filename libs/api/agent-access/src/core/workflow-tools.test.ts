@@ -20,12 +20,12 @@ import type {
   WorkflowRunJobOverviewDto,
   WorkflowRunOverviewResponseDto,
 } from '@shipfox/api-workflows-dto';
-import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {
   decodeStringIdCursor,
   encodeNumberIdCursor,
   encodeStringIdCursor,
 } from '@shipfox/node-drizzle';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessTools} from './paged-tools.js';
 import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
@@ -69,7 +69,7 @@ describe('bounded workflow agent-access tools', () => {
 
   test('returns a compact selected-attempt summary and pins the latest attempt', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowRunOverview.mockResolvedValue(overview());
+    mocks.workflowHandlers.getWorkflowRunOverview.mockResolvedValue(overview());
 
     const response = await tool(mocks, 'get_workflow_run').execute({
       context,
@@ -77,10 +77,9 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<GetWorkflowRunResultDto>(response);
 
-    expect(mocks.workflows.getWorkflowRunOverview).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowRunOverview).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
-      attempt: undefined,
     });
     expect(result).toMatchObject({
       id: runId,
@@ -98,14 +97,14 @@ describe('bounded workflow agent-access tools', () => {
 
   test('passes an explicit run attempt through to the bounded overview', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowRunOverview.mockResolvedValue(overview(1));
+    mocks.workflowHandlers.getWorkflowRunOverview.mockResolvedValue(overview(1));
 
     await tool(mocks, 'get_workflow_run').execute({
       context,
       arguments: {run_id: runId, attempt: 1},
     });
 
-    expect(mocks.workflows.getWorkflowRunOverview).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowRunOverview).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       attempt: 1,
@@ -114,7 +113,7 @@ describe('bounded workflow agent-access tools', () => {
 
   test('relays status counts from the large workflow overview variant', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowRunOverview.mockResolvedValue({
+    mocks.workflowHandlers.getWorkflowRunOverview.mockResolvedValue({
       ...overview(),
       jobs: {
         kind: 'large',
@@ -142,7 +141,7 @@ describe('bounded workflow agent-access tools', () => {
   test('pages run attempts with the producer cursor and exposes run coordinates', async () => {
     const mocks = clients();
     const nextCursor = encodeNumberIdCursor({value: 1, id: attemptId});
-    mocks.workflows.listWorkflowRunAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowRunAttempts.mockResolvedValue({
       items: [runAttempt(2), runAttempt(1)],
       nextCursor,
     });
@@ -153,11 +152,10 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<ListWorkflowRunAttemptsResultDto>(response);
 
-    expect(mocks.workflows.listWorkflowRunAttempts).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.listWorkflowRunAttempts).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       limit: 2,
-      cursor: undefined,
     });
     expect(result.attempts).toHaveLength(2);
     expect(result.attempts[0]).toMatchObject({workflow_run_id: runId, attempt: 2});
@@ -168,7 +166,7 @@ describe('bounded workflow agent-access tools', () => {
   test('pages jobs for a pinned attempt and excludes dependency data', async () => {
     const mocks = clients();
     const producerCursor = encodeStringIdCursor({value: '0', id: jobId});
-    mocks.workflows.listWorkflowRunJobs.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowRunJobs.mockResolvedValue({
       workflow_run_attempt: 2,
       items: [{...job(), dependencies: ['other-job']}],
       nextCursor: producerCursor,
@@ -181,12 +179,11 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<ListWorkflowRunJobsResultDto>(response);
 
-    expect(mocks.workflows.listWorkflowRunJobs).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.listWorkflowRunJobs).toHaveBeenCalledWith({
       workspaceId,
       workflowRunId: runId,
       attempt: 2,
       limit: 1,
-      cursor: undefined,
     });
     expect(result).toMatchObject({
       workflow_run_id: runId,
@@ -207,7 +204,7 @@ describe('bounded workflow agent-access tools', () => {
       position: index,
       default_execution: execution(uuid(200 + index), index + 1, 'e'.repeat(20_000)),
     }));
-    mocks.workflows.listWorkflowRunJobs.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowRunJobs.mockResolvedValue({
       workflow_run_attempt: 2,
       items: jobs,
       nextCursor: null,
@@ -234,7 +231,7 @@ describe('bounded workflow agent-access tools', () => {
 
   test('returns a compact job while leaving selected child collections lazy', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowJobDetail.mockResolvedValue(jobDetail());
+    mocks.workflowHandlers.getWorkflowJobDetail.mockResolvedValue(jobDetail());
 
     const response = await tool(mocks, 'get_workflow_job').execute({
       context,
@@ -242,7 +239,7 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<GetWorkflowJobResultDto>(response);
 
-    expect(mocks.workflows.getWorkflowJobDetail).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowJobDetail).toHaveBeenCalledWith({
       workspaceId,
       jobId,
       executionId,
@@ -262,7 +259,7 @@ describe('bounded workflow agent-access tools', () => {
 
   test('supports jobs without an execution without fabricating a child id', async () => {
     const mocks = clients();
-    mocks.workflows.getWorkflowJobDetail.mockResolvedValue({
+    mocks.workflowHandlers.getWorkflowJobDetail.mockResolvedValue({
       ...jobDetail(),
       selected_execution: null,
     });
@@ -273,6 +270,10 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<GetWorkflowJobResultDto>(response);
 
+    expect(mocks.workflowHandlers.getWorkflowJobDetail).toHaveBeenCalledWith({
+      workspaceId,
+      jobId,
+    });
     expect(result.selected_execution).toBeNull();
   });
 
@@ -281,7 +282,7 @@ describe('bounded workflow agent-access tools', () => {
     const executions = Array.from({length: 100}, (_, index) =>
       execution(uuid(100 + index), index + 1, 'x'.repeat(20_000)),
     );
-    mocks.workflows.listWorkflowJobExecutions.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowJobExecutions.mockResolvedValue({
       items: executions,
       nextCursor: null,
       total: 100,
@@ -293,6 +294,11 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<ListWorkflowJobExecutionsResultDto>(response);
 
+    expect(mocks.workflowHandlers.listWorkflowJobExecutions).toHaveBeenCalledWith({
+      workspaceId,
+      jobId,
+      limit: 100,
+    });
     expect(result.job_id).toBe(jobId);
     expect(result.executions).toHaveLength(100);
     expect(result.executions[0]?.name).toHaveLength(512);
@@ -302,12 +308,12 @@ describe('bounded workflow agent-access tools', () => {
 
   test('pages steps and attempts with the canonical parent coordinates', async () => {
     const mocks = clients();
-    mocks.workflows.listWorkflowExecutionSteps.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowExecutionSteps.mockResolvedValue({
       items: [step()],
       nextCursor: null,
       total: 1,
     });
-    mocks.workflows.listWorkflowStepAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listWorkflowStepAttempts.mockResolvedValue({
       items: [stepAttempt()],
       nextCursor: null,
       total: 1,
@@ -319,6 +325,12 @@ describe('bounded workflow agent-access tools', () => {
       arguments: {job_id: jobId, execution_id: executionId},
     });
     const steps = expectSuccess<ListWorkflowExecutionStepsResultDto>(stepsResponse);
+    expect(mocks.workflowHandlers.listWorkflowExecutionSteps).toHaveBeenCalledWith({
+      workspaceId,
+      jobId,
+      executionId,
+      limit: 100,
+    });
     expect(steps).toMatchObject({
       job_id: jobId,
       execution_id: executionId,
@@ -332,14 +344,84 @@ describe('bounded workflow agent-access tools', () => {
       arguments: {step_id: stepId},
     });
     const attempts = expectSuccess<ListWorkflowStepAttemptsResultDto>(attemptsResponse);
+    expect(mocks.workflowHandlers.listWorkflowStepAttempts).toHaveBeenCalledWith({
+      workspaceId,
+      stepId,
+      limit: 25,
+    });
     expect(attempts).toMatchObject({step_id: stepId, attempts: [{id: attemptId, attempt: 1}]});
     expect(attempts.attempts[0]).not.toHaveProperty('error');
     expect(attempts.attempts[0]).not.toHaveProperty('gate_result');
   });
 
+  test('forwards valid cursors through every workflow traversal page', async () => {
+    const mocks = clients();
+    const numberCursor = encodeNumberIdCursor({value: 1, id: attemptId});
+    const positionCursor = encodeStringIdCursor({value: '0', id: jobId});
+    mocks.workflowHandlers.listWorkflowRunAttempts.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+    mocks.workflowHandlers.listWorkflowRunJobs.mockResolvedValue({
+      workflow_run_attempt: 2,
+      items: [],
+      nextCursor: null,
+    });
+    mocks.workflowHandlers.listWorkflowJobExecutions.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+    mocks.workflowHandlers.listWorkflowExecutionSteps.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+    mocks.workflowHandlers.listWorkflowStepAttempts.mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      stepType: 'run',
+    });
+
+    await tool(mocks, 'list_workflow_run_attempts').execute({
+      context,
+      arguments: {run_id: runId, cursor: numberCursor},
+    });
+    await tool(mocks, 'list_workflow_run_jobs').execute({
+      context,
+      arguments: {run_id: runId, attempt: 2, cursor: positionCursor},
+    });
+    await tool(mocks, 'list_workflow_job_executions').execute({
+      context,
+      arguments: {job_id: jobId, cursor: numberCursor},
+    });
+    await tool(mocks, 'list_workflow_execution_steps').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId, cursor: positionCursor},
+    });
+    await tool(mocks, 'list_workflow_step_attempts').execute({
+      context,
+      arguments: {step_id: stepId, cursor: numberCursor},
+    });
+
+    expect(mocks.workflowHandlers.listWorkflowRunAttempts).toHaveBeenCalledWith(
+      expect.objectContaining({cursor: numberCursor}),
+    );
+    expect(mocks.workflowHandlers.listWorkflowRunJobs).toHaveBeenCalledWith(
+      expect.objectContaining({cursor: positionCursor}),
+    );
+    expect(mocks.workflowHandlers.listWorkflowJobExecutions).toHaveBeenCalledWith(
+      expect.objectContaining({cursor: numberCursor}),
+    );
+    expect(mocks.workflowHandlers.listWorkflowExecutionSteps).toHaveBeenCalledWith(
+      expect.objectContaining({cursor: positionCursor}),
+    );
+    expect(mocks.workflowHandlers.listWorkflowStepAttempts).toHaveBeenCalledWith(
+      expect.objectContaining({cursor: numberCursor}),
+    );
+  });
+
   test('turns inaccessible or malformed traversal reads into bounded tool errors', async () => {
     const mocks = clients();
-    mocks.workflows.listWorkflowRunJobs.mockResolvedValue(null);
+    mocks.workflowHandlers.listWorkflowRunJobs.mockResolvedValue(null);
 
     const missing = await tool(mocks, 'list_workflow_run_jobs').execute({
       context,
@@ -352,47 +434,25 @@ describe('bounded workflow agent-access tools', () => {
       arguments: {run_id: runId, attempt: 2, cursor: 'not-a-cursor'},
     });
     expect(invalid).toEqual({ok: false, error: {code: 'invalid-request'}});
-    expect(mocks.workflows.listWorkflowRunJobs).toHaveBeenCalledTimes(1);
+    expect(mocks.workflowHandlers.listWorkflowRunJobs).toHaveBeenCalledTimes(1);
   });
 });
 
-type WorkflowMocks = WorkflowsModuleClient & {
-  listWorkflowRuns: ReturnType<typeof vi.fn>;
-  getLatestRunAttempt: ReturnType<typeof vi.fn>;
-  getWorkflowRunOverview: ReturnType<typeof vi.fn>;
-  listWorkflowRunAttempts: ReturnType<typeof vi.fn>;
-  listWorkflowRunJobs: ReturnType<typeof vi.fn>;
-  getWorkflowJobDetail: ReturnType<typeof vi.fn>;
-  listWorkflowJobExecutions: ReturnType<typeof vi.fn>;
-  listWorkflowExecutionSteps: ReturnType<typeof vi.fn>;
-  listWorkflowStepAttempts: ReturnType<typeof vi.fn>;
-};
-
-type AgentAccessTestClients = Parameters<typeof createAgentAccessTools>[0] & {
-  workflows: WorkflowMocks;
-};
-
-function clients(): AgentAccessTestClients {
+function clients() {
+  const {workflows, handlers: workflowHandlers} = createTestWorkflowsClient();
   return {
     projects: {
       listProjectCatalogByWorkspace: vi.fn(),
       requireProjectForWorkspace: vi.fn(),
     },
     definitions: {listDefinitionsByProject: vi.fn()},
-    workflows: {
-      listWorkflowRuns: vi.fn(),
-      getLatestRunAttempt: vi.fn(),
-      getWorkflowRunOverview: vi.fn(),
-      listWorkflowRunAttempts: vi.fn(),
-      listWorkflowRunJobs: vi.fn(),
-      getWorkflowJobDetail: vi.fn(),
-      listWorkflowJobExecutions: vi.fn(),
-      listWorkflowExecutionSteps: vi.fn(),
-      listWorkflowStepAttempts: vi.fn(),
-    } as unknown as WorkflowMocks,
+    workflows,
+    workflowHandlers,
     annotations: {listAnnotationsForRunAttempt: vi.fn()},
     triggers: {listTriggerEvents: vi.fn()},
-  } as unknown as AgentAccessTestClients;
+  } as unknown as Parameters<typeof createAgentAccessTools>[0] & {
+    workflowHandlers: typeof workflowHandlers;
+  };
 }
 
 function tool(mocks: ReturnType<typeof clients>, name: string) {

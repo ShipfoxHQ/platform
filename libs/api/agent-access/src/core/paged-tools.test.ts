@@ -5,14 +5,16 @@ import type {AgentAccessContext} from '@shipfox/api-auth-context';
 import {definitionsInterModuleContract} from '@shipfox/api-definitions-dto/inter-module';
 import {projectsInterModuleContract} from '@shipfox/api-projects-dto/inter-module';
 import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
-import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {createInterModuleKnownError, defineInterModulePresentation} from '@shipfox/inter-module';
 import {
   decodeNumberIdCursor,
   decodeStringIdCursor,
   encodeNumberIdCursor,
+  encodeStringIdCursor,
+  encodeTimestampIdCursor,
 } from '@shipfox/node-drizzle';
 import {createFakeInterModuleClients} from '@shipfox/node-module/inter-module/testing';
+import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessTools} from './paged-tools.js';
 import {serializedAgentAccessEnvelopeByteLength} from './response.js';
 
@@ -214,6 +216,69 @@ describe('paged agent-access tools', () => {
     expect(mocks.triggerHandlers.listTriggerEvents).toHaveBeenCalledWith({
       workspaceId,
       limit: 50,
+    });
+  });
+
+  test('forwards valid cursors through every paged catalog read', async () => {
+    const mocks = clients();
+    const timestampCursor = encodeTimestampIdCursor({createdAt: new Date(isoDate), id: projectId});
+    const definitionCursor = encodeStringIdCursor({value: 'Definition', id: definitionId});
+    mocks.projectHandlers.listProjectCatalogByWorkspace.mockResolvedValue({
+      projects: [],
+      nextCursor: null,
+    });
+    mocks.definitionHandlers.listDefinitionsByProject.mockResolvedValue({
+      definitions: [],
+      sync: null,
+      nextCursor: null,
+    });
+    mocks.projectHandlers.requireProjectForWorkspace.mockResolvedValue({project: project()});
+    mocks.workflowHandlers.listWorkflowRuns.mockResolvedValue({
+      runs: [],
+      nextCursor: null,
+      filteredTotalCount: 0,
+    });
+    mocks.triggerHandlers.listTriggerEvents.mockResolvedValue({events: [], nextCursor: null});
+
+    await tool(mocks, 'list_projects').execute({
+      context,
+      arguments: {cursor: timestampCursor},
+    });
+    await tool(mocks, 'list_workflow_definitions').execute({
+      context,
+      arguments: {project_id: projectId, cursor: definitionCursor},
+    });
+    await tool(mocks, 'list_workflow_runs').execute({
+      context,
+      arguments: {project_id: projectId, cursor: timestampCursor},
+    });
+    await tool(mocks, 'list_trigger_events').execute({
+      context,
+      arguments: {cursor: timestampCursor},
+    });
+
+    const timestampReadCursor = {createdAt: isoDate, id: projectId};
+    expect(mocks.projectHandlers.listProjectCatalogByWorkspace).toHaveBeenCalledWith({
+      workspaceId,
+      limit: 50,
+      cursor: timestampReadCursor,
+    });
+    expect(mocks.definitionHandlers.listDefinitionsByProject).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+      cursor: {value: 'Definition', id: definitionId},
+    });
+    expect(mocks.workflowHandlers.listWorkflowRuns).toHaveBeenCalledWith({
+      workspaceId,
+      projectId,
+      limit: 50,
+      cursor: timestampReadCursor,
+    });
+    expect(mocks.triggerHandlers.listTriggerEvents).toHaveBeenCalledWith({
+      workspaceId,
+      limit: 50,
+      cursor: {receivedAt: isoDate, id: projectId},
     });
   });
 
@@ -455,11 +520,7 @@ function clients() {
     requireProjectForWorkspace: vi.fn(),
   };
   const definitionHandlers = {listDefinitionsByProject: vi.fn()};
-  const workflowHandlers = {
-    listWorkflowRuns: vi.fn(),
-    getLatestRunAttempt: vi.fn(),
-    getWorkflowRunOverview: vi.fn(),
-  };
+  const {workflows, handlers: workflowHandlers} = createTestWorkflowsClient();
   const listAnnotationsForRunAttempt = vi.fn();
   const triggerHandlers = {listTriggerEvents: vi.fn()};
   const fakeClients = createFakeInterModuleClients({
@@ -481,36 +542,6 @@ function clients() {
       resolveDefinitionAtRef: vi.fn(),
       listDefinitionsAtRef: vi.fn(),
     }),
-    workflows: defineInterModulePresentation(workflowsInterModuleContract, {
-      startRunFromTrigger: vi.fn(),
-      startDevRun: vi.fn(),
-      resolveWorkflowRunTriggerReference: vi.fn(),
-      deliverEventToJobListener: vi.fn(),
-      getStepLogContext: vi.fn(),
-      listJobStepAttempts: vi.fn(),
-      getLeasedAgentToolContext: vi.fn(),
-      getLeasedAgentSessionContext: vi.fn(),
-      listWorkflowRuns: (input) => workflowHandlers.listWorkflowRuns(input),
-      getWorkflowRunOverview: (input) => workflowHandlers.getWorkflowRunOverview(input),
-      listWorkflowRunAttempts: vi.fn(),
-      listWorkflowRunJobs: vi.fn(),
-      getWorkflowJobDetail: vi.fn(),
-      listWorkflowJobExecutions: vi.fn(),
-      listWorkflowExecutionSteps: vi.fn(),
-      listWorkflowStepAttempts: vi.fn(),
-      getWorkflowRunSource: vi.fn(),
-      getWorkflowJobExecutionContext: vi.fn(),
-      listExecutionTriggerEvents: vi.fn(),
-      getExecutionTriggerEvent: vi.fn(),
-      getWorkflowStepAttemptDetail: vi.fn(),
-      listWorkflowRunAnnotations: vi.fn(),
-      listWorkflowRunJobExplanations: vi.fn(),
-      listFailedStepAttempts: vi.fn(),
-      getWorkflowRunDetail: vi.fn(),
-      getStepAttemptDetail: vi.fn(),
-      getLatestRunAttempt: (input) => workflowHandlers.getLatestRunAttempt(input),
-      getLatestStepAttempt: vi.fn(),
-    }),
     annotations: defineInterModulePresentation(annotationsInterModuleContract, {
       replaceOrRemoveAnnotation: () => ({}),
       listAnnotationsForRunAttempt: (input) => listAnnotationsForRunAttempt(input),
@@ -524,6 +555,7 @@ function clients() {
 
   return {
     ...fakeClients,
+    workflows,
     projectHandlers,
     definitionHandlers,
     workflowHandlers,

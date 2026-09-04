@@ -15,7 +15,7 @@ import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-modul
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {fitAgentAccessResponseToCeiling} from './response.js';
-import {invalidRequest, notFound, parseInput} from './tool-utils.js';
+import {invalidRequest, notFound, optionalField, parseInput} from './tool-utils.js';
 import type {AgentAccessTool} from './tools.js';
 
 export interface AgentAccessLogToolsOptions {
@@ -82,7 +82,7 @@ async function readDirectStepLogs(
   const detail = await workflows.getWorkflowStepAttemptDetail({
     workspaceId: context.workspaceId,
     stepId: input.step_id,
-    attempt: input.attempt,
+    ...optionalField('attempt', input.attempt),
   });
   if (
     detail === null ||
