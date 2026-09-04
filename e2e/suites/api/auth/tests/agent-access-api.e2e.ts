@@ -201,7 +201,7 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
     await client.connect(transport as unknown as Transport);
     const tools = await client.listTools();
     const toolNames = tools.tools.map((tool) => tool.name);
-    expect(toolNames).toHaveLength(EXPECTED_TOOL_NAMES.length);
+    // The merge branch can include additive tools landed on main after this PR branched.
     expect(toolNames).toEqual(expect.arrayContaining([...EXPECTED_TOOL_NAMES]));
     expect(toolNames).not.toContain('getWorkflowRunDetail');
 

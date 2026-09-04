@@ -39,6 +39,8 @@
     "@shipfox/annotations",
     "@shipfox/annotations-dto",
     "@shipfox/api-agent",
+    "@shipfox/api-agent-access",
+    "@shipfox/api-agent-access-dto",
     "@shipfox/api-agent-dto",
     "@shipfox/api-auth",
     "@shipfox/api-auth-context",
