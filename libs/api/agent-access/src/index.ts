@@ -41,6 +41,7 @@ export {
   createAgentAccessFixtureTool,
   createAgentAccessToolMap,
 } from '#core/tools.js';
+export {createAgentAccessWorkflowDiagnosticTools} from '#core/workflow-diagnostic-tools.js';
 export {
   type AgentAccessAuthFailureReason,
   type AgentAccessToolCallOutcome,

@@ -22,22 +22,28 @@ import {
   type TriggersInterModuleClient,
   triggersInterModuleContract,
 } from '@shipfox/api-triggers-dto/inter-module';
+import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {fitAgentAccessResponseToCeiling} from './response.js';
 import type {AgentAccessTool} from './tools.js';
+import {createAgentAccessWorkflowDiagnosticTools} from './workflow-diagnostic-tools.js';
 
 export interface AgentAccessDiagnosticToolsOptions {
   triggers: TriggersInterModuleClient;
+  workflows?: WorkflowsModuleClient;
 }
 
-/** Creates trigger-only tools for later gateway composition. */
+/** Creates dormant diagnostic tools for later gateway composition. */
 export function createAgentAccessDiagnosticTools(
   options: AgentAccessDiagnosticToolsOptions,
 ): readonly AgentAccessTool[] {
   return [
     createGetTriggerEventTool(options.triggers),
     createGetTriggerEventFacetsTool(options.triggers),
+    ...(options.workflows === undefined
+      ? []
+      : createAgentAccessWorkflowDiagnosticTools(options.workflows)),
   ];
 }
 
