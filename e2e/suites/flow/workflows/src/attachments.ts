@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
-import type {waitForRunTerminal} from '@shipfox/e2e-observe-workflows';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 
 const LOG_ATTACHMENT_NAME_PART_RE = /[^a-zA-Z0-9._-]+/g;
 
@@ -23,11 +23,11 @@ export function logAttachmentName(path: string): string {
 }
 
 export function collectStepLogAttachmentRequests(
-  runDetail: Awaited<ReturnType<typeof waitForRunTerminal>>,
+  observation: WorkflowRunObservation,
 ): StepLogAttachmentRequest[] {
   const requests: StepLogAttachmentRequest[] = [];
-  for (const job of runDetail.jobs) {
-    for (const execution of job.job_executions) {
+  for (const job of observation.jobs) {
+    for (const execution of job.executions) {
       for (const step of execution.steps) {
         requests.push({
           path: `jobs.${job.key}.executions.${execution.sequence}.steps.${

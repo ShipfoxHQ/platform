@@ -2,6 +2,7 @@ import {createApiClient} from '@shipfox/e2e-core';
 import {message, startFakeOpenAiModelProvider, toolCall} from '@shipfox/e2e-driver-model-provider';
 import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
+import type {WorkflowRunObservationSelection} from '@shipfox/e2e-observe-workflows';
 import {createAnthropicFakeModelProviderConfig} from '@shipfox/e2e-setup-agent';
 import {attachLocalRunnerLog} from '#attachments.js';
 import {logText} from '#expect.js';
@@ -134,9 +135,12 @@ test('runs Claude set_output through downstream interpolation', async ({suite}, 
         },
         {path: 'CLAUDE.md', content: 'repository-instruction-marker'},
       ],
+      selection: {
+        jobs: [{jobKey: 'fix', includeDefaultExecution: true, stepKeys: ['produce', 'consume']}],
+      },
     });
     const fixJob = terminal.jobs.find((job) => job.key === 'fix');
-    const steps = fixJob?.job_executions.flatMap((execution) => execution.steps) ?? [];
+    const steps = fixJob?.executions.flatMap((execution) => execution.steps) ?? [];
     const produceStep = steps.find((step) => step.key === 'produce');
     const consumeStep = steps.find((step) => step.key === 'consume');
     const executionSucceeded =
@@ -146,7 +150,7 @@ test('runs Claude set_output through downstream interpolation', async ({suite}, 
       consumeStep?.status === 'succeeded';
 
     if (!executionSucceeded) {
-      await testInfo.attach('run-detail.json', {
+      await testInfo.attach('workflow-observation.json', {
         body: JSON.stringify(terminal, null, 2),
         contentType: 'application/json',
       });
@@ -157,7 +161,8 @@ test('runs Claude set_output through downstream interpolation', async ({suite}, 
     expect(produceStep?.status).toBe('succeeded');
     expect(consumeStep?.status).toBe('succeeded');
 
-    if (consumeStep === undefined) throw new Error('consume step missing from run detail');
+    if (consumeStep === undefined)
+      throw new Error('consume step missing from workflow observation');
     const logs = await fetchStepLogs({
       stepId: consumeStep.id,
       attempt: consumeStep.current_attempt,
@@ -184,6 +189,7 @@ async function runClaudeWorkflow(params: {
   workflowYaml: string;
   runnerEnv: Record<string, string>;
   extraFiles?: Array<{path: string; content: string}>;
+  selection?: WorkflowRunObservationSelection | undefined;
 }) {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
@@ -224,6 +230,7 @@ async function runClaudeWorkflow(params: {
       token,
       timeoutMs: TERMINAL_TIMEOUT_MS,
       runner: localRunner.runner,
+      selection: params.selection,
     });
   } finally {
     await attachLocalRunnerLog(

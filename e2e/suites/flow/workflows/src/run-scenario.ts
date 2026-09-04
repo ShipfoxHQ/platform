@@ -4,6 +4,7 @@ import {type CreatedIssue, listIssueComments} from '@shipfox/e2e-driver-gitea';
 import {readFakeOpenAiModelProviderState} from '@shipfox/e2e-driver-model-provider';
 import {type LocalRunnerHandle, stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {fetchStepLogs} from '@shipfox/e2e-observe-logs';
+import type {WorkflowRunObservationSelection} from '@shipfox/e2e-observe-workflows';
 import {createSecret, createVariable} from '@shipfox/e2e-setup-secrets';
 import type {Attachment} from './attachments.js';
 import {
@@ -48,7 +49,23 @@ export interface RunScenarioParams {
   attach: (attachment: Attachment) => Promise<void>;
 }
 
-type RunDetail = Awaited<ReturnType<typeof waitForRunTerminalOrFailedRunner>>;
+type RunObservation = Awaited<ReturnType<typeof waitForRunTerminalOrFailedRunner>>;
+
+function observationSelection(
+  expectation: Extract<Scenario, {kind: 'expect'}>['expectation'],
+): WorkflowRunObservationSelection {
+  return {
+    jobs: Object.entries(expectation.jobs ?? {}).map(([jobKey, jobExpectation]) => ({
+      jobKey,
+      ...(jobExpectation.steps === undefined
+        ? {}
+        : {
+            includeDefaultExecution: true,
+            stepKeys: Object.keys(jobExpectation.steps),
+          }),
+    })),
+  };
+}
 
 async function evaluateScenarioResult(params: {
   expectation: Extract<Scenario, {kind: 'expect'}>['expectation'];
@@ -157,7 +174,7 @@ async function attachScenarioMismatches(params: {
   fetchedLogs: Attachment[];
   logRequirements: StepLogRequirement[];
   mismatches: Mismatch[];
-  runDetail: RunDetail;
+  observation: RunObservation;
   runnerLogFile: string | undefined;
   scenario: Extract<Scenario, {kind: 'expect'}>;
   suite: SuiteContext;
@@ -165,9 +182,9 @@ async function attachScenarioMismatches(params: {
   webhookDiagnostics: WebhookDiagnosticsRequest | undefined;
 }): Promise<void> {
   await params.attach({
-    name: 'run-detail.json',
+    name: 'workflow-observation.json',
     contentType: 'application/json',
-    body: JSON.stringify(params.runDetail, null, 2),
+    body: JSON.stringify(params.observation, null, 2),
   });
   await params.attach({
     name: 'mismatches.json',
@@ -192,7 +209,7 @@ async function attachScenarioMismatches(params: {
   const fetchedLogKeys = new Set(
     params.logRequirements.map((requirement) => `${requirement.stepId}:${requirement.attempt}`),
   );
-  for (const request of collectStepLogAttachmentRequests(params.runDetail)) {
+  for (const request of collectStepLogAttachmentRequests(params.observation)) {
     const key = `${request.stepId}:${request.attempt}`;
     if (fetchedLogKeys.has(key)) continue;
     await params.attach(await fetchLogAttachment(request, params.token));
@@ -408,8 +425,8 @@ async function triggerScenario(params: {
 /**
  * Drives one declarative scenario end to end: fresh repo and project, seed commit,
  * definition-resolved poll, trigger, terminal-run poll, then expect.yaml evaluation.
- * Returns every mismatch (empty means the scenario matched) and attaches the run
- * detail, the diff, and fetched logs when it did not.
+ * Returns every mismatch (empty means the scenario matched) and attaches the bounded
+ * observation, the diff, and fetched logs when it did not.
  */
 export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]> {
   const {scenario, suite} = params;
@@ -479,14 +496,15 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
     });
     webhookDiagnostics = triggered.webhookDiagnostics;
 
-    const runDetail = await waitForRunTerminalOrFailedRunner({
+    const observation = await waitForRunTerminalOrFailedRunner({
       runId: triggered.runId,
       token,
       timeoutMs: scenario.expectation.timeout_seconds * 1000,
       runner,
+      selection: observationSelection(scenario.expectation),
     });
 
-    const {mismatches, logRequirements} = evaluateExpectations(runDetail, scenario.expectation);
+    const {mismatches, logRequirements} = evaluateExpectations(observation, scenario.expectation);
     const giteaMismatches = await evaluateGiteaScenario({
       expectation: scenario.expectation.gitea,
       issue: giteaIssue,
@@ -508,7 +526,7 @@ export async function runScenario(params: RunScenarioParams): Promise<Mismatch[]
         fetchedLogs,
         logRequirements,
         mismatches: allMismatches,
-        runDetail,
+        observation,
         runnerLogFile,
         scenario,
         suite,

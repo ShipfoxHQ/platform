@@ -1,10 +1,12 @@
 import {setTimeout as delay} from 'node:timers/promises';
 import type {DefinitionListResponseDto} from '@shipfox/api-definitions-dto';
-import type {
-  WorkflowRunDetailResponseDto,
-  WorkflowRunListResponseDto,
-} from '@shipfox/api-workflows-dto';
+import type {WorkflowRunListResponseDto} from '@shipfox/api-workflows-dto';
 import {type ApiFetch, createApiClient} from '@shipfox/e2e-core';
+import {
+  observeRun,
+  type WorkflowRunObservation,
+  type WorkflowRunObservationSelection,
+} from '@shipfox/e2e-observe-workflows';
 
 export interface PollingOptions {
   fetch?: ApiFetch | undefined;
@@ -63,28 +65,33 @@ export async function waitForNoWorkflowRuns(
   return lastResponse ?? {runs: [], next_cursor: null, filtered_total_count: null};
 }
 
-export async function waitForRunDetailMatching(params: {
+export async function waitForRunObservationMatching(params: {
+  apiUrl?: string | undefined;
+  fetch?: ApiFetch | undefined;
   token: string;
   runId: string;
   signal?: AbortSignal | undefined;
   timeoutMs: number;
   description: string;
-  matches: (runDetail: WorkflowRunDetailResponseDto) => {matched: boolean; diagnostic: string};
-}): Promise<WorkflowRunDetailResponseDto> {
-  const client = createApiClient({token: params.token});
+  selection?: WorkflowRunObservationSelection | undefined;
+  matches: (observation: WorkflowRunObservation) => {matched: boolean; diagnostic: string};
+}): Promise<WorkflowRunObservation> {
   const deadline = Date.now() + params.timeoutMs;
-  let lastResponse: WorkflowRunDetailResponseDto | null = null;
-  let lastDiagnostic = 'no workflow run detail response observed';
+  let lastDiagnostic = 'no bounded workflow observation observed';
 
   while (Date.now() <= deadline) {
     params.signal?.throwIfAborted();
-    lastResponse = await client.requestJson<WorkflowRunDetailResponseDto>(
-      'get',
-      `/workflows/runs/${encodeURIComponent(params.runId)}`,
-      {signal: params.signal},
-    );
-    const result = params.matches(lastResponse);
-    if (result.matched) return lastResponse;
+    const observation = await observeRun({
+      apiUrl: params.apiUrl,
+      fetch: params.fetch,
+      runId: params.runId,
+      selection: params.selection,
+      signal: params.signal,
+      timeoutMs: Math.max(1, deadline - Date.now()),
+      token: params.token,
+    });
+    const result = params.matches(observation);
+    if (result.matched) return observation;
     lastDiagnostic = result.diagnostic;
     await delay(250, undefined, {signal: params.signal});
   }

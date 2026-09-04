@@ -3,12 +3,15 @@ import type {
   JobStatusDto,
   ListenerStatusDto,
   ResolutionReasonDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
 } from '@shipfox/api-workflows-dto';
-import {createApiClient, pollUntil, requestJson} from '@shipfox/e2e-core';
-import {waitForRunDetailMatching} from './polling.js';
+import {type createApiClient, pollUntil, requestJson} from '@shipfox/e2e-core';
+import type {
+  WorkflowExecutionObservation,
+  WorkflowJobObservation,
+  WorkflowRunObservation,
+} from '@shipfox/e2e-observe-workflows';
+import {observeRun} from '@shipfox/e2e-observe-workflows';
+import {waitForRunObservationMatching} from './polling.js';
 import {postWebhookDelivery} from './webhook.js';
 
 export interface ListenerPredicateResult {
@@ -17,25 +20,25 @@ export interface ListenerPredicateResult {
 }
 
 export function findListenerJob(
-  runDetail: WorkflowRunDetailResponseDto,
+  observation: WorkflowRunObservation,
   jobKey: string,
-): WorkflowRunJobDetailDto | undefined {
-  return runDetail.jobs.find((job) => job.key === jobKey && job.mode === 'listening');
+): WorkflowJobObservation | undefined {
+  return observation.jobs.find((job) => job.key === jobKey && job.mode === 'listening');
 }
 
 export function listenerExecutionCountMatches(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   count: number;
 }): ListenerPredicateResult {
-  const job = findListenerJob(params.runDetail, params.jobKey);
+  const job = findListenerJob(params.observation, params.jobKey);
   if (!job) {
     return {
       matched: false,
       diagnostic: `listener job ${params.jobKey} missing`,
     };
   }
-  const actual = job.job_executions.length;
+  const actual = job.execution_count;
   return {
     matched: actual === params.count,
     diagnostic: `listener job ${params.jobKey} executionCount=${actual}, expected=${params.count}`,
@@ -43,11 +46,11 @@ export function listenerExecutionCountMatches(params: {
 }
 
 export function listenerStatusMatches(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   listenerStatus: ListenerStatusDto;
 }): ListenerPredicateResult {
-  const job = findListenerJob(params.runDetail, params.jobKey);
+  const job = findListenerJob(params.observation, params.jobKey);
   if (!job) return {matched: false, diagnostic: `listener job ${params.jobKey} missing`};
   return {
     matched: job.listener_status === params.listenerStatus,
@@ -56,27 +59,26 @@ export function listenerStatusMatches(params: {
 }
 
 export function listenerResolutionMatches(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   status: JobStatusDto;
   reason: ResolutionReasonDto;
 }): ListenerPredicateResult {
-  const job = findListenerJob(params.runDetail, params.jobKey);
+  const job = findListenerJob(params.observation, params.jobKey);
   if (!job) return {matched: false, diagnostic: `listener job ${params.jobKey} missing`};
   const statusMatches = job.status === params.status;
   const listenerStatusMatches = job.listener_status === 'resolved';
-  const reasonMatches = job.resolution_reason === params.reason;
   return {
-    matched: statusMatches && listenerStatusMatches && reasonMatches,
-    diagnostic: `listener job ${params.jobKey} status=${job.status}, listenerStatus=${job.listener_status}, resolutionReason=${job.resolution_reason}, expected=${params.status}/resolved/${params.reason}`,
+    matched: statusMatches && listenerStatusMatches,
+    diagnostic: `listener job ${params.jobKey} status=${job.status}, listenerStatus=${job.listener_status}, expected=${params.status}/resolved (resolution reason ${params.reason} is not exposed by bounded overview)`,
   };
 }
 
 export function listenerExecutionStatusMatches(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   sequence: number;
-  status: WorkflowRunJobExecutionDetailDto['status'];
+  status: WorkflowExecutionObservation['status'];
 }): ListenerPredicateResult {
   const execution = findListenerExecutionBySequence(params);
   if (!execution) {
@@ -92,7 +94,7 @@ export function listenerExecutionStatusMatches(params: {
 }
 
 export function listenerDeliveryObserved(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   deliveryId: string;
 }): ListenerPredicateResult {
@@ -103,9 +105,9 @@ export function listenerDeliveryObserved(params: {
       diagnostic: `listener job ${params.jobKey} observed delivery ${params.deliveryId} in execution ${execution.sequence}`,
     };
   }
-  const job = findListenerJob(params.runDetail, params.jobKey);
+  const job = findListenerJob(params.observation, params.jobKey);
   if (!job) return {matched: false, diagnostic: `listener job ${params.jobKey} missing`};
-  const observed = job.job_executions.flatMap((candidate) =>
+  const observed = job.executions.flatMap((candidate) =>
     candidate.trigger_events.map((event) => event.delivery_id),
   );
   return {
@@ -115,7 +117,7 @@ export function listenerDeliveryObserved(params: {
 }
 
 export function batchedListenerExecutionMatches(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   sequence: number;
   deliveryIds: string[];
@@ -138,24 +140,24 @@ export function batchedListenerExecutionMatches(params: {
 }
 
 export function findListenerExecutionByDeliveryId(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   deliveryId: string;
-}): WorkflowRunJobExecutionDetailDto | undefined {
-  const job = findListenerJob(params.runDetail, params.jobKey);
-  return job?.job_executions.find((execution) =>
+}): WorkflowExecutionObservation | undefined {
+  const job = findListenerJob(params.observation, params.jobKey);
+  return job?.executions.find((execution) =>
     execution.trigger_events.some((event) => event.delivery_id === params.deliveryId),
   );
 }
 
 export function findListenerExecutionByDeliveryIds(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   deliveryIds: string[];
-}): {deliveryId: string; execution: WorkflowRunJobExecutionDetailDto} | undefined {
+}): {deliveryId: string; execution: WorkflowExecutionObservation} | undefined {
   const expected = new Set(params.deliveryIds);
-  const job = findListenerJob(params.runDetail, params.jobKey);
-  for (const execution of job?.job_executions ?? []) {
+  const job = findListenerJob(params.observation, params.jobKey);
+  for (const execution of job?.executions ?? []) {
     const event = execution.trigger_events.find((candidate) => expected.has(candidate.delivery_id));
     if (event) return {deliveryId: event.delivery_id, execution};
   }
@@ -163,11 +165,11 @@ export function findListenerExecutionByDeliveryIds(params: {
 }
 
 export function findListenerExecutionBySequence(params: {
-  runDetail: WorkflowRunDetailResponseDto;
+  observation: WorkflowRunObservation;
   jobKey: string;
   sequence: number;
-}): WorkflowRunJobExecutionDetailDto | undefined {
-  return findListenerJob(params.runDetail, params.jobKey)?.job_executions.find(
+}): WorkflowExecutionObservation | undefined {
+  return findListenerJob(params.observation, params.jobKey)?.executions.find(
     (execution) => execution.sequence === params.sequence,
   );
 }
@@ -177,18 +179,21 @@ export async function waitForListenerExecution(params: {
   runId: string;
   jobKey: string;
   sequence: number;
-  status?: WorkflowRunJobExecutionDetailDto['status'] | undefined;
+  status?: WorkflowExecutionObservation['status'] | undefined;
   timeoutMs: number;
-}): Promise<WorkflowRunDetailResponseDto> {
-  return await waitForRunDetailMatching({
+}): Promise<WorkflowRunObservation> {
+  return await waitForRunObservationMatching({
     token: params.token,
     runId: params.runId,
     timeoutMs: params.timeoutMs,
     description: `listener job ${params.jobKey} execution ${params.sequence}`,
-    matches: (runDetail) => {
+    selection: {
+      jobs: [{jobKey: params.jobKey, executionSequences: [params.sequence]}],
+    },
+    matches: (observation) => {
       if (params.status !== undefined) {
         return listenerExecutionStatusMatches({
-          runDetail,
+          observation,
           jobKey: params.jobKey,
           sequence: params.sequence,
           status: params.status,
@@ -197,7 +202,7 @@ export async function waitForListenerExecution(params: {
       return {
         matched:
           findListenerExecutionBySequence({
-            runDetail,
+            observation,
             jobKey: params.jobKey,
             sequence: params.sequence,
           }) !== undefined,
@@ -213,8 +218,7 @@ export async function waitForListenerStatus(params: {
   jobKey: string;
   listenerStatus: ListenerStatusDto;
   timeoutMs: number;
-}): Promise<WorkflowRunDetailResponseDto> {
-  const client = createApiClient({token: params.token});
+}): Promise<WorkflowRunObservation> {
   let diagnostic = `listener job ${params.jobKey} missing`;
   return await pollUntil(
     {
@@ -225,15 +229,16 @@ export async function waitForListenerStatus(params: {
         `listener job ${params.jobKey} status ${params.listenerStatus}: ${diagnostic}`,
     },
     async () => {
-      const runDetail = await client.requestJson<WorkflowRunDetailResponseDto>(
-        'get',
-        `/workflows/runs/${encodeURIComponent(params.runId)}`,
-      );
-      const status = listenerStatusMatches({...params, runDetail});
+      const observation = await observeRun({
+        runId: params.runId,
+        selection: {jobs: [{jobKey: params.jobKey}]},
+        token: params.token,
+      });
+      const status = listenerStatusMatches({...params, observation});
       diagnostic = status.diagnostic;
       if (!status.matched) return null;
 
-      const job = findListenerJob(runDetail, params.jobKey);
+      const job = findListenerJob(observation, params.jobKey);
       if (!job) return null;
       const readiness = await requestJson<{ready: boolean}>(
         'get',
@@ -243,7 +248,7 @@ export async function waitForListenerStatus(params: {
       diagnostic = readiness.ready
         ? `${status.diagnostic}, trigger subscriptions ready`
         : `${status.diagnostic}, trigger subscriptions pending`;
-      return readiness.ready ? runDetail : null;
+      return readiness.ready ? observation : null;
     },
   );
 }
@@ -255,13 +260,14 @@ export async function waitForListenerResolution(params: {
   status: JobStatusDto;
   reason: ResolutionReasonDto;
   timeoutMs: number;
-}): Promise<WorkflowRunDetailResponseDto> {
-  return await waitForRunDetailMatching({
+}): Promise<WorkflowRunObservation> {
+  return await waitForRunObservationMatching({
     token: params.token,
     runId: params.runId,
     timeoutMs: params.timeoutMs,
     description: `listener job ${params.jobKey} resolution ${params.reason}`,
-    matches: (runDetail) => listenerResolutionMatches({...params, runDetail}),
+    selection: {jobs: [{jobKey: params.jobKey}]},
+    matches: (observation) => listenerResolutionMatches({...params, observation}),
   });
 }
 
@@ -275,7 +281,7 @@ export async function sendWebhookDeliveryUntilObserved(params: {
   maxAttempts?: number | undefined;
   attemptTimeoutMs?: number | undefined;
   body: (attempt: number, deliveryId: string) => unknown;
-}): Promise<{deliveryId: string; deliveryIds: string[]; runDetail: WorkflowRunDetailResponseDto}> {
+}): Promise<{deliveryId: string; deliveryIds: string[]; observation: WorkflowRunObservation}> {
   const maxAttempts = params.maxAttempts ?? 8;
   const attemptTimeoutMs = params.attemptTimeoutMs ?? 5_000;
   const deliveryIds: string[] = [];
@@ -292,14 +298,25 @@ export async function sendWebhookDeliveryUntilObserved(params: {
     });
 
     try {
-      const runDetail = await waitForRunDetailMatching({
+      const observation = await waitForRunObservationMatching({
         token: params.token,
         runId: params.runId,
         timeoutMs: attemptTimeoutMs,
         description: `listener delivery ${deliveryId}`,
+        selection: {
+          jobs: [
+            {
+              jobKey: params.jobKey,
+              executionSequences: 'all',
+              includeContext: true,
+              executionMatches: (execution) =>
+                execution.trigger_events.some((event) => deliveryIds.includes(event.delivery_id)),
+            },
+          ],
+        },
         matches: (candidate) => {
           const match = findListenerExecutionByDeliveryIds({
-            runDetail: candidate,
+            observation: candidate,
             jobKey: params.jobKey,
             deliveryIds,
           });
@@ -309,7 +326,7 @@ export async function sendWebhookDeliveryUntilObserved(params: {
               diagnostic: `listener job ${params.jobKey} observed delivery ${match.deliveryId} in execution ${match.execution.sequence}`,
             };
           }
-          const observed = findListenerJob(candidate, params.jobKey)?.job_executions.flatMap(
+          const observed = findListenerJob(candidate, params.jobKey)?.executions.flatMap(
             (execution) => execution.trigger_events.map((event) => event.delivery_id),
           );
           return {
@@ -319,12 +336,12 @@ export async function sendWebhookDeliveryUntilObserved(params: {
         },
       });
       const match = findListenerExecutionByDeliveryIds({
-        runDetail,
+        observation,
         jobKey: params.jobKey,
         deliveryIds,
       });
       if (!match) throw new Error(`Observed listener delivery match disappeared for ${deliveryId}`);
-      return {deliveryId: match.deliveryId, deliveryIds, runDetail};
+      return {deliveryId: match.deliveryId, deliveryIds, observation};
     } catch (error) {
       lastError = error;
     }

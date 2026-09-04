@@ -1,15 +1,33 @@
 import type {
-  WorkflowRunDetailResponseDto,
+  JobExecutionSummaryDto,
+  StepAttemptDetailResponseDto,
+  StepAttemptSummaryDto,
+  StepSummaryDto,
+  WorkflowJobExecutionDetailDto,
+  WorkflowRunAttemptDto,
+  WorkflowRunJobOverviewDto,
+  WorkflowRunLineageHeadResponseDto,
   WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
+  WorkflowRunOverviewHeaderDto,
+  WorkflowRunOverviewResponseDto,
   WorkflowRunStatusDto,
 } from '@shipfox/api-workflows-dto';
-import {waitForRunByCommit, waitForRunByDeliveryId, waitForRunTerminal} from './index.js';
+import {
+  observeRun,
+  waitForRunByCommit,
+  waitForRunByDeliveryId,
+  waitForRunTerminal,
+} from './index.js';
 
 const projectId = '11111111-1111-4111-8111-111111111111';
 const definitionId = '22222222-2222-4222-8222-222222222222';
 const runId = '33333333-3333-4333-8333-333333333333';
 const attemptId = '44444444-4444-4444-8444-444444444444';
+const jobId = '55555555-5555-4555-8555-555555555555';
+const executionId = '66666666-6666-4666-8666-666666666666';
+const stepId = '77777777-7777-4777-8777-777777777777';
+const timestamp = '2026-07-02T08:00:00.000Z';
 const RUN_BY_COMMIT_TIMEOUT_RE =
   /Timed out waiting for workflow run by commit: expectedHeadCommitSha=abc123/u;
 const RUN_BY_COMMIT_OBSERVED_RE = /headCommitSha=other/u;
@@ -50,8 +68,8 @@ function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemD
     trigger_reference: valueOr(params.trigger_reference, null),
     inputs: valueOr(params.inputs, null),
     source_snapshot: valueOr(params.source_snapshot, null),
-    created_at: valueOr(params.created_at, '2026-07-02T08:00:00.000Z'),
-    updated_at: valueOr(params.updated_at, '2026-07-02T08:00:00.000Z'),
+    created_at: valueOr(params.created_at, timestamp),
+    updated_at: valueOr(params.updated_at, timestamp),
     started_at: valueOr(params.started_at, null),
     finished_at: valueOr(params.finished_at, null),
     jobs: valueOr(params.jobs, []),
@@ -70,43 +88,211 @@ function listResponse(
   };
 }
 
-function detail(params: Partial<WorkflowRunDetailResponseDto> = {}): WorkflowRunDetailResponseDto {
-  const {jobs: detailJobs, run_attempt: runAttempt, ...runParams} = params;
-  const {jobs: _listJobs, job_status_counts: _listOnly, ...listItem} = run(runParams);
+function response(body: unknown): Response {
+  return Response.json(body);
+}
+
+function runHeader(): WorkflowRunOverviewHeaderDto {
   return {
-    ...listItem,
-    run_attempt: runAttempt ?? {
-      id: attemptId,
-      workflow_run_id: params.id ?? runId,
-      attempt: 1,
-      status: params.status ?? 'pending',
-      created_at: '2026-07-02T08:00:00.000Z',
-      started_at: null,
-      finished_at: null,
-      rerun_mode: null,
-    },
-    jobs: detailJobs ?? [],
-    has_started_job_execution: params.has_started_job_execution ?? false,
+    id: runId,
+    project_id: projectId,
+    definition_id: definitionId,
+    number: 1,
+    name: 'Build',
+    workflow_name: 'Build',
+    origin: 'synced',
+    dev_source: null,
+    trigger_provider: 'gitea',
+    trigger_source: 'gitea_e2e',
+    trigger_event: 'push',
+    trigger_reference: null,
+    created_at: timestamp,
   };
 }
 
-function response(body: unknown): Response {
-  return Response.json(body);
+function attempt(status: WorkflowRunStatusDto = 'succeeded'): WorkflowRunAttemptDto {
+  return {
+    id: attemptId,
+    workflow_run_id: runId,
+    attempt: 1,
+    status,
+    created_at: timestamp,
+    started_at: timestamp,
+    finished_at: status === 'pending' || status === 'running' ? null : timestamp,
+    rerun_mode: null,
+  };
+}
+
+function head(status: WorkflowRunStatusDto = 'succeeded'): WorkflowRunLineageHeadResponseDto {
+  return {
+    current_attempt: 1,
+    latest_attempt: 1,
+    current_status: status,
+    updated_at: timestamp,
+  };
+}
+
+function jobSummary(params: Partial<WorkflowRunJobOverviewDto> = {}): WorkflowRunJobOverviewDto {
+  return {
+    id: jobId,
+    key: 'build',
+    name: 'Build',
+    position: 0,
+    dependencies: [],
+    status: 'succeeded',
+    status_reason: null,
+    mode: 'one_shot',
+    listener_status: 'inactive',
+    carried_over: false,
+    execution_count: 1,
+    execution_status_counts: {
+      pending: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 0,
+      cancelled: 0,
+    },
+    default_execution: null,
+    ...params,
+  };
+}
+
+function overview(
+  params: {
+    status?: WorkflowRunStatusDto;
+    jobs?: WorkflowRunJobOverviewDto[];
+    largeJobs?: WorkflowRunOverviewResponseDto['jobs'];
+  } = {},
+): WorkflowRunOverviewResponseDto {
+  const currentAttempt = attempt(params.status ?? 'succeeded');
+  return {
+    run: runHeader(),
+    attempt: currentAttempt,
+    has_started_job_execution: params.status !== 'pending',
+    jobs: params.largeJobs ?? {
+      kind: 'complete',
+      total: params.jobs?.length ?? 1,
+      items: params.jobs ?? [jobSummary()],
+    },
+  };
+}
+
+function executionSummary(params: Partial<JobExecutionSummaryDto> = {}): JobExecutionSummaryDto {
+  return {
+    id: executionId,
+    sequence: 1,
+    name: 'Build #1',
+    status: 'succeeded',
+    display_status: 'succeeded',
+    status_reason: null,
+    status_reason_message: null,
+    queued_at: timestamp,
+    started_at: timestamp,
+    finished_at: timestamp,
+    timed_out_at: null,
+    updated_at: timestamp,
+    ...params,
+  };
+}
+
+function stepAttemptSummary(params: Partial<StepAttemptSummaryDto> = {}): StepAttemptSummaryDto {
+  return {
+    id: '88888888-8888-4888-8888-888888888888',
+    attempt: 1,
+    execution_order: 1,
+    status: 'succeeded',
+    exit_code: 0,
+    started_at: timestamp,
+    finished_at: timestamp,
+    error: null,
+    gate_result: {kind: 'none'},
+    ...params,
+  };
+}
+
+function stepSummary(params: Partial<StepSummaryDto> = {}): StepSummaryDto {
+  return {
+    id: stepId,
+    key: 'build',
+    name: 'Build',
+    type: 'run',
+    position: 0,
+    status: 'succeeded',
+    status_reason: null,
+    source_location: null,
+    current_attempt: 1,
+    error: null,
+    attempts: {items: [stepAttemptSummary()], next_cursor: null, total: 1},
+    ...params,
+  };
+}
+
+function selectedExecutionDetail(
+  params: {
+    sequence?: number;
+    steps?: StepSummaryDto[];
+    nextCursor?: string | null;
+    hasContext?: boolean;
+  } = {},
+): WorkflowJobExecutionDetailDto {
+  return {
+    ...executionSummary({sequence: params.sequence ?? 1}),
+    has_context: params.hasContext ?? false,
+    steps: {
+      items: params.steps ?? [stepSummary()],
+      next_cursor: params.nextCursor ?? null,
+      total: params.steps?.length ?? 1,
+    },
+  };
+}
+
+function stepDetail(
+  params: Partial<StepAttemptDetailResponseDto> = {},
+): StepAttemptDetailResponseDto {
+  return {
+    step_id: stepId,
+    attempt: 1,
+    authored_config: null,
+    config: null,
+    session: null,
+    evaluation_trace: null,
+    output: null,
+    outputs: {message: 'observed'},
+    response: 'done',
+    error: undefined,
+    gate_result: {kind: 'none'},
+    ...params,
+  };
+}
+
+function context() {
+  return {
+    workflow_run_id: runId,
+    workflow_run_attempt: 1,
+    job_id: jobId,
+    job_execution_id: executionId,
+    job_runner: ['runner'],
+    execution_runner: ['runner'],
+    job_outputs: {message: 'observed'},
+    execution_outputs: {message: 'observed'},
+    trigger_events: [],
+    job_evaluation_trace: null,
+    execution_evaluation_trace: null,
+    condition: null,
+    oversized_fields: [],
+  };
 }
 
 describe('waitForRunByCommit', () => {
   test('polls until a run with the matching head commit appears', async () => {
     let calls = 0;
-
     const result = await waitForRunByCommit({
       fetch: () => {
         calls += 1;
-        return Promise.resolve(
-          response(
-            calls === 1
-              ? listResponse({runs: [run({trigger_payload: {data: {headCommitSha: 'other'}}})]})
-              : listResponse({runs: [run()]}),
-          ),
+        return response(
+          listResponse({
+            runs: [run(calls === 1 ? {trigger_payload: {data: {headCommitSha: 'other'}}} : {})],
+          }),
         );
       },
       headCommitSha: 'abc123',
@@ -114,7 +300,6 @@ describe('waitForRunByCommit', () => {
       projectId,
       token: 'user-token',
     });
-
     expect(result.id).toBe(runId);
     expect(calls).toBe(2);
   });
@@ -132,7 +317,6 @@ describe('waitForRunByCommit', () => {
       projectId,
       token: 'user-token',
     });
-
     expect(result.id).toBe(runId);
   });
 
@@ -146,7 +330,6 @@ describe('waitForRunByCommit', () => {
       timeoutMs: 1,
       token: 'user-token',
     });
-
     await expect(result).rejects.toThrow(RUN_BY_COMMIT_TIMEOUT_RE);
     await expect(result).rejects.toThrow(RUN_BY_COMMIT_OBSERVED_RE);
   });
@@ -154,7 +337,6 @@ describe('waitForRunByCommit', () => {
   test('passes abort signals through polling', async () => {
     const controller = new AbortController();
     controller.abort();
-
     const result = waitForRunByCommit({
       fetch: () => response(listResponse()),
       headCommitSha: 'abc123',
@@ -162,7 +344,6 @@ describe('waitForRunByCommit', () => {
       signal: controller.signal,
       token: 'user-token',
     });
-
     await expect(result).rejects.toThrow(
       'Stopped waiting for Timed out waiting for workflow run by commit',
     );
@@ -172,18 +353,15 @@ describe('waitForRunByCommit', () => {
 describe('waitForRunByDeliveryId', () => {
   test('polls until a run with the matching delivery ID appears', async () => {
     let calls = 0;
-
     const result = await waitForRunByDeliveryId({
       fetch: () => {
         calls += 1;
-        return Promise.resolve(
-          response(
-            calls === 1
-              ? listResponse({
-                  runs: [run({trigger_payload: {deliveryId: 'other-delivery', data: {}}})],
-                })
-              : listResponse({runs: [run()]}),
-          ),
+        return response(
+          listResponse({
+            runs: [
+              run(calls === 1 ? {trigger_payload: {deliveryId: 'other-delivery', data: {}}} : {}),
+            ],
+          }),
         );
       },
       deliveryId: 'delivery-1',
@@ -191,7 +369,6 @@ describe('waitForRunByDeliveryId', () => {
       projectId,
       token: 'user-token',
     });
-
     expect(result.id).toBe(runId);
     expect(calls).toBe(2);
   });
@@ -208,7 +385,6 @@ describe('waitForRunByDeliveryId', () => {
       timeoutMs: 1,
       token: 'user-token',
     });
-
     await expect(result).rejects.toThrow(RUN_BY_DELIVERY_TIMEOUT_RE);
     await expect(result).rejects.toThrow(RUN_BY_DELIVERY_OBSERVED_RE);
   });
@@ -219,24 +395,40 @@ describe('waitForRunTerminal', () => {
     'succeeded',
     'failed',
     'cancelled',
-  ] satisfies WorkflowRunStatusDto[])('returns %s runs as terminal', async (status) => {
+  ] satisfies WorkflowRunStatusDto[])('reads bounded lineage and overview resources for %s runs', async (status) => {
+    const paths: string[] = [];
     const result = await waitForRunTerminal({
-      fetch: () => response(detail({status})),
+      fetch: (input) => {
+        const url = new URL(input);
+        paths.push(`${url.pathname}${url.search}`);
+        if (url.pathname.endsWith('/head')) return response(head(status));
+        if (url.pathname.endsWith('/overview')) return response(overview({status}));
+        throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+      },
       runId,
       token: 'user-token',
     });
 
     expect(result.status).toBe(status);
-    expect(result).not.toHaveProperty('job_status_counts');
+    expect(result.attempt.status).toBe(status);
+    expect(paths).toEqual([
+      `/workflows/runs/${runId}/head`,
+      `/workflows/runs/${runId}/overview?attempt=1`,
+    ]);
   });
 
-  test('polls until the run reaches a terminal status', async () => {
-    let calls = 0;
-
+  test('polls lineage and overview until the run reaches a terminal status', async () => {
+    let poll = 0;
+    const paths: string[] = [];
     const result = await waitForRunTerminal({
-      fetch: () => {
-        calls += 1;
-        return Promise.resolve(response(detail({status: calls === 1 ? 'running' : 'succeeded'})));
+      fetch: (input) => {
+        const url = new URL(input);
+        paths.push(`${url.pathname}${url.search}`);
+        if (url.pathname.endsWith('/head')) {
+          poll += 1;
+          return response(head(poll === 1 ? 'running' : 'succeeded'));
+        }
+        return response(overview({status: poll === 1 ? 'running' : 'succeeded'}));
       },
       initialDelayMs: 1,
       runId,
@@ -244,12 +436,17 @@ describe('waitForRunTerminal', () => {
     });
 
     expect(result.status).toBe('succeeded');
-    expect(calls).toBe(2);
+    expect(paths).toHaveLength(4);
+    expect(paths.every((path) => !path.includes(`/workflows/runs/${runId}?`))).toBe(true);
   });
 
-  test('times out with the last run status', async () => {
+  test('reports the last bounded resource on timeout', async () => {
     const result = waitForRunTerminal({
-      fetch: () => response(detail({status: 'running'})),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname.endsWith('/head')) return response(head('running'));
+        return response(overview({status: 'running'}));
+      },
       initialDelayMs: 1,
       runId,
       timeoutMs: 1,
@@ -258,5 +455,137 @@ describe('waitForRunTerminal', () => {
 
     await expect(result).rejects.toThrow(RUN_TERMINAL_TIMEOUT_RE);
     await expect(result).rejects.toThrow(RUN_TERMINAL_OBSERVED_RE);
+    await expect(result).rejects.toThrow('lastBoundedResource=workflow run overview attempt 1');
+  });
+
+  test('follows only the bounded pages needed for a selected execution and step', async () => {
+    const paths: string[] = [];
+    const otherJob = jobSummary({id: '99999999-9999-4999-8999-999999999999', key: 'other'});
+    const selectedJob = jobSummary({key: 'target'});
+    const otherStep = stepSummary({id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', key: 'other'});
+    const selectedStep = stepSummary({key: 'target'});
+    const secondExecution = executionSummary({
+      id: executionId,
+      sequence: 2,
+      name: 'Build #2',
+    });
+    const responses = new Map<string, Response>([
+      [`/workflows/runs/${runId}/head`, response(head('succeeded'))],
+      [
+        `/workflows/runs/${runId}/overview?attempt=1`,
+        response(
+          overview({
+            largeJobs: {
+              kind: 'large',
+              total: 2,
+              status_counts: [{status: 'succeeded', count: 2}],
+              first_page: {items: [otherJob], next_cursor: 'jobs-1', total: 1},
+            },
+          }),
+        ),
+      ],
+      [
+        `/workflows/runs/${runId}/jobs?attempt=1&limit=100&cursor=jobs-1`,
+        response({items: [selectedJob], next_cursor: null, total: 1}),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}/executions?limit=25`,
+        response({items: [executionSummary()], next_cursor: 'executions-1', total: 2}),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}/executions?limit=25&cursor=executions-1`,
+        response({items: [secondExecution], next_cursor: null, total: 2}),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}?execution_id=${executionId}`,
+        response({
+          workflow_run_id: runId,
+          workflow_run_attempt: 1,
+          job: selectedJob,
+          selected_execution: selectedExecutionDetail({
+            sequence: 2,
+            steps: [otherStep],
+            nextCursor: 'steps-1',
+            hasContext: true,
+          }),
+        }),
+      ],
+      [
+        `/workflows/runs/jobs/${jobId}/executions/${executionId}/steps?limit=100&cursor=steps-1`,
+        response({items: [selectedStep], next_cursor: null, total: 2}),
+      ],
+      [`/workflows/runs/jobs/${jobId}/executions/${executionId}/context`, response(context())],
+      [`/workflows/runs/steps/${stepId}/attempts/1`, response(stepDetail())],
+    ]);
+
+    const result = await observeRun({
+      fetch: (input) => {
+        const url = new URL(input);
+        const path = `${url.pathname}${url.search}`;
+        paths.push(path);
+        const next = responses.get(path);
+        if (next === undefined) throw new Error(`Unexpected request: ${path}`);
+        return next;
+      },
+      runId,
+      selection: {
+        jobs: [
+          {
+            jobKey: 'target',
+            executionSequences: [2],
+            includeContext: true,
+            stepKeys: ['target'],
+          },
+        ],
+      },
+      token: 'user-token',
+    });
+
+    const target = result.jobs.find((job) => job.key === 'target');
+    expect(target?.executions.map((execution) => execution.sequence)).toEqual([2]);
+    expect(target?.executions[0]?.context?.execution_outputs).toEqual({message: 'observed'});
+    expect(target?.executions[0]?.steps.map((step) => step.key)).toEqual(['target']);
+    expect(target?.executions[0]?.steps[0]?.response).toBe('done');
+    expect(paths).toContain(`/workflows/runs/${runId}/jobs?attempt=1&limit=100&cursor=jobs-1`);
+    expect(paths).toContain(
+      `/workflows/runs/jobs/${jobId}/executions?limit=25&cursor=executions-1`,
+    );
+    expect(paths).toContain(
+      `/workflows/runs/jobs/${jobId}/executions/${executionId}/steps?limit=100&cursor=steps-1`,
+    );
+    expect(paths).not.toContain(`/workflows/runs/${runId}`);
+  });
+
+  test('names the last bounded cursor resource when a page repeats', async () => {
+    const result = observeRun({
+      fetch: (input) => {
+        const url = new URL(input);
+        const path = `${url.pathname}${url.search}`;
+        if (url.pathname.endsWith('/head')) return response(head('succeeded'));
+        if (url.pathname.endsWith('/overview')) {
+          return response(
+            overview({
+              largeJobs: {
+                kind: 'large',
+                total: 2,
+                status_counts: [{status: 'succeeded', count: 2}],
+                first_page: {items: [], next_cursor: 'jobs-1', total: 0},
+              },
+            }),
+          );
+        }
+        if (path.endsWith('/jobs?attempt=1&limit=100&cursor=jobs-1')) {
+          return response({items: [], next_cursor: 'jobs-1', total: 2});
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      },
+      runId,
+      selection: {jobs: [{jobKey: 'missing'}]},
+      token: 'user-token',
+    });
+
+    await expect(result).rejects.toThrow(
+      'Repeated workflow run job cursor while reading bounded job summaries; last bounded resource=workflow run job summaries cursor jobs-1',
+    );
   });
 });

@@ -1,12 +1,10 @@
 import type {LogRecord} from '@shipfox/api-logs-dto';
+import type {JobStatusReasonDto, StepErrorReasonDto} from '@shipfox/api-workflows-dto';
 import type {
-  JobStatusReasonDto,
-  StepErrorReasonDto,
-  StepGateResultDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunStepDetailDto,
-} from '@shipfox/api-workflows-dto';
+  WorkflowJobObservation,
+  WorkflowRunObservation,
+  WorkflowStepObservation,
+} from '@shipfox/e2e-observe-workflows';
 import {z} from 'zod';
 
 // expect.yaml is the suite's assertion language, validated here and owned by the
@@ -216,21 +214,21 @@ export interface ExpectationResult {
 }
 
 function findJob(
-  runDetail: WorkflowRunDetailResponseDto,
+  observation: WorkflowRunObservation,
   key: string,
-): WorkflowRunJobDetailDto | undefined {
-  return runDetail.jobs.find((job) => job.key === key);
+): WorkflowJobObservation | undefined {
+  return observation.jobs.find((job) => job.key === key);
 }
 
 // Steps live under each job execution; a listening or restarted job has more than one
 // execution. Search every execution and prefer the latest, so an assertion targets the
 // most recent run of the step rather than a stale earlier attempt.
 function findStep(
-  job: WorkflowRunJobDetailDto,
+  job: WorkflowJobObservation,
   stepKey: string,
-): WorkflowRunStepDetailDto | undefined {
-  let match: WorkflowRunStepDetailDto | undefined;
-  for (const execution of job.job_executions) {
+): WorkflowStepObservation | undefined {
+  let match: WorkflowStepObservation | undefined;
+  for (const execution of job.executions) {
     for (const step of execution.steps) {
       if (step.key === stepKey || step.name === stepKey) match = step;
     }
@@ -238,16 +236,12 @@ function findStep(
   return match;
 }
 
-function latestExitCode(step: WorkflowRunStepDetailDto): number | null {
-  const current = step.attempts.find((attempt) => attempt.attempt === step.current_attempt);
-  const attempt = current ?? step.attempts.at(-1);
-  return attempt?.exit_code ?? null;
+function latestExitCode(step: WorkflowStepObservation): number | null {
+  return step.exit_code;
 }
 
-function latestGateResult(step: WorkflowRunStepDetailDto): StepGateResultDto | null {
-  const current = step.attempts.find((attempt) => attempt.attempt === step.current_attempt);
-  const attempt = current ?? step.attempts.at(-1);
-  return attempt?.gate_result ?? null;
+function latestGateResult(step: WorkflowStepObservation) {
+  return step.gate_result;
 }
 
 function stringField(value: Record<string, unknown>, field: string): string | null {
@@ -271,7 +265,7 @@ type JobExpectation = NonNullable<Expectation['jobs']>[string];
 type StepExpectation = NonNullable<JobExpectation['steps']>[string];
 
 function evaluateStepError(
-  step: WorkflowRunStepDetailDto,
+  step: WorkflowStepObservation,
   expectation: NonNullable<StepExpectation['error']>,
   path: string,
   mismatches: Mismatch[],
@@ -313,7 +307,7 @@ function evaluateStepError(
 }
 
 function evaluateGateResult(
-  step: WorkflowRunStepDetailDto,
+  step: WorkflowStepObservation,
   expectation: NonNullable<StepExpectation['gate_result']>,
   path: string,
   mismatches: Mismatch[],
@@ -352,7 +346,7 @@ function evaluateGateResult(
 }
 
 function evaluateStepExpectation(
-  job: WorkflowRunJobDetailDto,
+  job: WorkflowJobObservation,
   stepKey: string,
   expectation: StepExpectation,
   path: string,
@@ -409,13 +403,13 @@ function evaluateStepExpectation(
 }
 
 function evaluateJobExpectation(
-  runDetail: WorkflowRunDetailResponseDto,
+  observation: WorkflowRunObservation,
   jobKey: string,
   expectation: JobExpectation,
   result: ExpectationResult,
 ): void {
   const path = `jobs.${jobKey}`;
-  const job = findJob(runDetail, jobKey);
+  const job = findJob(observation, jobKey);
   if (!job) {
     result.mismatches.push({path, expected: 'present', actual: 'missing'});
     return;
@@ -442,27 +436,27 @@ function evaluateJobExpectation(
 }
 
 /**
- * Compares a run detail against an expectation, returning every structural mismatch
+ * Compares a bounded run observation against an expectation, returning every structural mismatch
  * (run/job/step status, step type, and step exit code) plus the log requirements the
  * harness still needs to fetch. Pure and synchronous, so it is unit-tested against canned
- * run detail.
+ * bounded observations.
  */
 export function evaluateExpectations(
-  runDetail: WorkflowRunDetailResponseDto,
+  observation: WorkflowRunObservation,
   expectation: Expectation,
 ): ExpectationResult {
   const result: ExpectationResult = {mismatches: [], logRequirements: []};
 
-  if (runDetail.status !== expectation.run.status) {
+  if (observation.status !== expectation.run.status) {
     result.mismatches.push({
       path: 'run.status',
       expected: expectation.run.status,
-      actual: runDetail.status,
+      actual: observation.status,
     });
   }
 
   for (const [jobKey, jobExpectation] of Object.entries(expectation.jobs ?? {})) {
-    evaluateJobExpectation(runDetail, jobKey, jobExpectation, result);
+    evaluateJobExpectation(observation, jobKey, jobExpectation, result);
   }
 
   return result;

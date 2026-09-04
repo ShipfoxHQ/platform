@@ -1,8 +1,8 @@
 import {readFile} from 'node:fs/promises';
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {createApiClient} from '@shipfox/e2e-core';
 import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {waitForDefinition} from '@shipfox/e2e-observe-definitions';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 import {
   createTestVcsRepository,
   failNextTestVcsMints,
@@ -456,7 +456,7 @@ async function runWorkflow(params: {
   runnerCount?: number | undefined;
   runnerLabels?: readonly string[] | undefined;
   renewableGit: boolean;
-}): Promise<{terminal: WorkflowRunDetailResponseDto; logFiles: string[]}> {
+}): Promise<{terminal: WorkflowRunObservation; logFiles: string[]}> {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
   const localRunners: Array<Awaited<ReturnType<typeof startSuiteLocalRunner>>> = [];

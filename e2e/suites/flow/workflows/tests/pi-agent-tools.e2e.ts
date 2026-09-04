@@ -1,7 +1,7 @@
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {createApiClient} from '@shipfox/e2e-core';
 import {message, startFakeOpenAiModelProvider, toolCall} from '@shipfox/e2e-driver-model-provider';
 import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
+import type {WorkflowRunObservation} from '@shipfox/e2e-observe-workflows';
 import {
   createOpenAiCompatibleCustomProvider,
   deleteModelProviderConfig,
@@ -208,7 +208,7 @@ async function runPiAgentWorkflow(params: {
   uniqueId: string;
   scenario: string;
   workflowYaml: string;
-}): Promise<WorkflowRunDetailResponseDto> {
+}): Promise<WorkflowRunObservation> {
   const token = params.suite.sessionToken;
   const client = createApiClient({token});
   const runnerLabel = `e2e-${params.scenario}-${params.uniqueId}`;
@@ -263,7 +263,7 @@ async function runPiAgentWorkflow(params: {
 async function attachPiFailureDiagnostics(params: {
   fakeModelProvider: Awaited<ReturnType<typeof startFakeOpenAiModelProvider>>;
   scriptId: string;
-  terminal: WorkflowRunDetailResponseDto;
+  terminal: WorkflowRunObservation;
   testInfo: {
     attach: (name: string, options: {body: Buffer | string; contentType: string}) => Promise<void>;
   };

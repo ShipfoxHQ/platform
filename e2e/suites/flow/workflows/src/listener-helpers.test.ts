@@ -1,10 +1,9 @@
+import type {WorkflowExecutionEventDto} from '@shipfox/api-workflows-dto';
 import type {
-  JobDto,
-  WorkflowExecutionEventDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
-} from '@shipfox/api-workflows-dto';
+  WorkflowExecutionObservation,
+  WorkflowJobObservation,
+  WorkflowRunObservation,
+} from '@shipfox/e2e-observe-workflows';
 import {
   batchedListenerExecutionMatches,
   findListenerExecutionByDeliveryId,
@@ -32,67 +31,71 @@ function event(overrides: Partial<WorkflowExecutionEventDto> = {}): WorkflowExec
 }
 
 function execution(
-  overrides: Partial<WorkflowRunJobExecutionDetailDto> = {},
-): WorkflowRunJobExecutionDetailDto {
+  overrides: Partial<WorkflowExecutionObservation> = {},
+): WorkflowExecutionObservation {
   return {
     id: '66666666-6666-4666-8666-666666666666',
     job_id: '77777777-7777-4777-8777-777777777777',
     sequence: 1,
     name: 'listen #1',
     status: 'succeeded',
+    display_status: 'succeeded',
     status_reason: null,
+    status_reason_message: null,
     runner: null,
     trigger_events: [event()],
     outputs: null,
-    evaluation_trace: null,
     queued_at: timestamp,
     started_at: timestamp,
     finished_at: timestamp,
     timed_out_at: null,
-    created_at: timestamp,
     updated_at: timestamp,
     steps: [],
+    context: null,
     ...overrides,
   };
 }
 
-function listenerJob(overrides: Partial<WorkflowRunJobDetailDto> = {}): WorkflowRunJobDetailDto {
-  const base: JobDto = {
+function listenerJob(overrides: Partial<WorkflowJobObservation> = {}): WorkflowJobObservation {
+  const executions = overrides.executions ?? [execution()];
+  const base: WorkflowJobObservation = {
     id: '77777777-7777-4777-8777-777777777777',
-    run_attempt_id: '88888888-8888-4888-8888-888888888888',
     key: 'listen',
     name: null,
     mode: 'listening',
     status: 'succeeded',
     status_reason: null,
-    success: null,
-    runner: null,
-    evaluation_trace: null,
     carried_over: false,
-    listening: {
-      on: [{source: 'fire-source', event: 'received'}],
-      until: [{source: 'resolve-source', event: 'received'}],
-      timeout_ms: null,
-      max_executions: null,
-      batch: null,
-      on_resolve: 'finish',
-      execution_timeout_ms: null,
-      name: null,
-    },
     listener_status: 'resolved',
-    resolution_reason: 'until',
-    outputs: null,
-    dependencies: [],
     position: 0,
-    created_at: timestamp,
-    updated_at: timestamp,
+    execution_count: overrides.execution_count ?? executions.length,
+    execution_status_counts: {
+      pending: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 0,
+      cancelled: 0,
+    },
+    default_execution: null,
+    executions,
   };
-  return {...base, job_executions: [execution()], ...overrides};
+  return {
+    ...base,
+    ...overrides,
+  };
 }
 
-function runDetail(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
+function runObservation(overrides: Partial<WorkflowRunObservation> = {}): WorkflowRunObservation {
+  const attempt = {
+    id: '88888888-8888-4888-8888-888888888888',
+    workflow_run_id: '33333333-3333-4333-8333-333333333333',
+    attempt: 1,
+    status: 'succeeded' as const,
+    created_at: timestamp,
+    started_at: timestamp,
+    finished_at: timestamp,
+    rerun_mode: null,
+  };
   return {
     id: '33333333-3333-4333-8333-333333333333',
     project_id: '11111111-1111-4111-8111-111111111111',
@@ -108,24 +111,10 @@ function runDetail(
     trigger_provider: 'manual',
     trigger_source: 'manual',
     trigger_event: 'fire',
-    trigger_payload: {},
     trigger_reference: null,
-    inputs: null,
-    source_snapshot: null,
     created_at: timestamp,
     updated_at: timestamp,
-    started_at: timestamp,
-    finished_at: timestamp,
-    run_attempt: {
-      id: '88888888-8888-4888-8888-888888888888',
-      workflow_run_id: '33333333-3333-4333-8333-333333333333',
-      attempt: 1,
-      status: 'succeeded',
-      created_at: timestamp,
-      started_at: timestamp,
-      finished_at: timestamp,
-      rerun_mode: null,
-    },
+    attempt,
     jobs: [listenerJob()],
     has_started_job_execution: true,
     ...overrides,
@@ -134,10 +123,10 @@ function runDetail(
 
 describe('listener helper predicates', () => {
   test('finds the listener execution containing a delivery id', () => {
-    const detail = runDetail({
+    const observation = runObservation({
       jobs: [
         listenerJob({
-          job_executions: [
+          executions: [
             execution({sequence: 1, trigger_events: [event({delivery_id: 'delivery-1'})]}),
             execution({sequence: 2, trigger_events: [event({delivery_id: 'delivery-2'})]}),
           ],
@@ -146,7 +135,7 @@ describe('listener helper predicates', () => {
     });
 
     const result = findListenerExecutionByDeliveryId({
-      runDetail: detail,
+      observation,
       jobKey: 'listen',
       deliveryId: 'delivery-2',
     });
@@ -155,10 +144,10 @@ describe('listener helper predicates', () => {
   });
 
   test('finds the listener execution containing any delivery id', () => {
-    const detail = runDetail({
+    const observation = runObservation({
       jobs: [
         listenerJob({
-          job_executions: [
+          executions: [
             execution({sequence: 1, trigger_events: [event({delivery_id: 'delivery-1'})]}),
             execution({sequence: 2, trigger_events: [event({delivery_id: 'delivery-2'})]}),
           ],
@@ -167,7 +156,7 @@ describe('listener helper predicates', () => {
     });
 
     const result = findListenerExecutionByDeliveryIds({
-      runDetail: detail,
+      observation,
       jobKey: 'listen',
       deliveryIds: ['delivery-3', 'delivery-2'],
     });
@@ -178,7 +167,7 @@ describe('listener helper predicates', () => {
 
   test('reports a missing delivery with observed delivery ids', () => {
     const result = listenerDeliveryObserved({
-      runDetail: runDetail(),
+      observation: runObservation(),
       jobKey: 'listen',
       deliveryId: 'missing-delivery',
     });
@@ -191,10 +180,10 @@ describe('listener helper predicates', () => {
   });
 
   test('matches listener execution counts', () => {
-    const detail = runDetail({
+    const observation = runObservation({
       jobs: [
         listenerJob({
-          job_executions: [
+          executions: [
             execution({sequence: 1}),
             execution({id: '99999999-9999-4999-8999-999999999999', sequence: 2}),
           ],
@@ -202,14 +191,14 @@ describe('listener helper predicates', () => {
       ],
     });
 
-    const result = listenerExecutionCountMatches({runDetail: detail, jobKey: 'listen', count: 2});
+    const result = listenerExecutionCountMatches({observation, jobKey: 'listen', count: 2});
 
     expect(result.matched).toBe(true);
   });
 
-  test('matches listener resolution status and reason', () => {
+  test('matches listener resolution status', () => {
     const result = listenerResolutionMatches({
-      runDetail: runDetail(),
+      observation: runObservation(),
       jobKey: 'listen',
       status: 'succeeded',
       reason: 'until',
@@ -220,10 +209,8 @@ describe('listener helper predicates', () => {
 
   test('reports listener resolution mismatches', () => {
     const result = listenerResolutionMatches({
-      runDetail: runDetail({
-        jobs: [
-          listenerJob({status: 'running', listener_status: 'listening', resolution_reason: null}),
-        ],
+      observation: runObservation({
+        jobs: [listenerJob({status: 'running', listener_status: 'listening'})],
       }),
       jobKey: 'listen',
       status: 'succeeded',
@@ -233,16 +220,16 @@ describe('listener helper predicates', () => {
     expect(result).toEqual({
       matched: false,
       diagnostic:
-        'listener job listen status=running, listenerStatus=listening, resolutionReason=null, expected=succeeded/resolved/until',
+        'listener job listen status=running, listenerStatus=listening, expected=succeeded/resolved (resolution reason until is not exposed by bounded overview)',
     });
   });
 
   test('matches a batched execution containing every expected delivery', () => {
     const result = batchedListenerExecutionMatches({
-      runDetail: runDetail({
+      observation: runObservation({
         jobs: [
           listenerJob({
-            job_executions: [
+            executions: [
               execution({
                 trigger_events: [
                   event({delivery_id: 'delivery-1'}),
