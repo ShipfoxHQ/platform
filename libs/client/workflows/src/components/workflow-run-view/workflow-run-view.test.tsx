@@ -30,7 +30,6 @@ const ANNOTATION_ID_ONE = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001';
 const ANNOTATION_ID_TWO = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000002';
 const TASK_NINE_PATTERN = /Task nine/;
 const SHOW_MORE_PATTERN = /Show \d+ more/;
-const CONDITION_REJECTED_PATTERN = /condition_rejected/;
 
 describe('WorkflowRunView', () => {
   beforeEach(() => {
@@ -245,8 +244,11 @@ describe('WorkflowRunView', () => {
     const explanation = (await screen.findByRole('heading', {level: 3, name: 'deploy'})).closest(
       'li',
     );
-    expect(explanation).toHaveTextContent('Skipped before an execution was created.');
-    expect(explanation).toHaveTextContent(CONDITION_REJECTED_PATTERN);
+    expect(explanation).toHaveTextContent('Skipped');
+    expect(explanation).toHaveTextContent(
+      'Its condition evaluated to false, so this job did not run.',
+    );
+    expect(explanation).not.toHaveTextContent('condition_rejected');
   });
 
   test('filters to a job that exists only in job explanations', async () => {
@@ -270,7 +272,27 @@ describe('WorkflowRunView', () => {
       level: 3,
       name: 'archived deploy',
     });
-    expect(explanation.closest('li')).toHaveTextContent('Skipped before an execution was created.');
+    expect(explanation.closest('li')).toHaveTextContent(
+      'Its condition evaluated to false, so this job did not run.',
+    );
+  });
+
+  test('does not present an expected skip as a warning', async () => {
+    configureRunFetch([], {}, {}, [
+      {
+        job_id: DEPLOY_JOB_ID,
+        job_label: 'deploy',
+        job_position: 1,
+        status: 'skipped',
+        status_reason: 'condition_rejected',
+        evaluation_trace: null,
+      },
+    ]);
+
+    renderView({tab: 'annotations', selection: {severity: 'warning'}});
+
+    expect(await screen.findByText('No matching annotations')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', {level: 3, name: 'deploy'})).not.toBeInTheDocument();
   });
 
   test('loads the next job-explanation page from the shared control', async () => {

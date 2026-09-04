@@ -63,6 +63,7 @@ import {
   RunAnnotationList,
   RunAnnotationSummaryLine,
 } from '../workflow-run-tabs/index.js';
+import {presentRunJobExplanation} from '../workflow-run-tabs/run-job-explanation.js';
 import {WorkflowSourceContent} from '../workflow-source-panel/index.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
 import {WorkflowRunLargeJobs} from './workflow-run-large-jobs.js';
@@ -1176,20 +1177,19 @@ function RunAnnotationsSection({
   const derivedAnnotations = useMemo<readonly DerivedRunAnnotation[] | undefined>(() => {
     if (!explanations) return undefined;
     return explanations
-      .filter((explanation) => {
-        const style = explanation.status === 'failed' ? 'error' : 'warning';
+      .map((explanation) => ({explanation, presentation: presentRunJobExplanation(explanation)}))
+      .filter(({explanation, presentation}) => {
         return (
           (!effectiveJobId || effectiveJobId === explanation.jobId) &&
-          matchesDerivedAnnotationFilters(style, selection)
+          matchesDerivedAnnotationFilters(presentation.style, selection)
         );
       })
-      .map((explanation) => ({
+      .map(({explanation, presentation}) => ({
         id: `derived-${explanation.jobId}`,
         jobId: explanation.jobId,
         jobPosition: explanation.jobPosition,
-        style: explanation.status === 'failed' ? ('error' as const) : ('warning' as const),
+        ...presentation,
         jobName: explanation.jobName,
-        body: derivedJobAnnotation(explanation),
       }))
       .sort(
         (left, right) =>
@@ -1254,52 +1254,10 @@ function RunAnnotationsSection({
 }
 
 function matchesDerivedAnnotationFilters(
-  style: 'warning' | 'error',
+  style: DerivedRunAnnotation['style'],
   selection: WorkflowRunsSearch | undefined,
 ): boolean {
   return !selection?.severity || style === selection.severity;
-}
-
-/** The row is titled by its job, so the body opens with what happened rather than repeating it. */
-function derivedJobAnnotation(explanation: RunJobExplanation): string {
-  const reason = explanation.statusReason ? `Reason: \`${explanation.statusReason}\`` : null;
-  const traceSummary = formatConditionEvaluation(explanation.evaluationTrace);
-  const details = [reason, traceSummary].filter(Boolean).join('\n');
-
-  if (explanation.status === 'skipped') {
-    return [
-      'Skipped before an execution was created.',
-      '',
-      'Review its dependencies or condition before re-running.',
-      details,
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-  return [
-    'Failed before an execution was created.',
-    '',
-    'Check runner availability and workflow configuration before re-running.',
-    details,
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function formatConditionEvaluation(trace: RunJobExplanation['evaluationTrace']): string | null {
-  if (!trace?.length) return null;
-
-  return [
-    'Condition evaluation:',
-    ...trace.map((entry) => {
-      if ('dropped' in entry) {
-        return `- ${entry.dropped} additional evaluation${entry.dropped === 1 ? '' : 's'} not recorded`;
-      }
-      const value =
-        entry.value === undefined || entry.value === '' ? '(empty)' : `\`${entry.value}\``;
-      return `- \`${entry.field}\` evaluated \`${entry.expression}\` to ${value}${entry.degraded ? ' (degraded)' : ''}`;
-    }),
-  ].join('\n');
 }
 
 const ALL_ANNOTATION_JOBS = 'all-jobs';

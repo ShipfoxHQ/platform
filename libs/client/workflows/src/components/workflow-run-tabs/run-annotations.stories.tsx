@@ -105,9 +105,10 @@ export const Playground: Story = {
             id: 'derived-deploy',
             jobId: '44444444-4444-4444-8444-00000000000d',
             jobPosition: 2,
-            style: 'warning',
+            style: 'default',
+            statusLabel: 'Skipped',
             jobName: 'deploy production',
-            body: 'Skipped before an execution was created.\n\nReview its dependencies or condition before re-running.\nReason: `dependency_failed`',
+            body: 'A required job did not succeed, so this job did not run.',
           },
         ]}
       />

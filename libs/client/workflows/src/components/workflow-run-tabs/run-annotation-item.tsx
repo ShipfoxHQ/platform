@@ -126,6 +126,7 @@ export function RunAnnotationItem({
 
 export interface RunDerivedAnnotationItemProps {
   style: RunAnnotationStyle;
+  statusLabel: 'Skipped' | 'Failed';
   jobName: string;
   body: string;
 }
@@ -133,12 +134,17 @@ export interface RunDerivedAnnotationItemProps {
 /**
  * A terminal job that never created an execution record.
  *
- * It has no step to link to and no context of its own, so it is titled by its job and says
- * plainly that no execution exists. It renders in the same row as every other annotation, since
- * a job that failed before it started is a diagnostic like any other, and often the first one
- * worth reading.
+ * It has no step to link to and no context of its own, so it is titled by its job and names the
+ * terminal status that prompted the explanation. It renders in the same row as every other
+ * annotation, since a job that failed before it started is a diagnostic like any other, and often
+ * the first one worth reading.
  */
-export function RunDerivedAnnotationItem({style, jobName, body}: RunDerivedAnnotationItemProps) {
+export function RunDerivedAnnotationItem({
+  style,
+  statusLabel,
+  jobName,
+  body,
+}: RunDerivedAnnotationItemProps) {
   return (
     <AnnotationRow>
       <AnnotationCard
@@ -151,7 +157,7 @@ export function RunDerivedAnnotationItem({style, jobName, body}: RunDerivedAnnot
             size="xs"
             className="min-w-0 truncate font-code text-foreground-neutral-subtle"
           >
-            no execution recorded
+            {statusLabel}
           </Text>
         }
         body={body}

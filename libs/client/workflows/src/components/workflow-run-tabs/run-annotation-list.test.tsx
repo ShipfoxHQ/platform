@@ -131,7 +131,7 @@ describe('RunAnnotationList', () => {
       derivedAnnotations: [derived({id: 'd1', jobName: 'deploy production'})],
     });
 
-    await screen.findByText('no execution recorded');
+    await screen.findByText('Skipped');
     const headings = screen.getAllByRole('heading', {level: 3});
 
     expect(headings.map((heading) => heading.textContent)).toEqual([
@@ -206,7 +206,9 @@ describe('RunAnnotationList', () => {
     });
 
     expect(await screen.findByRole('heading', {level: 3, name: 'smoke check'})).toBeInTheDocument();
-    expect(screen.getByText('Could not load job explanations.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Some details about skipped or failed jobs could not be loaded.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText('This run has no annotations to show.')).not.toBeInTheDocument();
   });
 
@@ -221,7 +223,18 @@ describe('RunAnnotationList', () => {
       await screen.findByRole('button', {name: 'Retry loading annotations'}),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', {name: 'Retry loading job explanations'}),
+      screen.getByRole('button', {name: 'Retry loading skipped and failed job details'}),
+    ).toBeInTheDocument();
+  });
+
+  test('explains when loaded skipped and failed job details may be stale', async () => {
+    renderList([], {
+      derivedAnnotations: [],
+      jobExplanationsQuery: listQuery({isError: true, error: new Error('Unavailable')}),
+    });
+
+    expect(
+      await screen.findByText('Some details about skipped or failed jobs may be out of date.'),
     ).toBeInTheDocument();
   });
 });
@@ -307,9 +320,10 @@ function derived(overrides: Partial<DerivedRunAnnotation> & {id: string}): Deriv
   return {
     jobId: '44444444-4444-4444-8444-00000000000d',
     jobPosition: 1,
-    style: 'warning',
+    style: 'default',
+    statusLabel: 'Skipped',
     jobName: 'deploy production',
-    body: 'Skipped before an execution was created.',
+    body: 'A required job did not succeed, so this job did not run.',
     ...overrides,
   };
 }

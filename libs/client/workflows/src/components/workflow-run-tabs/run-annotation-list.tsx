@@ -40,9 +40,28 @@ export interface DerivedRunAnnotation {
   jobId: string;
   jobPosition: number;
   style: RunAnnotationStyle;
+  statusLabel: 'Skipped' | 'Failed';
   jobName: string;
   body: string;
 }
+
+interface RunAnnotationResourceErrorCopy {
+  loadMessage: string;
+  refreshMessage: string;
+  retryLabel: string;
+}
+
+const ANNOTATION_RESOURCE_ERROR_COPY: RunAnnotationResourceErrorCopy = {
+  loadMessage: 'Could not load annotations.',
+  refreshMessage: 'Could not refresh annotations.',
+  retryLabel: 'Retry loading annotations',
+};
+
+const JOB_DETAILS_RESOURCE_ERROR_COPY: RunAnnotationResourceErrorCopy = {
+  loadMessage: 'Some details about skipped or failed jobs could not be loaded.',
+  refreshMessage: 'Some details about skipped or failed jobs may be out of date.',
+  retryLabel: 'Retry loading skipped and failed job details',
+};
 
 /**
  * How many rows from each independently loaded resource render at once.
@@ -102,14 +121,14 @@ export function RunAnnotationList({
       {query.isError ? (
         <RunAnnotationResourceError
           query={query}
-          subject="annotations"
+          copy={ANNOTATION_RESOURCE_ERROR_COPY}
           hasStaleContent={entries !== undefined}
         />
       ) : null}
       {jobExplanationsQuery.isError ? (
         <RunAnnotationResourceError
           query={jobExplanationsQuery}
-          subject="job explanations"
+          copy={JOB_DETAILS_RESOURCE_ERROR_COPY}
           hasStaleContent={derivedAnnotations !== undefined}
         />
       ) : null}
@@ -206,6 +225,7 @@ function RunAnnotationListContent({
           <RunDerivedAnnotationItem
             key={annotation.id}
             style={annotation.style}
+            statusLabel={annotation.statusLabel}
             jobName={annotation.jobName}
             body={annotation.body}
           />
@@ -398,25 +418,23 @@ function RunAnnotationsFilteredEmpty({
  */
 function RunAnnotationResourceError({
   query,
-  subject,
+  copy,
   hasStaleContent,
 }: {
   query: QueryLoadErrorQuery;
-  subject: string;
+  copy: RunAnnotationResourceErrorCopy;
   hasStaleContent: boolean;
 }) {
   return (
     <div className="border-b border-border-neutral-base bg-background-neutral-base px-row py-row">
       <Callout role="status" aria-live="polite" type="error" variant="secondary">
         <CalloutContent className="flex items-center justify-between gap-inline">
-          <Text size="xs">
-            Could not {hasStaleContent ? 'refresh' : 'load'} {subject}.
-          </Text>
+          <Text size="xs">{hasStaleContent ? copy.refreshMessage : copy.loadMessage}</Text>
           <Button
             type="button"
             size="2xs"
             variant="secondary"
-            aria-label={`Retry loading ${subject}`}
+            aria-label={copy.retryLabel}
             className="[@media(pointer:coarse)]:min-h-44"
             isLoading={query.isFetching}
             onClick={() => {
