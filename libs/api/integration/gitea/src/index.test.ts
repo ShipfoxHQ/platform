@@ -18,7 +18,9 @@ describe('createGiteaIntegrationProvider', () => {
     expect(provider.provider).toBe('gitea');
     expect(provider.displayName).toBe('Gitea');
     expect(provider.eventCatalog?.events.map((event) => event.name)).toEqual(['push']);
+    expect(provider).not.toHaveProperty('repositoryAuthorization');
     expect(provider.adapters.source_control).toBeInstanceOf(GiteaSourceControlProvider);
+    expect(provider.adapters.source_control.checkoutRepositoryAuthorization).toBe('enforced');
     expect(provider.adapters.agent_tools).toBeInstanceOf(GiteaAgentToolsProvider);
     expect(provider.routes).toHaveLength(2);
     expect(provider.routes.map((group) => group.prefix)).toEqual([

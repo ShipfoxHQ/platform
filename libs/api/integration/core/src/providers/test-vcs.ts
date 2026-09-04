@@ -47,6 +47,8 @@ export interface TestVcsConnectionConfiguration {
 }
 
 export class TestVcsSourceControlProvider implements SourceControlProvider<TestVcsConnection> {
+  readonly checkoutRepositoryAuthorization = 'unclassified';
+
   private readonly connectionConfigurations = new Map<string, TestVcsConnectionConfiguration>();
   private readonly cachedCredentials = new Map<string, CheckoutCredentials>();
   private readonly mintFlights = new Map<string, Promise<CheckoutCredentials>>();

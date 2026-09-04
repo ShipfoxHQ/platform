@@ -113,6 +113,53 @@ describe('integration provider registry', () => {
     expect(result).toThrow(IntegrationCapabilityUnavailableError);
   });
 
+  it('rejects checkout-capable source-control adapters without an authorization state', () => {
+    const result = () =>
+      createIntegrationProviderRegistry([
+        {
+          provider: 'gitea',
+          displayName: 'Gitea',
+          adapters: {
+            source_control: {
+              ...sourceControlAdapter(),
+              createCheckoutSpec: async () => ({
+                repositoryUrl: 'https://gitea.local/owner/repository.git',
+                ref: 'main',
+              }),
+            },
+          },
+        },
+      ]);
+
+    expect(result).toThrow(
+      'Source-control provider gitea must declare checkout repository authorization',
+    );
+  });
+
+  it('rejects credential-capable source-control adapters without an authorization state', () => {
+    const result = () =>
+      createIntegrationProviderRegistry([
+        {
+          provider: 'gitea',
+          displayName: 'Gitea',
+          adapters: {
+            source_control: {
+              ...sourceControlAdapter(),
+              createCheckoutCredentials: async () => ({
+                username: 'x-access-token',
+                token: 'secret',
+                expiresAt: new Date('2027-01-01T00:00:00.000Z'),
+              }),
+            },
+          },
+        },
+      ]);
+
+    expect(result).toThrow(
+      'Source-control provider gitea must declare checkout repository authorization',
+    );
+  });
+
   it('rejects duplicate provider registrations', () => {
     const result = () =>
       createIntegrationProviderRegistry([

@@ -43,6 +43,7 @@ class MapIntegrationProviderRegistry implements IntegrationProviderRegistry {
         throw new Error(`Duplicate integration provider registered: ${provider.provider}`);
       }
 
+      assertCheckoutRepositoryAuthorization(provider);
       this.providers.set(provider.provider, normalizeProvider(provider));
     }
   }
@@ -85,6 +86,22 @@ function normalizeProvider(provider: IntegrationProvider): RegisteredIntegration
     adapters,
     capabilities: getIntegrationProviderCapabilities(adapters),
   };
+}
+
+function assertCheckoutRepositoryAuthorization(provider: IntegrationProvider): void {
+  const sourceControl = provider.adapters?.source_control;
+  if (
+    sourceControl === undefined ||
+    (sourceControl.createCheckoutSpec === undefined &&
+      sourceControl.createCheckoutCredentials === undefined) ||
+    sourceControl.checkoutRepositoryAuthorization !== undefined
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `Source-control provider ${provider.provider} must declare checkout repository authorization`,
+  );
 }
 
 export function getIntegrationProviderCapabilities(
