@@ -161,15 +161,17 @@ function LargeWorkflowJobRow({
   const jobExecution = jobExecutionId
     ? usage?.jobExecutions.find((candidate) => candidate.jobExecutionId === jobExecutionId)
     : undefined;
-  const jobUsage = jobExecution
-    ? {
-        jobExecution,
-        inferenceSegments:
-          usage?.inferenceSegments.filter(
-            (segment) => segment.jobExecutionId === jobExecution.jobExecutionId,
-          ) ?? [],
-      }
-    : undefined;
+  const inferenceSegments = usage?.inferenceSegments;
+  const jobUsage = useMemo(() => {
+    if (!jobExecution) return undefined;
+    return {
+      jobExecution,
+      inferenceSegments:
+        inferenceSegments?.filter(
+          (segment) => segment.jobExecutionId === jobExecution.jobExecutionId,
+        ) ?? [],
+    };
+  }, [inferenceSegments, jobExecution]);
   const content = (
     <>
       <WorkflowStatusIcon status={job.displayStatus} size={14} tooltip={false} />

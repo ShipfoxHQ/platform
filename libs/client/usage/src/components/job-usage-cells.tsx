@@ -12,9 +12,10 @@ export interface JobUsageCellsProps {
 
 /** The compact usage cells appended to a run's job row or selected-job header. */
 export function JobUsageCells({usage, className}: JobUsageCellsProps) {
+  const inferenceSegments = usage?.inferenceSegments;
   const totals = useMemo(
-    () => (usage ? usageTokenTotalsForSegments(usage.inferenceSegments) : undefined),
-    [usage],
+    () => (inferenceSegments ? usageTokenTotalsForSegments(inferenceSegments) : undefined),
+    [inferenceSegments],
   );
   const jobExecutionId = usage?.jobExecution.jobExecutionId;
   const durationSeconds = usage?.jobExecution.durationSeconds;
