@@ -33,7 +33,10 @@ import {
   workflowRunOverviewJobsInfiniteQueryOptions,
   workflowRunOverviewQueryOptions,
 } from './workflow-run-overview.js';
-import {useWorkflowRunSelectionQuery} from './workflow-run-selection.js';
+import {
+  useWorkflowRunSelectionQuery,
+  workflowRunSelectionQueryOptions,
+} from './workflow-run-selection.js';
 
 const PROJECT_ID = '22222222-2222-4222-8222-222222222222';
 const DEFINITION_ID = '33333333-3333-4333-8333-333333333333';
@@ -489,6 +492,129 @@ describe('workflow run bounded overview API hooks', () => {
       stepAttempt: 2,
       sourceLocation: {startLine: 12, endLine: 18},
     });
+  });
+
+  test('refetches when a cached selection belongs to another requested attempt', async () => {
+    const selectionForAttempt = (attempt: number): WorkflowRunSelectionResponseDto => ({
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: attempt,
+      job_id: JOB_ID,
+      job_execution_id: EXECUTION_ID,
+      step_id: STEP_ID,
+      step_attempt_id: STEP_ATTEMPT_ID,
+      step_attempt: attempt,
+      source_location: null,
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      const attempt = Number(url.searchParams.get('attempt'));
+      return Promise.resolve(jsonResponse(selectionForAttempt(attempt)));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const {result, rerender} = renderHook(
+      ({runAttempt}: {runAttempt: number}) =>
+        useWorkflowRunSelectionQuery({
+          workflowRunId: RUN_ID,
+          runAttempt,
+          jobId: JOB_ID,
+          jobExecutionId: EXECUTION_ID,
+          stepId: STEP_ID,
+          stepAttemptId: STEP_ATTEMPT_ID,
+        }),
+      {initialProps: {runAttempt: 1}, wrapper},
+    );
+
+    await waitFor(() => expect(result.current.data?.workflowRunAttempt).toBe(1));
+
+    rerender({runAttempt: 2});
+
+    await waitFor(() => expect(result.current.data?.workflowRunAttempt).toBe(2));
+    expect(requestUrls(fetchImpl)).toEqual([
+      `https://api.example.test/workflows/runs/${RUN_ID}/selection?attempt=1&job_id=${JOB_ID}&job_execution_id=${EXECUTION_ID}&step_id=${STEP_ID}&step_attempt_id=${STEP_ATTEMPT_ID}`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/selection?attempt=2&job_id=${JOB_ID}&job_execution_id=${EXECUTION_ID}&step_id=${STEP_ID}&step_attempt_id=${STEP_ATTEMPT_ID}`,
+    ]);
+  });
+
+  test('allows a later attempt to refetch after an earlier attempt fails', async () => {
+    const selectionForAttempt = (attempt: number): WorkflowRunSelectionResponseDto => ({
+      workflow_run_id: RUN_ID,
+      workflow_run_attempt: attempt,
+      job_id: JOB_ID,
+      job_execution_id: EXECUTION_ID,
+      step_id: STEP_ID,
+      step_attempt_id: STEP_ATTEMPT_ID,
+      step_attempt: attempt,
+      source_location: null,
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const url = new URL(requestInputUrl(input));
+      const attempt = Number(url.searchParams.get('attempt'));
+      return attempt === 2
+        ? Promise.resolve(jsonResponse({code: 'unavailable'}, {status: 500}))
+        : Promise.resolve(jsonResponse(selectionForAttempt(attempt)));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+
+    const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const wrapper = ({children}: {children: ReactNode}) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const {result, rerender} = renderHook(
+      ({runAttempt}: {runAttempt: number}) =>
+        useWorkflowRunSelectionQuery({
+          workflowRunId: RUN_ID,
+          runAttempt,
+          jobId: JOB_ID,
+          jobExecutionId: EXECUTION_ID,
+          stepId: STEP_ID,
+          stepAttemptId: STEP_ATTEMPT_ID,
+        }),
+      {initialProps: {runAttempt: 1}, wrapper},
+    );
+
+    await waitFor(() => expect(result.current.data?.workflowRunAttempt).toBe(1));
+
+    rerender({runAttempt: 2});
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    rerender({runAttempt: 3});
+
+    await waitFor(() => expect(result.current.data?.workflowRunAttempt).toBe(3));
+    expect(requestUrls(fetchImpl)).toEqual([
+      `https://api.example.test/workflows/runs/${RUN_ID}/selection?attempt=1&job_id=${JOB_ID}&job_execution_id=${EXECUTION_ID}&step_id=${STEP_ID}&step_attempt_id=${STEP_ATTEMPT_ID}`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/selection?attempt=2&job_id=${JOB_ID}&job_execution_id=${EXECUTION_ID}&step_id=${STEP_ID}&step_attempt_id=${STEP_ATTEMPT_ID}`,
+      `https://api.example.test/workflows/runs/${RUN_ID}/selection?attempt=3&job_id=${JOB_ID}&job_execution_id=${EXECUTION_ID}&step_id=${STEP_ID}&step_attempt_id=${STEP_ATTEMPT_ID}`,
+    ]);
+  });
+
+  test('does not put the optional attempt in the selection query key', () => {
+    const identity = {stepId: STEP_ID, stepAttemptId: STEP_ATTEMPT_ID};
+    const firstAttempt = workflowRunSelectionQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 1,
+      ...identity,
+    });
+    const secondAttempt = workflowRunSelectionQueryOptions({
+      workflowRunId: RUN_ID,
+      runAttempt: 2,
+      ...identity,
+    });
+
+    expect(firstAttempt.queryKey).toEqual(secondAttempt.queryKey);
+    expect(firstAttempt.queryKey).toEqual([
+      'workflow-runs',
+      'selection',
+      RUN_ID,
+      null,
+      null,
+      STEP_ID,
+      STEP_ATTEMPT_ID,
+    ]);
   });
 });
 

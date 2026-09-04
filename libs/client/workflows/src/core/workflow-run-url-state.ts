@@ -1,9 +1,49 @@
+import type {WorkflowRunSelectionResolution} from './workflow-run.js';
+
 export interface WorkflowRunSelectionInput {
   jobId?: string | undefined;
   jobExecutionId?: string | undefined;
   stepId?: string | undefined;
   stepAttemptId?: string | undefined;
   runAttempt?: number | undefined;
+}
+
+export type WorkflowJobSelectionInput = Omit<WorkflowRunSelectionInput, 'jobId'>;
+
+export function workflowRunSelectionFromResolution(
+  resolution: WorkflowRunSelectionResolution,
+): WorkflowRunSelectionInput {
+  return {
+    ...(resolution.jobId ? {jobId: resolution.jobId} : {}),
+    ...(resolution.jobExecutionId ? {jobExecutionId: resolution.jobExecutionId} : {}),
+    ...(resolution.stepId ? {stepId: resolution.stepId} : {}),
+    ...(resolution.stepAttemptId ? {stepAttemptId: resolution.stepAttemptId} : {}),
+    runAttempt: resolution.workflowRunAttempt,
+  };
+}
+
+export function workflowJobSelectionFromRunSelection(
+  selection: WorkflowRunSelectionInput,
+): WorkflowJobSelectionInput {
+  return {
+    ...(selection.jobExecutionId ? {jobExecutionId: selection.jobExecutionId} : {}),
+    ...(selection.stepId ? {stepId: selection.stepId} : {}),
+    ...(selection.stepAttemptId ? {stepAttemptId: selection.stepAttemptId} : {}),
+    ...(selection.runAttempt === undefined ? {} : {runAttempt: selection.runAttempt}),
+  };
+}
+
+export function workflowRunSelectionMatches(
+  current: WorkflowRunSelectionInput | undefined,
+  canonical: WorkflowRunSelectionInput,
+): boolean {
+  return (
+    current?.jobId === canonical.jobId &&
+    current?.jobExecutionId === canonical.jobExecutionId &&
+    current?.stepId === canonical.stepId &&
+    current?.stepAttemptId === canonical.stepAttemptId &&
+    current?.runAttempt === canonical.runAttempt
+  );
 }
 
 const WORKFLOW_RUN_URL_SELECTION_KEYS = [

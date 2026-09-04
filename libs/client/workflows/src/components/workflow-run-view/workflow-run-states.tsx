@@ -51,6 +51,24 @@ export function WorkflowRunNotFound() {
   );
 }
 
+export function WorkflowRunSelectionNotFound({onClearSelection}: {onClearSelection: () => void}) {
+  return (
+    <EmptyState
+      role="status"
+      aria-live="polite"
+      tone="error"
+      icon="pulseLine"
+      title="Job or step not found"
+      description="This job or step is not part of this run or is no longer available."
+      action={
+        <Button type="button" size="sm" variant="secondary" onClick={onClearSelection}>
+          View workflow run
+        </Button>
+      }
+    />
+  );
+}
+
 /**
  * Slim non-blocking banner shown when a background refetch fails after the run already
  * loaded (active-run polling can hit a transient API error), so the loaded run stays on
