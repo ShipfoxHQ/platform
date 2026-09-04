@@ -105,6 +105,7 @@ describe('assembleWorkflowRunContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -133,6 +134,7 @@ describe('assembleWorkflowRunContext', () => {
       run: {
         id: 'run-1',
         number: 1n,
+        attempt: 1n,
         name: 'Build',
         project_id: 'proj-1',
         workspace_id: 'workspace-1',
@@ -149,6 +151,27 @@ describe('assembleWorkflowRunContext', () => {
       event: {ref: 'refs/heads/main'},
       inputs: {deploy: true},
     });
+
+    const expression = createWorkflowExpression({
+      source: 'run.attempt == 1',
+      check: {mode: 'syntax'},
+    });
+    expect(evaluateWorkflowExpression(expression, context)).toBe(true);
+  });
+
+  it('rehydrates a later run attempt as a CEL integer', () => {
+    const context = assembleWorkflowRunContext({
+      run: {...run, currentAttempt: 2},
+      triggerPayload: {source: 'manual', event: 'fire', subscriptionId: 'sub-1', userId: 'user-1'},
+    });
+
+    expect(context.run).toMatchObject({number: 1n, attempt: 2n});
+    expect(
+      evaluateWorkflowExpression(
+        createWorkflowExpression({source: 'run.attempt == 2', check: {mode: 'syntax'}}),
+        context,
+      ),
+    ).toBe(true);
   });
 
   it.each([
@@ -175,6 +198,7 @@ describe('assembleCreationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -245,6 +269,7 @@ describe('assembleExecutionCreationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -369,6 +394,7 @@ describe('assembleJobActivationContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -486,7 +512,8 @@ describe('assembleJobActivationContext', () => {
 describe('listener filter snapshots', () => {
   const run = {
     id: 'run-1',
-    number: 1,
+    number: 7,
+    currentAttempt: 2,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',
@@ -789,7 +816,7 @@ describe('listener filter snapshots', () => {
         {
           source: 'github',
           event: 'pull_request',
-          filter: 'jobs.build.executions[0].index == 0 && run.number == 1',
+          filter: 'jobs.build.executions[0].index == 0 && run.number == 7',
         },
       ],
       until: null,
@@ -809,10 +836,11 @@ describe('listener filter snapshots', () => {
 
     const [matcher] = applyListenerFilterSnapshots(plan.on, context);
     const jobs = matcher?.filter_snapshot?.jobs as Record<string, {executions: {index: unknown}[]}>;
-    const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown};
+    const snapshotRun = matcher?.filter_snapshot?.run as {number: unknown; attempt: unknown};
 
     expect(typeof jobs.build?.executions[0]?.index).toBe('number');
-    expect(typeof snapshotRun.number).toBe('number');
+    expect(snapshotRun.number).toBe(7);
+    expect(snapshotRun.attempt).toBe(2);
     expect(() => JSON.stringify(matcher?.filter_snapshot)).not.toThrow();
   });
 });
@@ -1240,6 +1268,7 @@ describe('assembleExecutionResolutionContext', () => {
   const run = {
     id: 'run-1',
     number: 1,
+    currentAttempt: 1,
     name: 'Build',
     workflowName: 'Build',
     definitionId: 'def-1',

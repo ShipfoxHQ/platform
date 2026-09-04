@@ -116,6 +116,7 @@ const runTypeEnvironment = {
     fields: {
       id: 'string',
       number: 'int',
+      attempt: 'int',
       name: 'string',
       project_id: 'string',
       workspace_id: 'string',

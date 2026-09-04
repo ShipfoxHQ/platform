@@ -92,16 +92,16 @@ export async function createRerunWorkflowRun(
 
     const sourceGraph = await loadRerunSourceGraph(tx, sourceJobs);
 
-    const sourceRun = toWorkflowRun(sourceRow);
+    const runForAttempt = {...toWorkflowRun(sourceRow), currentAttempt: attempt};
     const graphJobs = materializeRerunGraphJobs({
       mode: params.mode,
-      sourceRun,
+      sourceRun: runForAttempt,
       sourceAttempt: sourceAttemptRow,
       sourceJobs,
       ...sourceGraph,
     });
     await persistMaterializedRunGraph(tx, {
-      run: sourceRun,
+      run: runForAttempt,
       workflowRunAttempt: newAttemptRow,
       materializedJobs: graphJobs,
       ...rerunSessionCarryOver(sourceAttemptRow.id, params.mode),

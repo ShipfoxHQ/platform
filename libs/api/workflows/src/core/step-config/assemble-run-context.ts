@@ -33,6 +33,7 @@ export interface AssembleWorkflowRunContextParams {
     WorkflowRun,
     | 'id'
     | 'number'
+    | 'currentAttempt'
     | 'name'
     | 'workflowName'
     | 'definitionId'
@@ -61,6 +62,10 @@ export function assembleWorkflowRunContext(
       id: params.run.id,
       number:
         options.skipCelNativeRehydration === true ? params.run.number : BigInt(params.run.number),
+      attempt:
+        options.skipCelNativeRehydration === true
+          ? params.run.currentAttempt
+          : BigInt(params.run.currentAttempt),
       name: params.run.name,
       project_id: params.run.projectId,
       workspace_id: params.run.workspaceId,

@@ -33,6 +33,7 @@ export interface MaterializeListenerExecutionParams {
     WorkflowRun,
     | 'id'
     | 'number'
+    | 'currentAttempt'
     | 'name'
     | 'workflowName'
     | 'definitionId'

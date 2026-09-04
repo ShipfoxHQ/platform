@@ -88,6 +88,7 @@ export const workflowContextDocs = [
     fields: {
       id: 'Identifier of the run.',
       number: 'Sequential run number within the workflow definition.',
+      attempt: 'Attempt number of the current run, starting at one.',
       name: 'Resolved run name, or the workflow name when `run_name` is not set.',
       project_id: 'Identifier of the project that owns the run.',
       workspace_id: 'Identifier of the workspace that owns the run.',
