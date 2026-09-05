@@ -650,6 +650,7 @@ function projectArrayByPaths(
 
 function mergeProjectedValues(left: unknown, right: unknown): unknown {
   if (left === undefined) return right;
+  if (right === undefined) return left;
   if (Array.isArray(left) && Array.isArray(right)) {
     return Array.from({length: Math.max(left.length, right.length)}, (_, index) =>
       mergeProjectedValues(left[index], right[index]),

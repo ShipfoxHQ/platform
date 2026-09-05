@@ -791,6 +791,47 @@ describe('listener filter snapshots', () => {
     });
   });
 
+  it('preserves higher indexed executions when a later projection is shorter', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.executions[1].outputs.pr_number == 43 && jobs.build.executions[0].name == "Build #0"',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {}},
+          executions: [
+            jobExecution({name: 'Build #0', outputs: {unrelated: 'large'}}),
+            jobExecution({name: 'Build #1', outputs: {pr_number: 43, unrelated: 'large'}}),
+          ],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          executions: [{name: 'Build #0'}, {outputs: {pr_number: 43}}],
+        },
+      },
+    });
+  });
+
   it('propagates paths through chained comprehensions', () => {
     const plan = planListenerFilterSnapshots({
       on: [
