@@ -22,9 +22,10 @@ import {MAX_JOB_OUTPUTS_TOTAL_BYTES} from '#core/step-config/job-output-limits.j
 import type {RuntimeCompletionStatus} from '#core/workflow-scheduling/runtime-dag.js';
 import {recordWorkflowJobStatusChanged} from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
+import {loadJobExecutionsWithCanonicalTriggerEvents} from '../execution-trigger-events.js';
 import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
-import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
-import {jobs, toJob} from '../schema/jobs.js';
+import {type JobExecutionDb, jobExecutions, toJobExecution} from '../schema/job-executions.js';
+import {type JobDb, jobs, toJob} from '../schema/jobs.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, toWorkflowRunOriginState, workflowRuns} from '../schema/workflow-runs.js';
 import {getWorkflowRunById} from './queries.js';
@@ -37,6 +38,17 @@ function outputTypesByJobKey(
     (model?.jobs ?? []).flatMap((job) =>
       job.outputTypes === undefined ? [] : [[job.key, job.outputTypes] as const],
     ),
+  );
+}
+
+function toDependencyExecution(
+  row: {job: JobDb; execution: JobExecutionDb | null},
+  hydratedExecutions: ReadonlyMap<string, JobExecutionDb>,
+): JobExecution | undefined {
+  if (!row.execution) return undefined;
+  return toJobExecution(
+    hydratedExecutions.get(row.execution.id) ?? row.execution,
+    row.job.name ?? row.job.key,
   );
 }
 
@@ -134,6 +146,10 @@ export async function getDirectDependencyJobContexts(
       ),
     )
     .orderBy(asc(jobs.position), asc(jobs.id), asc(jobExecutions.sequence), asc(jobExecutions.id));
+  const hydratedExecutions = await loadJobExecutionsWithCanonicalTriggerEvents(
+    tx ?? db(),
+    rows.flatMap((row) => (row.execution === null ? [] : [row.execution])),
+  );
 
   const contextsByJobId = new Map<string, JobContextInput & {executions: JobExecution[]}>();
   for (const row of rows) {
@@ -147,8 +163,8 @@ export async function getDirectDependencyJobContexts(
       };
       contextsByJobId.set(row.job.id, context);
     }
-    if (row.execution)
-      context.executions.push(toJobExecution(row.execution, row.job.name ?? row.job.key));
+    const execution = toDependencyExecution(row, hydratedExecutions);
+    if (execution) context.executions.push(execution);
   }
 
   return [...contextsByJobId.values()];
@@ -315,6 +331,10 @@ async function directDependencyContextsByJobKey(
     .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
     .where(and(eq(jobs.workflowRunAttemptId, runAttemptId), inArray(jobs.key, [...dependencyKeys])))
     .orderBy(asc(jobs.position), asc(jobs.id), asc(jobExecutions.sequence), asc(jobExecutions.id));
+  const hydratedExecutions = await loadJobExecutionsWithCanonicalTriggerEvents(
+    tx,
+    rows.flatMap((row) => (row.execution === null ? [] : [row.execution])),
+  );
 
   const contextsByJobKey = new Map<string, JobContextInput & {executions: JobExecution[]}>();
   for (const row of rows) {
@@ -328,8 +348,8 @@ async function directDependencyContextsByJobKey(
       };
       contextsByJobKey.set(row.job.key, context);
     }
-    if (row.execution)
-      context.executions.push(toJobExecution(row.execution, row.job.name ?? row.job.key));
+    const execution = toDependencyExecution(row, hydratedExecutions);
+    if (execution) context.executions.push(execution);
   }
 
   return contextsByJobKey;
@@ -507,11 +527,18 @@ export async function resolveJobStatusFromJobExecutions(params: {
     if (jobExecutionRows.length === 0) {
       throw new Error(`Cannot resolve job ${params.jobId}: no job executions found`);
     }
+    const hydratedExecutionRows = await loadJobExecutionsWithCanonicalTriggerEvents(
+      tx,
+      jobExecutionRows,
+    );
 
     const {status, statusReason, trace} = evaluateJobSuccess({
       success: jobRow.success,
       executions: jobExecutionRows.map((execution) =>
-        toJobExecution(execution, jobRow.name ?? jobRow.key),
+        toJobExecution(
+          hydratedExecutionRows.get(execution.id) ?? execution,
+          jobRow.name ?? jobRow.key,
+        ),
       ),
       jobs: await getDirectDependencyJobContexts(params.jobId, tx),
       vars: workflowContext.vars ?? undefined,

@@ -73,7 +73,9 @@ export async function loadRunAttemptDag(runAttemptId: string): Promise<RunDag> {
   if (!attempt) throw new Error(`Run attempt not found: ${runAttemptId}`);
 
   const jobs = await getJobsByWorkflowRunAttemptId(runAttemptId);
-  const jobExecutions = await getJobExecutionsByWorkflowRunAttemptId(runAttemptId);
+  const jobExecutions = await getJobExecutionsByWorkflowRunAttemptId(runAttemptId, {
+    includeTriggerEvents: false,
+  });
   const firstJobExecutions = new Map<string, (typeof jobExecutions)[number]>();
   for (const jobExecution of jobExecutions) {
     if (!firstJobExecutions.has(jobExecution.jobId)) {

@@ -23,7 +23,13 @@ import {
   recordWorkflowJobExecutionTimedOut,
 } from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
-import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
+import {loadJobExecutionsWithCanonicalTriggerEvents} from '../execution-trigger-events.js';
+import {
+  type JobExecutionDb,
+  jobExecutions,
+  jobExecutionWithoutTriggerEventsSelection,
+  toJobExecution,
+} from '../schema/job-executions.js';
 import {jobs, toJob} from '../schema/jobs.js';
 import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
 import {steps, toStep} from '../schema/steps.js';
@@ -46,6 +52,15 @@ async function getJobExecutionFallbackName(tx: Tx, jobExecutionId: string): Prom
   return row.job.name ?? row.job.key;
 }
 
+async function toHydratedJobExecution(
+  source: ReturnType<typeof db> | Tx,
+  row: JobExecutionDb,
+  fallbackName: string,
+): Promise<JobExecution> {
+  const hydrated = await loadJobExecutionsWithCanonicalTriggerEvents(source, [row]);
+  return toJobExecution(hydrated.get(row.id) ?? row, fallbackName);
+}
+
 export async function getJobExecutionById(id: string, tx?: Tx): Promise<JobExecution | undefined> {
   const rows = await (tx ?? db())
     .select({jobExecution: jobExecutions, job: jobs})
@@ -54,19 +69,40 @@ export async function getJobExecutionById(id: string, tx?: Tx): Promise<JobExecu
     .where(eq(jobExecutions.id, id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
+  if (!row) return undefined;
+  return toHydratedJobExecution(tx ?? db(), row.jobExecution, row.job.name ?? row.job.key);
 }
 
 export async function getJobExecutionsByWorkflowRunAttemptId(
   workflowRunAttemptId: string,
+  options: {includeTriggerEvents?: boolean} = {},
 ): Promise<JobExecution[]> {
+  if (options.includeTriggerEvents === false) {
+    const rows = await db()
+      .select({jobExecution: jobExecutionWithoutTriggerEventsSelection, job: jobs})
+      .from(jobExecutions)
+      .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+      .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
+      .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+    return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
+  }
+
   const rows = await db()
     .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
+  const executions = await loadJobExecutionsWithCanonicalTriggerEvents(
+    db(),
+    rows.map((row) => row.jobExecution),
+  );
+  return rows.map((row) =>
+    toJobExecution(
+      executions.get(row.jobExecution.id) ?? row.jobExecution,
+      row.job.name ?? row.job.key,
+    ),
+  );
 }
 
 export async function getJobExecutionsByJobId(jobId: string): Promise<JobExecution[]> {
@@ -76,7 +112,16 @@ export async function getJobExecutionsByJobId(jobId: string): Promise<JobExecuti
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
+  const executions = await loadJobExecutionsWithCanonicalTriggerEvents(
+    db(),
+    rows.map((row) => row.jobExecution),
+  );
+  return rows.map((row) =>
+    toJobExecution(
+      executions.get(row.jobExecution.id) ?? row.jobExecution,
+      row.job.name ?? row.job.key,
+    ),
+  );
 }
 
 export async function getFirstJobExecutionByJobId(
@@ -91,7 +136,8 @@ export async function getFirstJobExecutionByJobId(
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
+  if (!row) return undefined;
+  return toHydratedJobExecution(tx ?? db(), row.jobExecution, row.job.name ?? row.job.key);
 }
 
 export async function getLatestJobExecutionByJobId(
@@ -106,7 +152,8 @@ export async function getLatestJobExecutionByJobId(
     .orderBy(desc(jobExecutions.sequence), desc(jobExecutions.id))
     .limit(1);
   const row = rows[0];
-  return row ? toJobExecution(row.jobExecution, row.job.name ?? row.job.key) : undefined;
+  if (!row) return undefined;
+  return toHydratedJobExecution(tx ?? db(), row.jobExecution, row.job.name ?? row.job.key);
 }
 
 export interface UpdateJobExecutionStatusAtVersionParams {
@@ -183,15 +230,20 @@ async function resolveJobExecutionOutputs(
     .from(jobExecutions)
     .where(eq(jobExecutions.jobId, target.job.id))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+  const hydratedExecutionRows = await loadJobExecutionsWithCanonicalTriggerEvents(
+    tx,
+    executionRows,
+  );
   const fallbackName = target.job.name ?? target.job.key;
-  const executions = executionRows.map((row) =>
-    row.id === target.execution.id
+  const executions = executionRows.map((row) => {
+    const hydrated = hydratedExecutionRows.get(row.id) ?? row;
+    return row.id === target.execution.id
       ? toJobExecution(
-          {...row, status: params.status, statusReason: params.statusReason},
+          {...hydrated, status: params.status, statusReason: params.statusReason},
           fallbackName,
         )
-      : toJobExecution(row, fallbackName),
-  );
+      : toJobExecution(hydrated, fallbackName);
+  });
   const jobExecution = executions.find((execution) => execution.id === target.execution.id);
   if (!jobExecution) throw new JobNotFoundError(params.jobExecutionId);
 
@@ -299,8 +351,13 @@ async function updateJobExecutionStatusAtVersion(
       launchKind: row.launchKind,
     });
   }
+  const execution = await toHydratedJobExecution(
+    tx,
+    row,
+    await getJobExecutionFallbackName(tx, row.id),
+  );
   return {
-    execution: toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)),
+    execution,
     changed: true,
   };
 }
@@ -337,7 +394,9 @@ export async function updateJobExecutionStatus(
             .where(eq(jobExecutions.id, params.jobExecutionId))
             .limit(1)
         )[0];
-        return row ? toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)) : undefined;
+        return row
+          ? toHydratedJobExecution(tx, row, await getJobExecutionFallbackName(tx, row.id))
+          : undefined;
       },
       matchFn: (execution) =>
         (execution.status === params.status && execution.statusReason === statusReason) ||
@@ -364,7 +423,11 @@ export async function queueJobExecution(params: {jobExecutionId: string}): Promi
       .for('update');
     if (!row) throw new JobNotFoundError(params.jobExecutionId);
 
-    const existing = toJobExecution(row.jobExecution, row.job.name ?? row.job.key);
+    const existing = await toHydratedJobExecution(
+      tx,
+      row.jobExecution,
+      row.job.name ?? row.job.key,
+    );
     if (existing.queuedAt !== null || TERMINAL_EXECUTION_STATUSES.includes(existing.status)) {
       return {execution: existing, changed: false};
     }
@@ -389,7 +452,7 @@ export async function queueJobExecution(params: {jobExecutionId: string}): Promi
     });
 
     return {
-      execution: toJobExecution(queued, row.job.name ?? row.job.key),
+      execution: {...existing, queuedAt: queued.queuedAt, updatedAt: queued.updatedAt},
       changed: true,
     };
   });
@@ -448,7 +511,9 @@ export async function failJobExecutionAsTimedOut(params: {
             .where(eq(jobExecutions.id, params.jobExecutionId))
             .limit(1)
         )[0];
-        return row ? toJobExecution(row, await getJobExecutionFallbackName(tx, row.id)) : undefined;
+        return row
+          ? toHydratedJobExecution(tx, row, await getJobExecutionFallbackName(tx, row.id))
+          : undefined;
       },
       matchFn: (execution) => (execution.timedOutAt !== null ? {execution, changed: false} : null),
       failureMessage: `Optimistic lock failure: job execution ${params.jobExecutionId} version ${params.expectedVersion}`,

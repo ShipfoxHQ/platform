@@ -30,6 +30,10 @@ export {
   resolveJobListener,
   settleListenerJobExecution,
 } from './job-listeners.js';
+export {
+  getListenerEventStorageStats,
+  type ListenerEventStorageStats,
+} from './listener-storage.js';
 export {workflowsOutbox} from './schema/outbox.js';
 export {workflowRunCounters} from './schema/workflow-run-counters.js';
 export type {
