@@ -46,7 +46,9 @@ test('reviews consent and disconnects an MCP app', async ({
   await page.goto(`/oauth/consent?request_id=${encodeURIComponent(authorization.requestId)}`);
   await expect(oauthConsent.heading(clientName)).toBeVisible();
   await expect(oauthConsent.identityText('External MCP client')).toBeVisible();
-  await expect(oauthConsent.identityText('registered client')).toBeVisible();
+  await expect(
+    oauthConsent.identityText('Self-registered MCP client. Identity not verified by Shipfox.'),
+  ).toBeVisible();
   await expect(oauthConsent.denyButton()).toBeVisible();
   await expect(oauthConsent.allowButton()).toBeVisible();
 

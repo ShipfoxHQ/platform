@@ -165,6 +165,22 @@ describe('OAuthConsentPage', () => {
     expect(approvalBody).toEqual({workspace_id: WORKSPACE_ID});
   });
 
+  test('discloses when a self-registered client identity is not verified', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        ...consentResponse(),
+        client_identity_origin: 'Self-registered MCP client. Identity not verified by Shipfox.',
+      }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderConsent();
+
+    expect(
+      await screen.findByText('Self-registered MCP client. Identity not verified by Shipfox.'),
+    ).toBeVisible();
+    expect(screen.queryByText('registered client')).not.toBeInTheDocument();
+  });
+
   test('uses the server redirect for denial', async () => {
     const user = userEvent.setup();
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {

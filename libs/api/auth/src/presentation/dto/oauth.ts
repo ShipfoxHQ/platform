@@ -6,7 +6,9 @@ import {isOAuthLoopbackRedirectUri} from '#core/oauth-client.js';
 import type {OAuthConsentDetail, OAuthTokenExchangeResult} from '#core/oauth-flow.js';
 
 function identityOrigin(client: AgentClient): string {
-  if (client.kind === 'registered') return 'registered client';
+  if (client.kind === 'registered') {
+    return 'Self-registered MCP client. Identity not verified by Shipfox.';
+  }
   try {
     return new URL(client.clientId).origin;
   } catch {

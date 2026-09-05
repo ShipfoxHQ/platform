@@ -170,9 +170,13 @@ function OAuthConsentLoaded({
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
                 <dt className="text-foreground-neutral-muted">Client identity</dt>
                 <dd className="min-w-0">
-                  <Code variant="paragraph" className="block break-all">
-                    {consent.clientIdentityOrigin}
-                  </Code>
+                  {isOrigin(consent.clientIdentityOrigin) ? (
+                    <Code variant="paragraph" className="block break-all">
+                      {consent.clientIdentityOrigin}
+                    </Code>
+                  ) : (
+                    <Text size="sm">{consent.clientIdentityOrigin}</Text>
+                  )}
                 </dd>
               </div>
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
@@ -262,6 +266,14 @@ function OAuthConsentLoaded({
       </div>
     </AuthShell>
   );
+}
+
+function isOrigin(value: string): boolean {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
+  }
 }
 
 function OAuthConsentLoading() {
