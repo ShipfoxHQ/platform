@@ -387,7 +387,27 @@ describe('SharedInstallationTokenCache', () => {
       }
       await originalWrite(writeWorkspaceId, writeInstallationId, key, envelope);
     };
-    const shared = cache({store});
+    let lockHeld = false;
+    let lockReleased = Promise.resolve();
+    const withBackoffLock = async <T>(
+      _id: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ) => {
+      if (lockHeld) await lockReleased;
+      lockHeld = true;
+      let resolveRelease!: () => void;
+      lockReleased = new Promise<void>((resolve) => {
+        resolveRelease = resolve;
+      });
+      try {
+        return {acquired: true as const, value: await fn()};
+      } finally {
+        lockHeld = false;
+        resolveRelease();
+      }
+    };
+    const shared = cache({store, withBackoffLock});
     const mint = vi
       .fn()
       .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
@@ -396,17 +416,26 @@ describe('SharedInstallationTokenCache', () => {
     await writeStarted;
 
     let deleted = false;
-    const deletion = shared.deleteInstallation(installationId).then(() => {
-      deleted = true;
-      store.values.clear();
-    });
+    const deletion = shared
+      .deleteInstallation(installationId, {
+        deleteNamespace: () => {
+          store.values.clear();
+          return Promise.resolve(1);
+        },
+      })
+      .then(() => {
+        deleted = true;
+      });
     await Promise.resolve();
     expect(deleted).toBe(false);
 
     releaseWrite();
     await deletion;
     await expect(failedMint).rejects.toMatchObject({reason: 'provider-rejected'});
-    expect(store.values.size).toBe(0);
+    expect(store.values.get(`${workspaceId}:${installationId}:GENERATION`)).toEqual(
+      expect.any(String),
+    );
+    expect(store.values.has(`${workspaceId}:${installationId}:${backoffKey}`)).toBe(false);
   });
 
   it('skips token and backoff writes from a mint crossing invalidation', async () => {
@@ -460,6 +489,35 @@ describe('SharedInstallationTokenCache', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
       ),
     ).toBe(false);
+  });
+
+  it('rejects installation invalidation when the distributed lock is unavailable', async () => {
+    const shared = cache({
+      withBackoffLock: () => Promise.resolve({acquired: false}),
+    });
+
+    await expect(shared.deleteInstallation(installationId)).rejects.toMatchObject({
+      reason: 'provider-unavailable',
+    });
+  });
+
+  it('does not serve an envelope from an older generation', async () => {
+    const store = createStore();
+    store.values.set(
+      `${workspaceId}:${installationId}:${githubInstallationTokenKey('broad')}`,
+      encodeInstallationTokenEnvelope({
+        generation: 'old-generation',
+        ...token('ghs_old'),
+      }),
+    );
+    store.values.set(`${workspaceId}:${installationId}:GENERATION`, 'new-generation');
+    const shared = cache({store});
+    const mint = vi.fn(() => Promise.resolve(token('ghs_new')));
+
+    await expect(shared.getOrMint(installationId, 'broad', mint)).resolves.toEqual(
+      token('ghs_new'),
+    );
+    expect(mint).toHaveBeenCalledOnce();
   });
 
   it('returns a warm store hit without minting', async () => {
@@ -663,6 +721,19 @@ describe('SharedInstallationTokenCache', () => {
         Promise.resolve(token('ghs_new')),
       ),
     ).rejects.toMatchObject({reason: 'installation-not-found'});
+  });
+
+  it('returns a minted token when the generation read fails', async () => {
+    const store = createStore();
+    store.readGeneration = () => Promise.reject(new Error('generation read failed'));
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
+    ).resolves.toEqual(token('ghs_new'));
+    expect(errorMonitoring.reportError).toHaveBeenCalledOnce();
   });
 
   it('returns a minted token when the cache read fails', async () => {

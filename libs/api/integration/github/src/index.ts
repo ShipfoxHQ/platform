@@ -8,6 +8,7 @@ import type {
   PublishSourceRepositoryUpdatedFn,
   RecordDeliveryOnlyFn,
 } from '@shipfox/api-integration-spi';
+import {logger} from '@shipfox/node-opentelemetry';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {createGithubApiClient, type GithubApiClient} from '#api/client.js';
 import {
@@ -42,13 +43,6 @@ import {createGithubWebhookRoutes} from '#presentation/routes/webhooks.js';
 
 const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
-type GithubInstallationTokenProviderWithCleanup = GithubInstallationTokenProvider & {
-  deleteInstallation?: (
-    installationId: number,
-    deleteNamespace?: (installationId: number) => Promise<number>,
-  ) => Promise<number>;
-};
-
 export type {GithubApiClient} from '#api/client.js';
 export {
   createGithubCheckoutTokenCache,
@@ -62,6 +56,7 @@ export {
   encodeInstallationTokenEnvelope,
   GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
   GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY,
+  GITHUB_INSTALLATION_TOKEN_GENERATION_KEY,
   githubInstallationTokenKey,
   githubInstallationTokenNamespace,
 } from '#api/installation-token-envelope.js';
@@ -133,11 +128,12 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     options.getGithubInstallationByConnectionId ?? getGithubInstallationByConnectionId;
   const deleteSecrets = options.deleteSecrets;
   const checkoutTokenCache = options.checkoutTokenCache;
-  const installationTokenProvider = (options.agentTools?.tokenProvider ??
+  const installationTokenProvider =
+    options.agentTools?.tokenProvider ??
     createGithubInstallationTokenProvider({
       getGithubInstallationByInstallationId:
         options.getGithubInstallationByInstallationId ?? getGithubInstallationByInstallationId,
-    })) as GithubInstallationTokenProviderWithCleanup;
+    });
   const checkoutTokenProviderInstance =
     deleteSecrets || checkoutTokenCache
       ? githubProviderInstanceFingerprint(normalizedGithubApiBaseUrl(), config.GITHUB_APP_ID)
@@ -155,7 +151,10 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
             : undefined;
           const tokenCleanup = Promise.resolve().then(() =>
             installationTokenProvider.deleteInstallation
-              ? installationTokenProvider.deleteInstallation(params.installationId, deleteNamespace)
+              ? installationTokenProvider.deleteInstallation(params.installationId, {
+                  workspaceId: params.workspaceId,
+                  deleteNamespace,
+                })
               : (deleteNamespace?.(params.installationId) ?? 0),
           );
           const cleanup: Promise<number>[] = [tokenCleanup];
@@ -184,6 +183,19 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
             );
           }
           const results = await Promise.allSettled(cleanup);
+          results.forEach((result, index) => {
+            if (result.status === 'rejected') {
+              logger().error(
+                {
+                  workspaceId: params.workspaceId,
+                  installationId: params.installationId,
+                  cleanupIndex: index,
+                  err: result.reason,
+                },
+                'github installation cache cleanup failed',
+              );
+            }
+          });
           const failure = results.find(
             (result): result is PromiseRejectedResult => result.status === 'rejected',
           );

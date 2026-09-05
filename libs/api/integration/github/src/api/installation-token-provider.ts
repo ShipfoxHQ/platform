@@ -16,7 +16,7 @@ import {
   TOKEN_REFRESH_MARGIN_MS,
 } from './installation-token-envelope.js';
 import {
-  type DeleteInstallationNamespaceFn,
+  type DeleteInstallationOptions,
   type InstallationTokenCache,
   type InstallationTokenSecretStore,
   SharedInstallationTokenCache,
@@ -29,6 +29,13 @@ export interface GithubInstallationTokenProvider {
     permissionFingerprint?: string,
     permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken>;
+  deleteInstallation?(
+    installationId: number,
+    options?: {
+      workspaceId?: string | undefined;
+      deleteNamespace?: ((installationId: number) => Promise<number>) | undefined;
+    },
+  ): Promise<number>;
 }
 
 export interface GithubInstallationTokenProviderOptions {
@@ -89,9 +96,9 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 
   async deleteInstallation(
     installationId: number,
-    deleteNamespace?: DeleteInstallationNamespaceFn,
+    options?: DeleteInstallationOptions,
   ): Promise<number> {
-    return (await this.cache.deleteInstallation?.(installationId, deleteNamespace)) ?? 0;
+    return (await this.cache.deleteInstallation?.(installationId, options)) ?? 0;
   }
 
   private async assertInstallationIsActive(installationId: number): Promise<void> {
@@ -177,6 +184,7 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
   private readonly inFlightMints = new Map<string, Promise<GithubInstallationAccessToken>>();
   private readonly inFlightEpochs = new Map<string, number>();
   private readonly pendingMints = new Map<number, Set<Promise<GithubInstallationAccessToken>>>();
+  private readonly deletionCleanupTimers = new Map<number, ReturnType<typeof setTimeout>>();
   private readonly deletionEpochs = new Map<number, number>();
 
   constructor(
@@ -236,7 +244,7 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
 
   async deleteInstallation(
     installationId: number,
-    deleteNamespace?: DeleteInstallationNamespaceFn,
+    options?: DeleteInstallationOptions,
   ): Promise<number> {
     this.deletionEpochs.set(installationId, (this.deletionEpochs.get(installationId) ?? 0) + 1);
     const prefix = `${installationId}\u0000`;
@@ -247,8 +255,8 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
       deleted += 1;
     }
     this.cleanupDeletionEpoch(installationId);
-    if (deleteNamespace === undefined) return deleted;
-    return deleted + (await deleteNamespace(installationId));
+    if (options?.deleteNamespace === undefined) return deleted;
+    return deleted + (await options.deleteNamespace(installationId));
   }
 
   private cleanupDeletionEpoch(installationId: number): void {
@@ -256,7 +264,15 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
     for (const cacheKey of this.inFlightMints.keys()) {
       if (cacheKey.startsWith(prefix)) return;
     }
-    this.deletionEpochs.delete(installationId);
+    if (this.deletionCleanupTimers.has(installationId)) return;
+    const timer = setTimeout(() => {
+      this.deletionCleanupTimers.delete(installationId);
+      for (const cacheKey of this.inFlightMints.keys()) {
+        if (cacheKey.startsWith(prefix)) return;
+      }
+      this.deletionEpochs.delete(installationId);
+    }, 0);
+    this.deletionCleanupTimers.set(installationId, timer);
   }
 
   private isInsideRefreshMargin(expiresAt: Date): boolean {
@@ -286,12 +302,12 @@ class TieredInstallationTokenCache implements InstallationTokenCache {
 
   async deleteInstallation(
     installationId: number,
-    deleteNamespace?: DeleteInstallationNamespaceFn,
+    options?: DeleteInstallationOptions,
   ): Promise<number> {
     const deletedRam = (await this.ram.deleteInstallation?.(installationId)) ?? 0;
-    const deletedShared =
-      (await this.shared.deleteInstallation?.(installationId, deleteNamespace)) ?? 0;
-    return deletedRam + deletedShared;
+    const deletedShared = (await this.shared.deleteInstallation?.(installationId, options)) ?? 0;
+    const deletedRamAfterShared = (await this.ram.deleteInstallation?.(installationId)) ?? 0;
+    return deletedRam + deletedShared + deletedRamAfterShared;
   }
 }
 

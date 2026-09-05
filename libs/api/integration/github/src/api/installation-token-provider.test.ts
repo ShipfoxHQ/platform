@@ -212,11 +212,7 @@ describe('GithubInstallationTokenProvider', () => {
     const provider = createGithubInstallationTokenProvider();
 
     await provider.getInstallationAccessToken(1);
-    await (
-      provider as typeof provider & {
-        deleteInstallation?: (installationId: number) => Promise<number>;
-      }
-    ).deleteInstallation?.(1);
+    await provider.deleteInstallation?.(1);
     const refreshed = await provider.getInstallationAccessToken(1);
 
     expect(refreshed.token).toBe('ghs_second');
@@ -224,22 +220,26 @@ describe('GithubInstallationTokenProvider', () => {
   });
 
   it('does not recache an in-flight token after installation eviction', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
     let resolveMint: (
       value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
     ) => void = () => undefined;
+    let resolveMintStarted: () => void = () => undefined;
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
     createInstallationAccessTokenMock.mockReturnValue(
       new Promise((resolve) => {
         resolveMint = resolve;
+        resolveMintStarted();
       }),
     );
     const provider = createGithubInstallationTokenProvider();
 
     const pending = provider.getInstallationAccessToken(1);
-    await (
-      provider as typeof provider & {
-        deleteInstallation?: (installationId: number) => Promise<number>;
-      }
-    ).deleteInstallation?.(1);
+    await mintStarted;
+    await provider.deleteInstallation?.(1);
     resolveMint({
       data: {token: 'ghs_late', expires_at: '2026-06-10T12:00:00.000Z'},
     });
@@ -411,7 +411,7 @@ describe('GithubInstallationTokenProvider', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
       ),
     ).toContain(GITHUB_STATELESS_INSTALLATION_TOKEN);
-    expect(lockCalls).toBe(2);
+    expect(lockCalls).toBe(3);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 

@@ -24,8 +24,6 @@ import type {
 } from '#providers/types.js';
 import {createGithubCheckoutTokenCacheMaintenanceWorker} from '#temporal/worker.js';
 
-const GITHUB_INSTALLATION_TOKEN_GENERATION_KEY = 'GENERATION';
-
 async function loadGithubModuleParts(
   options: IntegrationProviderModuleLoadOptions = {},
 ): Promise<IntegrationModuleParts> {
@@ -34,6 +32,7 @@ async function loadGithubModuleParts(
     createGithubCheckoutTokenCache,
     createGithubE2eRoutes,
     encodeInstallationTokenEnvelope,
+    GITHUB_INSTALLATION_TOKEN_GENERATION_KEY,
     createGithubIntegrationProvider,
     getGithubInstallationByInstallationId,
     githubInstallationTokenNamespace,
