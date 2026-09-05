@@ -32,20 +32,20 @@ import type {
   WorkflowRunOverviewJob,
 } from '#core/workflow-run.js';
 import {
-  toWorkflowJobModel,
-  toWorkflowStepAttemptModel,
-  toWorkflowStepModel,
-  type WorkflowJobExecutionModelDto,
-  type WorkflowJobModelDto,
-  type WorkflowStepModelDto,
-} from '#hooks/api/workflow-model-mapper.js';
-import {
   toWorkflowRunAttempt,
   toWorkflowRunListItem,
   toWorkflowRunListPage,
   toWorkflowRunOverview,
   toWorkflowRunOverviewJob,
 } from '#hooks/api/workflow-run-mapper.js';
+import {
+  toWorkflowJobModel,
+  toWorkflowStepAttemptModel,
+  toWorkflowStepModel,
+  type WorkflowJobExecutionModelDto,
+  type WorkflowJobModelDto,
+  type WorkflowStepModelDto,
+} from './workflow-model-mapper.js';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ATTEMPT_ID = '11111111-1111-4111-8111-111111111112';

@@ -17,6 +17,7 @@ import type {
   TriggerPayload,
   WorkflowRun,
   WorkflowRunList,
+  WorkflowRunListOmittedField,
   WorkflowRunOriginState,
   WorkflowRunTriggerReference,
   WorkflowSourceSnapshot,
@@ -120,10 +121,7 @@ export const workflowRuns = pgTable(
 
 export type WorkflowRunDb = typeof workflowRuns.$inferSelect;
 export type WorkflowRunCreateDb = typeof workflowRuns.$inferInsert;
-export type WorkflowRunListDb = Omit<
-  WorkflowRunDb,
-  'triggerPayload' | 'inputs' | 'sourceSnapshot' | 'triggerIdempotencyKey' | 'timeoutMs' | 'version'
->;
+export type WorkflowRunListDb = Omit<WorkflowRunDb, WorkflowRunListOmittedField>;
 
 export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
   const originState = toWorkflowRunOriginState(row);

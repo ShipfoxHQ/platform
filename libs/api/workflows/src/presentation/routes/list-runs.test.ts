@@ -71,6 +71,8 @@ describe('GET /api/workflows/runs', () => {
         subscriptionId: crypto.randomUUID(),
         userId: crypto.randomUUID(),
       },
+      inputs: {environment: 'production'},
+      sourceSnapshot: {content: 'name: Test\n', format: 'yaml'},
     });
     await createWorkflowRun({
       workspaceId,
@@ -98,6 +100,9 @@ describe('GET /api/workflows/runs', () => {
     expect(body.runs[0].name).toBeDefined();
     expect(body.runs[0].workflow_name).toBeDefined();
     expect(body.runs[0].trigger_source).toBe('manual');
+    expect(body.runs[0]).not.toHaveProperty('trigger_payload');
+    expect(body.runs[0]).not.toHaveProperty('inputs');
+    expect(body.runs[0]).not.toHaveProperty('source_snapshot');
     // The runs list carries run-level timing (null until the run starts).
     expect(body.runs[0]).toMatchObject({
       started_at: null,

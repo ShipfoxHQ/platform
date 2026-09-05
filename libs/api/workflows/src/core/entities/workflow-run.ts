@@ -106,8 +106,17 @@ export type WorkflowRun = WorkflowRunOriginState & {
   finishedAt: Date | null;
 };
 
-/** The run fields needed by list responses, excluding write-owned heavy JSON values. */
-export type WorkflowRunList = Omit<
-  WorkflowRun,
-  'triggerPayload' | 'inputs' | 'sourceSnapshot' | 'triggerIdempotencyKey' | 'timeoutMs' | 'version'
->;
+/** The run fields omitted from list responses because they are write-owned or heavy JSON values. */
+export const WORKFLOW_RUN_LIST_OMITTED_FIELDS = [
+  'triggerPayload',
+  'inputs',
+  'sourceSnapshot',
+  'triggerIdempotencyKey',
+  'timeoutMs',
+  'version',
+] as const satisfies readonly (keyof WorkflowRun)[];
+
+export type WorkflowRunListOmittedField = (typeof WORKFLOW_RUN_LIST_OMITTED_FIELDS)[number];
+
+/** The run fields needed by list responses. */
+export type WorkflowRunList = Omit<WorkflowRun, WorkflowRunListOmittedField>;

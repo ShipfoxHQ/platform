@@ -63,7 +63,7 @@ const EMPTY_JOBS: WorkflowRunJobsSummary = {
 };
 
 export function toRunListItemDto(
-  run: WorkflowRun | WorkflowRunList,
+  run: WorkflowRunList,
   jobs: WorkflowRunJobsSummary = EMPTY_JOBS,
 ): WorkflowRunListItemDto {
   return {
@@ -84,7 +84,7 @@ export function toRunListItemDto(
   };
 }
 
-function toRunListDto(run: WorkflowRun | WorkflowRunList) {
+function toRunListDto(run: WorkflowRunList) {
   return {
     id: run.id,
     project_id: run.projectId,

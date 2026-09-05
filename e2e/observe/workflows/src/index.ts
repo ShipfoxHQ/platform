@@ -34,9 +34,13 @@ const DEFAULT_INITIAL_DELAY_MS = 250;
 const DEFAULT_MAX_DELAY_MS = 4_000;
 const DEFAULT_BACKOFF_FACTOR = 1.5;
 const WORKFLOW_LIST_PAGE_LIMIT = '100';
+// New runs and trigger events are newest-first. Keep each poll bounded while still allowing
+// a small amount of contention from other tests; the outer poll retries the prefix later.
+const MAX_LIST_PAGES_PER_PROBE = 2;
 const TERMINAL_STATUSES = new Set<WorkflowRunStatusDto>(['succeeded', 'failed', 'cancelled']);
 
 type ApiClient = ReturnType<typeof makeApiClient>;
+type TriggerEventListItemDto = TriggerEventListResponseDto['trigger_events'][number];
 
 /** The bounded resources an observer may materialize for one run attempt. */
 export interface WorkflowRunObservationSelection {
@@ -250,7 +254,50 @@ async function waitForRunMatching(
   );
 }
 
-async function findWorkflowRunInPages(options: {
+async function findInCursorPages<TPage, TItem>(options: {
+  client: ApiClient;
+  deadline: number;
+  getItems: (page: TPage) => readonly TItem[];
+  getNextCursor: (page: TPage) => string | null;
+  match: (item: TItem) => boolean;
+  onPage?: ((page: TPage) => void) | undefined;
+  path: string;
+  query: Record<string, string>;
+  signal: AbortSignal | undefined;
+  cursorDescription: string;
+}): Promise<TItem | null> {
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
+
+  for (let pageNumber = 0; pageNumber < MAX_LIST_PAGES_PER_PROBE; pageNumber += 1) {
+    if (cursor !== null) {
+      if (seenCursors.has(cursor)) {
+        throw new Error(`Repeated ${options.cursorDescription} cursor while waiting: ${cursor}`);
+      }
+      seenCursors.add(cursor);
+    }
+    if (Date.now() > options.deadline) return null;
+
+    const query = new URLSearchParams({
+      ...options.query,
+      limit: WORKFLOW_LIST_PAGE_LIMIT,
+      ...(cursor === null ? {} : {cursor}),
+    });
+    const page = await options.client.requestJson<TPage>('get', `${options.path}?${query}`, {
+      signal: options.signal,
+    });
+    options.onPage?.(page);
+
+    const item = options.getItems(page).find(options.match);
+    if (item) return item;
+    cursor = options.getNextCursor(page);
+    if (cursor === null) return null;
+  }
+
+  return null;
+}
+
+function findWorkflowRunInPages(options: {
   client: ApiClient;
   deadline: number;
   match: (run: WorkflowRunListItemDto) => boolean;
@@ -258,35 +305,18 @@ async function findWorkflowRunInPages(options: {
   projectId: string;
   signal: AbortSignal | undefined;
 }): Promise<WorkflowRunListItemDto | null> {
-  let cursor: string | null = null;
-  const seenCursors = new Set<string>();
-
-  for (;;) {
-    if (cursor !== null) {
-      if (seenCursors.has(cursor)) {
-        throw new Error(`Repeated workflow run list cursor while waiting: ${cursor}`);
-      }
-      seenCursors.add(cursor);
-    }
-    if (Date.now() > options.deadline) return null;
-
-    const query = new URLSearchParams({
-      project_id: options.projectId,
-      limit: WORKFLOW_LIST_PAGE_LIMIT,
-      ...(cursor === null ? {} : {cursor}),
-    });
-    const page = await options.client.requestJson<WorkflowRunListResponseDto>(
-      'get',
-      `/workflows/runs?${query}`,
-      {signal: options.signal},
-    );
-    options.onPage?.(page);
-
-    const run = page.runs.find(options.match);
-    if (run) return run;
-    cursor = page.next_cursor;
-    if (cursor === null) return null;
-  }
+  return findInCursorPages<WorkflowRunListResponseDto, WorkflowRunListItemDto>({
+    client: options.client,
+    cursorDescription: 'workflow run list',
+    deadline: options.deadline,
+    getItems: (page) => page.runs,
+    getNextCursor: (page) => page.next_cursor,
+    match: options.match,
+    ...(options.onPage === undefined ? {} : {onPage: options.onPage}),
+    path: '/workflows/runs',
+    query: {project_id: options.projectId},
+    signal: options.signal,
+  });
 }
 
 export async function waitForRunByCommit(
@@ -316,45 +346,26 @@ export async function waitForRunByCommit(
   });
 }
 
-async function findTriggerEventInPages(options: {
+function findTriggerEventInPages(options: {
   client: ApiClient;
   deadline: number;
   deliveryId: string;
   onPage?: ((page: TriggerEventListResponseDto) => void) | undefined;
   signal: AbortSignal | undefined;
   workspaceId: string;
-}): Promise<{id: string} | null> {
-  let cursor: string | null = null;
-  const seenCursors = new Set<string>();
-
-  for (;;) {
-    if (cursor !== null) {
-      if (seenCursors.has(cursor)) {
-        throw new Error(`Repeated trigger event list cursor while waiting: ${cursor}`);
-      }
-      seenCursors.add(cursor);
-    }
-    if (Date.now() > options.deadline) return null;
-
-    const query = new URLSearchParams({
-      workspace_id: options.workspaceId,
-      limit: WORKFLOW_LIST_PAGE_LIMIT,
-      ...(cursor === null ? {} : {cursor}),
-    });
-    const page = await options.client.requestJson<TriggerEventListResponseDto>(
-      'get',
-      `/trigger-events?${query}`,
-      {signal: options.signal},
-    );
-    options.onPage?.(page);
-
-    const event = page.trigger_events.find(
-      (candidate) => candidate.delivery_id === options.deliveryId,
-    );
-    if (event) return event;
-    cursor = page.next_cursor;
-    if (cursor === null) return null;
-  }
+}): Promise<TriggerEventListItemDto | null> {
+  return findInCursorPages<TriggerEventListResponseDto, TriggerEventListItemDto>({
+    client: options.client,
+    cursorDescription: 'trigger event list',
+    deadline: options.deadline,
+    getItems: (page) => page.trigger_events,
+    getNextCursor: (page) => page.next_cursor,
+    match: (event) => event.delivery_id === options.deliveryId,
+    ...(options.onPage === undefined ? {} : {onPage: options.onPage}),
+    path: '/trigger-events',
+    query: {workspace_id: options.workspaceId},
+    signal: options.signal,
+  });
 }
 
 export async function waitForRunByDeliveryId(
