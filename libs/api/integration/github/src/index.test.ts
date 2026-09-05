@@ -154,7 +154,10 @@ describe('createGithubIntegrationProvider', () => {
     const deleteInstallation = vi.fn(
       async (
         installationId: number,
-        options?: {deleteNamespace?: (installationId: number) => Promise<number>},
+        options?: {
+          workspaceId?: string;
+          deleteNamespace?: (installationId: number) => Promise<number>;
+        },
       ) => (await options?.deleteNamespace?.(installationId)) ?? 1,
     );
     defaultTokenProvider.tokenProvider.deleteInstallation = deleteInstallation;
@@ -166,7 +169,13 @@ describe('createGithubIntegrationProvider', () => {
       }) => Promise<unknown>;
     };
     await cleanup.deleteInstallationTokenSecret({workspaceId: 'workspace-1', installationId: 123});
-    expect(deleteInstallation).toHaveBeenCalledWith(123, expect.any(Object));
+    expect(deleteInstallation).toHaveBeenCalledWith(
+      123,
+      expect.objectContaining({
+        workspaceId: 'workspace-1',
+        deleteNamespace: expect.any(Function),
+      }),
+    );
     expect(deleteSecrets).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       namespace: githubInstallationTokenNamespace(123),
