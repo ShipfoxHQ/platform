@@ -326,6 +326,25 @@ describe('bounded step-log agent-access tool', () => {
     expect(section.content_total_bytes).toBe(content.length);
   });
 
+  test('preserves a byte-order mark at the start of a clipped suffix', async () => {
+    const mocks = clients();
+    const suffix = `\uFEFF${'y'.repeat(AGENT_ACCESS_LOG_CONTENT_MAX_BYTES - 3)}`;
+    const content = `x${suffix}`;
+    mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
+    mocks.logs.readStepLogTail.mockResolvedValue({content});
+
+    const response = await tool(mocks).execute({context, arguments: {step_id: stepId}});
+    const result = success(response);
+    const section = result.sections[0];
+    if (section === undefined) throw new Error('Expected a log section');
+
+    expect(section.content).toBe(suffix);
+    expect(new TextEncoder().encode(section.content).byteLength).toBe(
+      AGENT_ACCESS_LOG_CONTENT_MAX_BYTES,
+    );
+    expect(section.content_truncated).toBe(true);
+  });
+
   test('keeps readable UTF-8 content in oversized single-line failed sections', async () => {
     const mocks = clients();
     const coordinates = Array.from({length: AGENT_ACCESS_LOG_SECTION_MAX_ITEMS}, (_, index) =>

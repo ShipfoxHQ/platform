@@ -92,6 +92,7 @@ node --import @shipfox/api-server/instrumentation ./dist/index.js
 | --- | --- | --- |
 | `E2E_ENABLED` | `false` | Enables routes under `/__e2e` when `E2E_ADMIN_API_KEY` is set. |
 | `E2E_ADMIN_API_KEY` | none | Required to enable and protect E2E routes. |
+| `API_PUBLIC_URL` | none | Required public API origin used by MCP OAuth metadata and redirect flows. Local development may use `http://localhost:16101`; use HTTPS elsewhere. |
 | `API_PORT` | shared `PORT` | Sets the listener port. |
 | `API_TRUST_PROXY` | `false` | Sets proxy IP checks. |
 

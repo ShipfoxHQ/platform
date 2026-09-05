@@ -181,7 +181,10 @@ export async function authorizeAgentAccess(
   const authorization = await requestAgentAccessConsent(options);
   const consent = await options.request.get(
     `${options.apiOrigin}/oauth/consents/${authorization.requestId}`,
-    {headers: {authorization: `Bearer ${options.sessionToken}`}},
+    {
+      headers: {authorization: `Bearer ${options.sessionToken}`},
+      failOnStatusCode: false,
+    },
   );
   if (consent.status() !== 200) {
     throw new Error(`OAuth consent detail returned ${consent.status()}, expected 200`);
@@ -202,6 +205,7 @@ export async function authorizeAgentAccess(
     {
       headers: {authorization: `Bearer ${options.sessionToken}`},
       data: {workspace_id: options.workspaceId},
+      failOnStatusCode: false,
     },
   );
   if (approval.status() !== 200) {
@@ -228,6 +232,7 @@ export async function authorizeAgentAccess(
       code_verifier: authorization.codeVerifier,
       resource: `${options.publicOrigin}/mcp`,
     }).toString(),
+    failOnStatusCode: false,
   });
   if (token.status() !== 200) {
     throw new Error(`OAuth token exchange returned ${token.status()}, expected 200`);

@@ -2,7 +2,21 @@ import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {OAuthConsentPage, OAuthConsentRouteContent} from './oauth-consent-page.js';
+import {OAuthConsentPage, OAuthConsentRoutePage} from './oauth-consent-page.js';
+
+const runtimeMocks = vi.hoisted(() => ({
+  useAuthState: vi.fn(),
+  useRouteSearch: vi.fn(),
+}));
+
+vi.mock('@shipfox/client-shell/runtime', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@shipfox/client-shell/runtime')>();
+  return {
+    ...actual,
+    useAuthState: runtimeMocks.useAuthState,
+    useRouteSearch: runtimeMocks.useRouteSearch,
+  };
+});
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -41,28 +55,37 @@ function renderConsent(onRedirect = vi.fn()) {
   };
 }
 
-function renderConsentRoute(isAuthLoading: boolean) {
+function renderConsentRoute() {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  const renderRoute = (loading: boolean) => (
+  const route = () => (
     <QueryClientProvider client={queryClient}>
-      <OAuthConsentRouteContent isAuthLoading={loading} requestId={REQUEST_ID} />
+      <OAuthConsentRoutePage />
     </QueryClientProvider>
   );
-  const view = render(renderRoute(isAuthLoading));
-  return {...view, renderRoute};
+  const view = render(route());
+  return {...view, route};
 }
 
 describe('OAuthConsentPage', () => {
+  beforeEach(() => {
+    runtimeMocks.useAuthState.mockReset();
+    runtimeMocks.useRouteSearch.mockReset();
+    runtimeMocks.useAuthState.mockReturnValue({isLoading: false, workspaces: []});
+    runtimeMocks.useRouteSearch.mockReturnValue({requestId: REQUEST_ID});
+  });
+
   test('waits for the auth session before loading the connection request', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(consentResponse()));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
-    const {rerender, renderRoute} = renderConsentRoute(true);
+    runtimeMocks.useAuthState.mockReturnValue({isLoading: true, workspaces: []});
+    const {rerender, route} = renderConsentRoute();
 
     expect(screen.getByRole('status', {name: 'Loading connection request'})).toBeVisible();
     expect(screen.queryByText('Could not load connection request')).not.toBeInTheDocument();
     expect(fetchImpl).not.toHaveBeenCalled();
 
-    rerender(renderRoute(false));
+    runtimeMocks.useAuthState.mockReturnValue({isLoading: false, workspaces: []});
+    rerender(route());
 
     expect(
       await screen.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),

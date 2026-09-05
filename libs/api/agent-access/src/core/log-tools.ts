@@ -281,7 +281,7 @@ interface BoundedLogContent {
 }
 
 const utf8Encoder = new TextEncoder();
-const utf8Decoder = new TextDecoder();
+const utf8Decoder = new TextDecoder('utf-8', {ignoreBOM: true});
 
 function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
   const totalBytes = utf8Encoder.encode(value).byteLength;
