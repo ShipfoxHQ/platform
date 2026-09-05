@@ -15,3 +15,9 @@ export function retryThreeTimes(step: () => void): void {
     step();
   }
 }
+
+export function retryUntilComplete(step: (attempt: number) => boolean): void {
+  for (let attempt = 0; ; attempt += 1) {
+    if (step(attempt)) return;
+  }
+}

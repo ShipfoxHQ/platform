@@ -1,0 +1,6 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+JsForStatement(initializer=., test=., update=.) as $loop where {
+  register_diagnostic(span=$loop, message="code-style/no-fully-empty-for-loop: replace the fully empty `for (;;)` form with `while (true)`.")
+}

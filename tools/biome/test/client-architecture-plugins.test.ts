@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -44,6 +44,7 @@ const storageRulePattern = /client-architecture\/no-direct-browser-storage/u;
 const rawSpacingRulePattern = /client-architecture\/no-raw-spacing/u;
 const rawSpacingDiagnosticPattern = /client-architecture\/no-raw-spacing/g;
 const rawSpacingRejectedLocationPattern = /rejected\.tsx:/u;
+const rootConfigProbePrefix = resolve(workspaceRoot, 'tools/biome/.root-config-probe-');
 
 const fixtureRuleNames = [
   'fixture-boundary',
@@ -301,29 +302,31 @@ describe('client-architecture Biome plugins', () => {
   });
 
   test('enforces all surface-system plugins through the real root config', async () => {
+    const probeRoot = await mkdtemp(rootConfigProbePrefix);
     const probePath = resolve(
-      workspaceRoot,
-      'libs/client/workflows/src/pages/zz-surface-system-glob-regression.tsx',
-    );
-    await writeFile(
-      probePath,
-      [
-        "import {Panel} from '@shipfox/react-ui/panel';",
-        "import {Table} from '@shipfox/react-ui/table';",
-        'export function SurfaceSystemProbe() {',
-        '  return (',
-        '    <div className="bg-background-subtle-base dark:bg-black max-w-[1120px]">',
-        '      <Table />',
-        '      <Panel>',
-        '        <Panel />',
-        '      </Panel>',
-        '    </div>',
-        '  );',
-        '}',
-        '',
-      ].join('\n'),
+      probeRoot,
+      'libs/client/workflows/src/pages/surface-system-glob-regression.tsx',
     );
     try {
+      await mkdir(dirname(probePath), {recursive: true});
+      await writeFile(
+        probePath,
+        [
+          "import {Panel} from '@shipfox/react-ui/panel';",
+          "import {Table} from '@shipfox/react-ui/table';",
+          'export function SurfaceSystemProbe() {',
+          '  return (',
+          '    <div className="bg-background-subtle-base dark:bg-black max-w-[1120px]">',
+          '      <Table />',
+          '      <Panel>',
+          '        <Panel />',
+          '      </Panel>',
+          '    </div>',
+          '  );',
+          '}',
+          '',
+        ].join('\n'),
+      );
       await assert.rejects(
         execFileAsync(process.execPath, [biomeCheck, '--config-path', rootConfig, probePath], {
           cwd: workspaceRoot,
@@ -338,7 +341,7 @@ describe('client-architecture Biome plugins', () => {
         },
       );
     } finally {
-      await rm(probePath);
+      await rm(probeRoot, {recursive: true, force: true});
     }
   });
 
@@ -346,19 +349,21 @@ describe('client-architecture Biome plugins', () => {
   // the real root config so a regression in the repository glob shape cannot make
   // the production rules silently inert.
   test('enforces client-architecture plugins against the real root config', async () => {
-    const probePath = resolve(workspaceRoot, 'libs/client/zz-plugin-glob-regression-probe.ts');
-    await writeFile(
-      probePath,
-      [
-        "import {useSearch} from '@tanstack/react-router';",
-        'export function ProbeComponent() {',
-        '  const search = useSearch({strict: false});',
-        "  return search ?? window.localStorage.getItem('x');",
-        '}',
-        '',
-      ].join('\n'),
-    );
+    const probeRoot = await mkdtemp(rootConfigProbePrefix);
+    const probePath = resolve(probeRoot, 'libs/client/plugin-glob-regression-probe.ts');
     try {
+      await mkdir(dirname(probePath), {recursive: true});
+      await writeFile(
+        probePath,
+        [
+          "import {useSearch} from '@tanstack/react-router';",
+          'export function ProbeComponent() {',
+          '  const search = useSearch({strict: false});',
+          "  return search ?? window.localStorage.getItem('x');",
+          '}',
+          '',
+        ].join('\n'),
+      );
       await assert.rejects(
         execFileAsync(process.execPath, [biomeCheck, '--config-path', rootConfig, probePath], {
           cwd: workspaceRoot,
@@ -372,7 +377,7 @@ describe('client-architecture Biome plugins', () => {
         },
       );
     } finally {
-      await rm(probePath);
+      await rm(probeRoot, {recursive: true, force: true});
     }
   });
 

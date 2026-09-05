@@ -363,7 +363,7 @@
       ]
     },
     {
-      "path": "./tools/biome/plugins/code-style/no-empty-for-loop.grit",
+      "path": "./tools/biome/plugins/code-style/no-fully-empty-for-loop.grit",
       "includes": [
         "**/apps/**",
         "**/e2e/**",

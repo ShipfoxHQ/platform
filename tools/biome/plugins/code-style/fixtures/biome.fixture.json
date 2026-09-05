@@ -31,7 +31,7 @@
   },
   "plugins": [
     {
-      "path": "../no-empty-for-loop.grit",
+      "path": "../no-fully-empty-for-loop.grit",
       "includes": ["**/*.ts"]
     }
   ],

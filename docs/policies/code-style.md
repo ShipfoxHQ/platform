@@ -58,8 +58,9 @@ routes, auth wiring, or test utilities unless another package needs them.
 
 ## Readable control flow
 
-Use `while (true)` for an unconditional loop. Don't use `for (;;)`, because
-its empty clauses hide that intent.
+Don't use the fully empty `for (;;)` form. Write it as `while (true)`. A `for`
+loop may omit its condition when an initializer or update clause makes the loop
+state explicit.
 
 Name a conditional decision before branching when it combines multiple ideas.
 A name such as `hasPendingStep` or `shouldRetry` makes the branch read as a

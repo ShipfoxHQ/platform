@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
@@ -15,13 +15,30 @@ const fixtureConfig = resolve(
 );
 const fixtureRoot = resolve(
   workspaceRoot,
-  'tools/biome/plugins/code-style/fixtures/no-empty-for-loop',
+  'tools/biome/plugins/code-style/fixtures/no-fully-empty-for-loop',
 );
-const diagnosticPattern = /code-style\/no-empty-for-loop/u;
+const diagnosticPattern = /code-style\/no-fully-empty-for-loop/u;
 const rejectedLocationPattern = /rejected\.ts:2:3/u;
+const rootConfigProbePrefix = resolve(workspaceRoot, 'tools/biome/.root-config-probe-');
+const maintainedSourceIncludes = [
+  '**/apps/**',
+  '**/e2e/**',
+  '**/infra/**',
+  '**/libs/**',
+  '**/tools/**',
+  '**/.github/scripts/**',
+  '!**/dist/**',
+  '!**/node_modules/**',
+  '!**/coverage/**',
+  '!**/generated/**',
+  '!**/__generated__/**',
+  '!**/*.gen.ts',
+  '!**/*.gen.tsx',
+  '!**/tools/biome/plugins/code-style/fixtures/**',
+];
 
 describe('code-style Biome plugins', () => {
-  test('rejects an unconditional for loop', async () => {
+  test('rejects a fully empty for loop', async () => {
     await assert.rejects(
       execFileAsync(process.execPath, [biomeCheck, '--config-path', fixtureConfig, fixtureRoot], {
         cwd: workspaceRoot,
@@ -36,7 +53,7 @@ describe('code-style Biome plugins', () => {
     );
   });
 
-  test('allows while loops and bounded for loops', async () => {
+  test('allows while loops and for loops with an explicit clause', async () => {
     const {stdout, stderr} = await execFileAsync(
       process.execPath,
       [biomeCheck, '--config-path', fixtureConfig, resolve(fixtureRoot, 'allowed.ts')],
@@ -46,16 +63,29 @@ describe('code-style Biome plugins', () => {
     assert.doesNotMatch(`${stdout}${stderr}`, diagnosticPattern);
   });
 
+  test('registers the rule for maintained source roots', async () => {
+    const config = JSON.parse(await readFile(resolve(workspaceRoot, 'biome.json'), 'utf8')) as {
+      plugins: {includes: string[]; path: string}[];
+    };
+    const plugin = config.plugins.find(({path}) => path.endsWith('/no-fully-empty-for-loop.grit'));
+
+    assert.deepEqual(plugin, {
+      path: './tools/biome/plugins/code-style/no-fully-empty-for-loop.grit',
+      includes: maintainedSourceIncludes,
+    });
+  });
+
   test('enforces the rule through the real root config', async () => {
-    const probePath = resolve(workspaceRoot, 'e2e/core/src/zz-empty-for-loop-regression.ts');
-    await writeFile(
-      probePath,
-      ['export function runForever(): void {', '  for (;;) {', '    break;', '  }', '}', ''].join(
-        '\n',
-      ),
-    );
+    const probeRoot = await mkdtemp(rootConfigProbePrefix);
+    const probePath = resolve(probeRoot, 'fully-empty-for-loop.ts');
 
     try {
+      await writeFile(
+        probePath,
+        ['export function runForever(): void {', '  for (;;) {', '    break;', '  }', '}', ''].join(
+          '\n',
+        ),
+      );
       await assert.rejects(
         execFileAsync(process.execPath, [biomeCheck, probePath], {cwd: workspaceRoot}),
         (error: unknown) => {
@@ -68,7 +98,7 @@ describe('code-style Biome plugins', () => {
         },
       );
     } finally {
-      await rm(probePath, {force: true});
+      await rm(probeRoot, {recursive: true, force: true});
     }
   });
 });
