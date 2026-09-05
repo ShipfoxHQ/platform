@@ -11,4 +11,3 @@ Run-attempt lists now return `{items, next_cursor}` with a default limit of 25; 
 Run-list and job-detail display statuses now use API-provided bounded status fields.
 Consumers must migrate to bounded overviews, paginated job and attempt resources, and dedicated job or step-attempt detail reads.
 Direct HTTP consumers of the removed detail route receive 404 responses without a compatibility signal.
-Deploy the API change before rolling back clients; restoring the API contract must precede a client rollback.
