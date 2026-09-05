@@ -1,5 +1,5 @@
-import {createHash, randomBytes} from 'node:crypto';
 import {config} from '@shipfox/e2e-core';
+import {requestAgentAccessConsent} from '@shipfox/e2e-setup-auth';
 import {expect, test} from './test.js';
 
 test('routes the composed MCP connections settings surface and loads grant state', async ({
@@ -34,50 +34,16 @@ test('reviews consent and disconnects an MCP app', async ({
   const apiOrigin = new URL(config.API_URL).origin;
   const publicOrigin = new URL(process.env.API_PUBLIC_URL ?? config.API_URL).origin;
   const redirectUri = 'http://127.0.0.1:43124/oauth/callback';
-  const registration = await request.post(`${apiOrigin}/oauth/register`, {
-    data: {
-      client_name: clientName,
-      redirect_uris: [redirectUri],
-      grant_types: ['authorization_code'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-      scope: 'read',
-    },
-    failOnStatusCode: false,
+  const authorization = await requestAgentAccessConsent({
+    request,
+    apiOrigin,
+    publicOrigin,
+    clientName,
+    redirectUri,
+    statePrefix: 'browser-e2e',
   });
-  expect(registration.status()).toBe(201);
-  const registeredClient = (await registration.json()) as {client_id?: unknown};
-  expect(registeredClient.client_id).toEqual(expect.any(String));
-  const clientId = registeredClient.client_id;
-  if (typeof clientId !== 'string')
-    throw new Error('OAuth registration did not return a client id');
 
-  const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-  const state = `browser-e2e-${randomBytes(8).toString('hex')}`;
-  const authorizationUrl = new URL(`${apiOrigin}/oauth/authorize`);
-  authorizationUrl.search = new URLSearchParams({
-    client_id: clientId,
-    response_type: 'code',
-    redirect_uri: redirectUri,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-    resource: `${publicOrigin}/mcp`,
-    scope: 'read',
-    state,
-  }).toString();
-  const authorization = await request.get(authorizationUrl.toString(), {
-    failOnStatusCode: false,
-    maxRedirects: 0,
-  });
-  expect(authorization.status()).toBe(302);
-  const consentLocation = authorization.headers().location;
-  expect(consentLocation).toBeDefined();
-  const requestId = new URL(consentLocation ?? '').searchParams.get('request_id');
-  expect(requestId).toBeTruthy();
-  if (!requestId) throw new Error('OAuth authorization did not return a consent request id');
-
-  await page.goto(`/oauth/consent?request_id=${encodeURIComponent(requestId)}`);
+  await page.goto(`/oauth/consent?request_id=${encodeURIComponent(authorization.requestId)}`);
   await expect(oauthConsent.heading(clientName)).toBeVisible();
   await expect(oauthConsent.identityText('External agent client')).toBeVisible();
   await expect(oauthConsent.identityText('registered client')).toBeVisible();
@@ -89,7 +55,7 @@ test('reviews consent and disconnects an MCP app', async ({
   await page.waitForURL((url) => url.origin === 'http://127.0.0.1:43124');
   const callback = new URL(page.url());
   expect(callback.pathname).toBe('/oauth/callback');
-  expect(callback.searchParams.get('state')).toBe(state);
+  expect(callback.searchParams.get('state')).toBe(authorization.state);
   expect(callback.searchParams.get('code')).toEqual(expect.any(String));
 
   await agentAccessSettings.goto(workspaceSlug);

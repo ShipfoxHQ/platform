@@ -203,7 +203,7 @@ const invocationSchema = z
   .strict();
 
 export const getWorkflowRunSourceInputSchema = z
-  .object({run_id: idSchema, attempt: attemptSchema})
+  .object({run_id: idSchema, attempt: attemptSchema.optional()})
   .strict();
 
 export const getWorkflowExecutionContextInputSchema = z
@@ -353,7 +353,7 @@ export const getWorkflowRunSourceInputJsonSchema = {
     run_id: uuid,
     attempt: {type: 'integer', minimum: 1, maximum: AGENT_ACCESS_WORKFLOW_ATTEMPT_MAX},
   },
-  required: ['run_id', 'attempt'],
+  required: ['run_id'],
   additionalProperties: false,
 } as const satisfies AgentAccessObjectSchema;
 

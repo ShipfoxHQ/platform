@@ -1,3 +1,4 @@
+import {createHash, randomBytes} from 'node:crypto';
 import type {
   E2eCreateSessionBodyDto,
   E2eCreateSessionResponseDto,
@@ -5,8 +6,9 @@ import type {
   E2eCreateUserResponseDto,
   E2eSessionDto,
 } from '@shipfox/api-auth-dto';
+import {oauthDynamicClientRegistrationResponseSchema} from '@shipfox/api-auth-dto';
 import {config, request, requestJson} from '@shipfox/e2e-core';
-import type {BrowserContext, Page} from '@shipfox/playwright';
+import type {APIRequestContext, BrowserContext, Page} from '@shipfox/playwright';
 
 const DEFAULT_PASSWORD_PREFIX = 'e2e-password';
 
@@ -89,6 +91,77 @@ export async function loginAs(page: Page, user: E2eCreateUserResponseDto): Promi
     apiUrl: config.API_URL,
     setCookie: session.setCookie,
   });
+}
+
+export interface AgentAccessConsentRequestOptions {
+  request: APIRequestContext;
+  apiOrigin: string;
+  publicOrigin: string;
+  clientName: string;
+  redirectUri: string;
+  statePrefix?: string | undefined;
+}
+
+export interface AgentAccessConsentRequest {
+  clientId: string;
+  codeVerifier: string;
+  requestId: string;
+  state: string;
+}
+
+export async function requestAgentAccessConsent(
+  options: AgentAccessConsentRequestOptions,
+): Promise<AgentAccessConsentRequest> {
+  const registration = await options.request.post(`${options.apiOrigin}/oauth/register`, {
+    data: {
+      client_name: options.clientName,
+      redirect_uris: [options.redirectUri],
+      grant_types: ['authorization_code'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+      scope: 'read',
+    },
+    failOnStatusCode: false,
+  });
+  if (registration.status() !== 201) {
+    throw new Error(`OAuth client registration returned ${registration.status()}, expected 201`);
+  }
+  const registeredClient = oauthDynamicClientRegistrationResponseSchema.parse(
+    await registration.json(),
+  );
+
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  const state = `${options.statePrefix ?? 'e2e'}-${randomBytes(12).toString('hex')}`;
+  const authorizationUrl = new URL(`${options.apiOrigin}/oauth/authorize`);
+  authorizationUrl.search = new URLSearchParams({
+    client_id: registeredClient.client_id,
+    response_type: 'code',
+    redirect_uri: options.redirectUri,
+    code_challenge: codeChallenge,
+    code_challenge_method: 'S256',
+    resource: `${options.publicOrigin}/mcp`,
+    scope: 'read',
+    state,
+  }).toString();
+  const authorization = await options.request.get(authorizationUrl.toString(), {
+    failOnStatusCode: false,
+    maxRedirects: 0,
+  });
+  if (authorization.status() !== 302) {
+    throw new Error(`OAuth authorization returned ${authorization.status()}, expected 302`);
+  }
+  const consentLocation = authorization.headers().location;
+  if (!consentLocation) throw new Error('OAuth authorization did not return a consent location');
+  const requestId = new URL(consentLocation, options.apiOrigin).searchParams.get('request_id');
+  if (!requestId) throw new Error('OAuth authorization did not return a consent request id');
+
+  return {
+    clientId: registeredClient.client_id,
+    codeVerifier,
+    requestId,
+    state,
+  };
 }
 
 function createRunId(): string {

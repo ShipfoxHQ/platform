@@ -119,15 +119,19 @@ describe('OAuthConsentPage', () => {
       screen.getByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),
     ).toBeVisible();
     expect(
-      screen.queryByText('This access request is temporarily unavailable. Try again in a moment.'),
-    ).not.toBeInTheDocument();
-    expect(
       screen.queryByText(
-        'This access request expired or is no longer available. Return to the agent and start again.',
+        'This connection request is temporarily unavailable. Try again in a moment.',
       ),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText('This access request is invalid. Return to the agent and start again.'),
+      screen.queryByText(
+        'This connection request expired or is no longer available. Return to the agent and start again.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'This connection request is invalid. Return to the agent and start again.',
+      ),
     ).not.toBeInTheDocument();
   });
 });

@@ -16,10 +16,19 @@ describe('signup gate configuration', () => {
   });
 
   test('requires the public API URL', async () => {
-    vi.stubEnv('API_PUBLIC_URL', '');
+    vi.stubEnv('API_PUBLIC_URL', undefined);
     vi.resetModules();
 
     await expect(import('#config.js')).rejects.toThrow('process.exit unexpectedly called with "1"');
+  });
+
+  test('accepts an HTTPS public API URL', async () => {
+    vi.stubEnv('API_PUBLIC_URL', 'https://api.example.test');
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.API_PUBLIC_URL).toBe('https://api.example.test');
   });
 
   test('fails startup when the enabled gate has no allowlist', async () => {

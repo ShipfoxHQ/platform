@@ -159,7 +159,7 @@ async function readFailedStepLog(
     // coordinate so one unavailable section does not discard the other readable failures.
     if (isInterModuleKnownError(logsInterModuleContract.methods.readStepLogTail, error)) {
       recordAgentAccessLogSectionUnavailable(error.code);
-      logger().warn(
+      logger().debug(
         {stepId: input.stepId, attempt: input.attempt, errorCode: error.code},
         'Agent-access log section unavailable',
       );

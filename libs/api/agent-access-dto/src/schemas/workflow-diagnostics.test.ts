@@ -6,6 +6,8 @@ import {
   getStepAttemptResultSchema,
   getWorkflowExecutionContextResultJsonSchema,
   getWorkflowExecutionContextResultSchema,
+  getWorkflowRunSourceInputJsonSchema,
+  getWorkflowRunSourceInputSchema,
   getWorkflowRunSourceResultJsonSchema,
   getWorkflowRunSourceResultSchema,
   listWorkflowRunJobExplanationsResultJsonSchema,
@@ -23,6 +25,11 @@ const deliveryId = '00000000-0000-4000-8000-000000000007';
 const isoDate = '2026-08-01T00:00:00.000Z';
 
 describe('workflow diagnostic Agent Access schemas', () => {
+  test('allows the latest run source attempt to be resolved when omitted', () => {
+    expect(getWorkflowRunSourceInputSchema.safeParse({run_id: runId}).success).toBe(true);
+    expect(getWorkflowRunSourceInputJsonSchema.required).toEqual(['run_id']);
+  });
+
   test('accepts canonical source, context, step, and explanation values', () => {
     expect(getWorkflowRunSourceResultSchema.safeParse(sourceAvailable()).success).toBe(true);
     expect(getWorkflowRunSourceResultSchema.safeParse(sourceUnavailable()).success).toBe(true);

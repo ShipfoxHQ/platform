@@ -331,7 +331,7 @@ describe('workflow diagnostic agent-access tools', () => {
       arguments: {step_id: stepId},
     });
 
-    expect(mocks.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+    expect(mocks.getWorkflowStepAttemptDetail.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       stepId,
     });
@@ -531,6 +531,26 @@ describe('workflow diagnostic agent-access tools', () => {
     );
     expect(result.source_snapshot.content.endsWith('�')).toBe(false);
     expect(getWorkflowRunSourceResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('omits an absent workflow run attempt from the producer request', async () => {
+    const mocks = clients();
+    mocks.getWorkflowRunSource.mockResolvedValue({
+      kind: 'unavailable',
+      workflow_run_id: runId,
+      workflow_run_attempt: 1,
+      reason: 'pre_snapshot_run',
+    });
+
+    await tool(mocks, 'get_workflow_run_source').execute({
+      context,
+      arguments: {run_id: runId},
+    });
+
+    expect(mocks.getWorkflowRunSource.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      workflowRunId: runId,
+    });
   });
 
   test('preserves the unavailable source branch', async () => {

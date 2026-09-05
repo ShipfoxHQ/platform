@@ -32,22 +32,22 @@ describe('MCP connection error copy', () => {
   test.each([
     [
       'workspace-suspended',
-      'This workspace is suspended. Restore it before approving this access request.',
+      'This workspace is suspended. Restore it before approving this connection request.',
     ],
     [
       'workspace-inactive',
-      'This workspace is not active, so this access request cannot be approved.',
+      'This workspace is not active, so this connection request cannot be approved.',
     ],
-    ['forbidden', "You don't have permission to approve access to this workspace."],
+    ['forbidden', "You don't have permission to approve this connection for this workspace."],
     [
       'auth-dependency-unavailable',
-      'This access request is temporarily unavailable. Try again in a moment.',
+      'This connection request is temporarily unavailable. Try again in a moment.',
     ],
     [
       'not-found',
-      'This access request expired or is no longer available. Return to the agent and start again.',
+      'This connection request expired or is no longer available. Return to the agent and start again.',
     ],
-    ['invalid-request', 'This access request is invalid. Return to the agent and start again.'],
+    ['invalid-request', 'This connection request is invalid. Return to the agent and start again.'],
   ])('keeps consent copy contextual for %s', (code, expected) => {
     expect(
       oauthConsentErrorMessage(new ApiError({code, message: 'Server copy', status: 409})),

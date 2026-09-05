@@ -1,4 +1,4 @@
-import {createHash, randomBytes, randomUUID} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
@@ -13,11 +13,11 @@ import {
   listAgentGrantsResponseSchema,
   oauthAuthorizationServerMetadataSchema,
   oauthConsentResponseSchema,
-  oauthDynamicClientRegistrationResponseSchema,
   oauthProtectedResourceMetadataSchema,
   oauthTokenResponseSchema,
 } from '@shipfox/api-auth-dto';
 import {config} from '@shipfox/e2e-core';
+import {requestAgentAccessConsent} from '@shipfox/e2e-setup-auth';
 import {createProject} from '@shipfox/e2e-setup-projects';
 import {createWorkspace} from '@shipfox/e2e-setup-workspaces';
 import type {APIRequestContext} from '@shipfox/playwright';
@@ -217,7 +217,7 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
 
       const missingCalls: Array<{name: string; arguments: Record<string, unknown>}> = [
         {name: 'get_trigger_event', arguments: {event_id: randomUUID()}},
-        {name: 'get_workflow_run_source', arguments: {run_id: randomUUID(), attempt: 1}},
+        {name: 'get_workflow_run_source', arguments: {run_id: randomUUID()}},
         {
           name: 'get_workflow_execution_context',
           arguments: {job_id: randomUUID(), execution_id: randomUUID()},
@@ -367,49 +367,20 @@ async function authorizeAgentAccess(params: {
   clientName: string;
   redirectUri: string;
 }) {
-  const registration = await params.request.post(`${params.apiOrigin}/oauth/register`, {
-    data: {
-      client_name: params.clientName,
-      redirect_uris: [params.redirectUri],
-      grant_types: ['authorization_code'],
-      response_types: ['code'],
-      token_endpoint_auth_method: 'none',
-      scope: 'read',
+  const authorization = await requestAgentAccessConsent({
+    request: params.request,
+    apiOrigin: params.apiOrigin,
+    publicOrigin: params.publicOrigin,
+    clientName: params.clientName,
+    redirectUri: params.redirectUri,
+  });
+
+  const consent = await params.request.get(
+    `${params.apiOrigin}/oauth/consents/${authorization.requestId}`,
+    {
+      headers: {authorization: `Bearer ${params.sessionToken}`},
     },
-  });
-  expect(registration.status()).toBe(201);
-  const registeredClient = oauthDynamicClientRegistrationResponseSchema.parse(
-    await registration.json(),
   );
-
-  const codeVerifier = randomBytes(32).toString('base64url');
-  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
-  const state = `e2e-${randomBytes(12).toString('hex')}`;
-  const authorizeUrl = new URL(`${params.apiOrigin}/oauth/authorize`);
-  authorizeUrl.search = new URLSearchParams({
-    client_id: registeredClient.client_id,
-    response_type: 'code',
-    redirect_uri: params.redirectUri,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-    resource: `${params.publicOrigin}/mcp`,
-    scope: 'read',
-    state,
-  }).toString();
-  const authorization = await params.request.get(authorizeUrl.toString(), {
-    failOnStatusCode: false,
-    maxRedirects: 0,
-  });
-  expect(authorization.status()).toBe(302);
-  const consentLocation = authorization.headers().location;
-  expect(consentLocation).toBeDefined();
-  const consentUrl = new URL(consentLocation ?? '');
-  const requestId = consentUrl.searchParams.get('request_id');
-  expect(requestId).toBeTruthy();
-
-  const consent = await params.request.get(`${params.apiOrigin}/oauth/consents/${requestId}`, {
-    headers: {authorization: `Bearer ${params.sessionToken}`},
-  });
   expect(consent.status()).toBe(200);
   expect(oauthConsentResponseSchema.parse(await consent.json())).toEqual(
     expect.objectContaining({
@@ -423,7 +394,7 @@ async function authorizeAgentAccess(params: {
   );
 
   const approval = await params.request.post(
-    `${params.apiOrigin}/oauth/consents/${requestId}/approve`,
+    `${params.apiOrigin}/oauth/consents/${authorization.requestId}/approve`,
     {
       headers: {authorization: `Bearer ${params.sessionToken}`},
       data: {workspace_id: params.workspaceId},
@@ -432,7 +403,7 @@ async function authorizeAgentAccess(params: {
   expect(approval.status()).toBe(200);
   const approvedLocation = new URL((await approval.json()).redirect_url);
   expect(approvedLocation.origin).toBe(new URL(params.redirectUri).origin);
-  expect(approvedLocation.searchParams.get('state')).toBe(state);
+  expect(approvedLocation.searchParams.get('state')).toBe(authorization.state);
   const code = approvedLocation.searchParams.get('code');
   expect(code).toBeTruthy();
 
@@ -440,10 +411,10 @@ async function authorizeAgentAccess(params: {
     headers: {'content-type': 'application/x-www-form-urlencoded'},
     data: new URLSearchParams({
       grant_type: 'authorization_code',
-      client_id: registeredClient.client_id,
+      client_id: authorization.clientId,
       code: code ?? '',
       redirect_uri: params.redirectUri,
-      code_verifier: codeVerifier,
+      code_verifier: authorization.codeVerifier,
       resource: `${params.publicOrigin}/mcp`,
     }).toString(),
   });
