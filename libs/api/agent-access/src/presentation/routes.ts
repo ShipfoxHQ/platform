@@ -1,7 +1,12 @@
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
-import {AUTH_AGENT_ACCESS, requireAgentAccessContext} from '@shipfox/api-auth-context';
+import {
+  AUTH_AGENT_ACCESS,
+  InvalidOAuthPublicOriginError,
+  normalizeOAuthPublicOrigin,
+  requireAgentAccessContext,
+} from '@shipfox/api-auth-context';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
 import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
@@ -190,32 +195,12 @@ function resourceMetadataUrl(options: CreateAgentAccessRoutesOptions): string {
 }
 
 function validateAgentAccessApiPublicOrigin(value: string): string {
-  let url: URL;
   try {
-    url = new URL(value);
-  } catch {
-    return rejectInvalidApiPublicOrigin();
+    return normalizeOAuthPublicOrigin(value);
+  } catch (error) {
+    if (error instanceof InvalidOAuthPublicOriginError) return rejectInvalidApiPublicOrigin();
+    throw error;
   }
-
-  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/gu, '');
-  const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  if (
-    (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) ||
-    value.trim() !== value ||
-    [...value].some((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint < 0x20 || codePoint === 0x7f;
-    }) ||
-    url.username ||
-    url.password ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash ||
-    url.hostname.length === 0
-  ) {
-    return rejectInvalidApiPublicOrigin();
-  }
-  return url.origin;
 }
 
 function rejectInvalidApiPublicOrigin(): never {

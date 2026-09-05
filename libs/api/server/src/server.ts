@@ -1,3 +1,5 @@
+import {validateOAuthPublicOrigin} from '@shipfox/api-auth';
+import {config as authConfig} from '@shipfox/api-auth/config';
 import {closeErrorMonitoring, markErrorReported, reportError} from '@shipfox/node-error-monitoring';
 import {closeApp, createApp, listen} from '@shipfox/node-fastify';
 import {
@@ -50,6 +52,10 @@ export async function createServer(options: CreateServerOptions): Promise<Server
     const loginMethods = aggregateLoginMethods({modules: options.modules});
     startServiceMetrics({serviceName: 'api'});
     createPostgresClient();
+    logger().info(
+      {apiPublicOrigin: validateOAuthPublicOrigin(authConfig.API_PUBLIC_URL)},
+      'Configured OAuth public API origin',
+    );
 
     const {auth, routes, e2eRoutes, workers, services, outboxRegistry} = await initializeModules({
       modules: options.modules,

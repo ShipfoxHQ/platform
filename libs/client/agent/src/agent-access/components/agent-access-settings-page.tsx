@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@shipfox/react-ui/table';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@shipfox/react-ui/tooltip';
 import {Header, Text} from '@shipfox/react-ui/typography';
 import {useState} from 'react';
 import type {AgentGrant} from '#agent-access/core/agent-access.js';
@@ -154,6 +155,9 @@ function RevokeGrantButton({grant}: {grant: AgentGrant}) {
         <ModalTitle className="sr-only">Disconnect {grant.clientName}?</ModalTitle>
         <ModalHeader title={`Disconnect ${grant.clientName}?`} />
         <ModalBody className="gap-group">
+          <Text bold className="break-words">
+            {grant.clientName}
+          </Text>
           <Text size="sm" className="text-foreground-neutral-muted">
             This app will no longer be able to refresh its access to Shipfox. Existing access may
             continue for up to 15 minutes.
@@ -185,9 +189,17 @@ function RevokeGrantButton({grant}: {grant: AgentGrant}) {
 function CredentialDate({value}: {value: string | null}) {
   const timestamp = formatAgentAccessTimestamp(value);
   return timestamp ? (
-    <time dateTime={value ?? undefined} title={timestamp}>
-      {formatAgentAccessDate(value)}
-    </time>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="cursor-help rounded-4 outline-none focus-visible:shadow-button-neutral-focus"
+        >
+          <time dateTime={value ?? undefined}>{formatAgentAccessDate(value)}</time>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{timestamp}</TooltipContent>
+    </Tooltip>
   ) : (
     <>Never</>
   );

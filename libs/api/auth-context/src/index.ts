@@ -7,6 +7,12 @@ import {
   type RoutePreHandler,
 } from '@shipfox/node-fastify';
 
+export {
+  InvalidOAuthPublicOriginError,
+  isOAuthLoopbackHostname,
+  normalizeOAuthPublicOrigin,
+} from './oauth-public-origin.js';
+
 export const AUTH_USER = 'user';
 export const AUTH_RUNNER_REGISTRATION_TOKEN = 'runner-registration-token';
 export const AUTH_RUNNER_SESSION = 'runner-session';

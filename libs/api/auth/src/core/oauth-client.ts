@@ -1,4 +1,9 @@
 import {
+  InvalidOAuthPublicOriginError,
+  isOAuthLoopbackHostname,
+  normalizeOAuthPublicOrigin,
+} from '@shipfox/api-auth-context';
+import {
   OAUTH_READ_SCOPE,
   type OAuthClientMetadataDocumentDto,
   type OAuthDynamicClientRegistrationRequestDto,
@@ -62,11 +67,6 @@ function parseUrl(value: string): URL {
   }
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, '');
-  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function validateUrlShape(url: URL): void {
   if (
     url.username ||
@@ -95,7 +95,7 @@ export function validateOAuthRedirectUri(value: string): URL {
   validateUrlShape(url);
 
   if (url.protocol === 'https:') return url;
-  if (url.protocol !== 'http:' || !isLoopbackHostname(url.hostname)) {
+  if (url.protocol !== 'http:' || !isOAuthLoopbackHostname(url.hostname)) {
     return rejectInvalidMetadata();
   }
   return url;
@@ -104,7 +104,7 @@ export function validateOAuthRedirectUri(value: string): URL {
 export function isOAuthLoopbackRedirectUri(value: string): boolean {
   try {
     const url = validateOAuthRedirectUri(value);
-    return url.protocol === 'http:' && isLoopbackHostname(url.hostname);
+    return url.protocol === 'http:' && isOAuthLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
@@ -122,8 +122,8 @@ export function oauthRedirectUriMatches(registered: string, requested: string): 
     if (
       registeredUrl.protocol !== 'http:' ||
       requestedUrl.protocol !== 'http:' ||
-      !isLoopbackHostname(registeredUrl.hostname) ||
-      !isLoopbackHostname(requestedUrl.hostname)
+      !isOAuthLoopbackHostname(registeredUrl.hostname) ||
+      !isOAuthLoopbackHostname(requestedUrl.hostname)
     ) {
       return false;
     }
@@ -185,30 +185,14 @@ export function validateOAuthClientId(value: string): URL {
   return url;
 }
 
-/** Validates the public origin injected into the dormant route factory. */
+/** Preserves the Auth boundary's typed configuration error. */
 export function validateOAuthPublicOrigin(value: string): string {
-  let url: URL;
   try {
-    url = new URL(value);
-  } catch {
-    return rejectInvalidConfiguration();
+    return normalizeOAuthPublicOrigin(value);
+  } catch (error) {
+    if (error instanceof InvalidOAuthPublicOriginError) return rejectInvalidConfiguration();
+    throw error;
   }
-
-  if (
-    (url.protocol !== 'https:' &&
-      !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))) ||
-    value.trim() !== value ||
-    hasControlCharacter(value) ||
-    url.username ||
-    url.password ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash ||
-    url.hostname.length === 0
-  ) {
-    return rejectInvalidConfiguration();
-  }
-  return url.origin;
 }
 
 function validateByteBoundedString(value: string, maxBytes: number): void {

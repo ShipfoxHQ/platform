@@ -256,7 +256,7 @@ async function createTestApp(
     auth: [testAuth],
     routes: [
       createAgentAccessRoutes({
-        apiPublicUrl: 'https://api.example.test',
+        apiPublicUrl: 'https://api.example.test/',
         isOriginAllowed: (origin) =>
           origin === undefined || origin === 'https://allowed.example.test',
         rateLimiter,

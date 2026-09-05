@@ -55,36 +55,48 @@ function renderConsent(onRedirect = vi.fn()) {
   };
 }
 
-function renderConsentRoute() {
+function renderConsentRoute(onGuestRedirect = vi.fn()) {
   const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
   const route = () => (
     <QueryClientProvider client={queryClient}>
-      <OAuthConsentRoutePage />
+      <OAuthConsentRoutePage onGuestRedirect={onGuestRedirect} />
     </QueryClientProvider>
   );
   const view = render(route());
-  return {...view, route};
+  return {...view, onGuestRedirect, route};
 }
 
 describe('OAuthConsentPage', () => {
   beforeEach(() => {
     runtimeMocks.useAuthState.mockReset();
     runtimeMocks.useRouteSearch.mockReset();
-    runtimeMocks.useAuthState.mockReturnValue({isLoading: false, workspaces: []});
+    runtimeMocks.useAuthState.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      workspaces: [],
+    });
     runtimeMocks.useRouteSearch.mockReturnValue({requestId: REQUEST_ID});
   });
 
   test('waits for the auth session before loading the connection request', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(consentResponse()));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
-    runtimeMocks.useAuthState.mockReturnValue({isLoading: true, workspaces: []});
+    runtimeMocks.useAuthState.mockReturnValue({
+      isAuthenticated: false,
+      isLoading: true,
+      workspaces: [],
+    });
     const {rerender, route} = renderConsentRoute();
 
     expect(screen.getByRole('status', {name: 'Loading connection request'})).toBeVisible();
     expect(screen.queryByText('Could not load connection request')).not.toBeInTheDocument();
     expect(fetchImpl).not.toHaveBeenCalled();
 
-    runtimeMocks.useAuthState.mockReturnValue({isLoading: false, workspaces: []});
+    runtimeMocks.useAuthState.mockReturnValue({
+      isAuthenticated: true,
+      isLoading: false,
+      workspaces: [],
+    });
     rerender(route());
 
     expect(
@@ -94,6 +106,25 @@ describe('OAuthConsentPage', () => {
       screen.queryByRole('status', {name: 'Loading connection request'}),
     ).not.toBeInTheDocument();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test('redirects a guest to sign in before loading the connection request', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({code: 'unauthorized'}, {status: 401}));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    runtimeMocks.useAuthState.mockReturnValue({
+      isAuthenticated: false,
+      isLoading: false,
+      workspaces: [],
+    });
+    const {onGuestRedirect} = renderConsentRoute();
+
+    await waitFor(() =>
+      expect(onGuestRedirect).toHaveBeenCalledWith(
+        `/auth/login?redirect=${encodeURIComponent(window.location.href)}`,
+      ),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(screen.queryByText('Could not load connection request')).not.toBeInTheDocument();
   });
 
   test('shows verified request facts and requires an explicit approval click', async () => {

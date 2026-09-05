@@ -17,11 +17,22 @@ import {
 import {oauthConsentErrorMessage} from './errors.js';
 import {formatAgentAccessTimestamp} from './format.js';
 
-export function OAuthConsentRoutePage() {
+export function OAuthConsentRoutePage({
+  onGuestRedirect = redirectGuestToLogin,
+}: {
+  onGuestRedirect?: (url: string) => void;
+} = {}) {
   const auth = useAuthState();
   const search = useRouteSearch(validateOAuthConsentSearch);
 
-  if (auth.isLoading) return <OAuthConsentLoading />;
+  useEffect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      const returnUrl = window.location.href;
+      onGuestRedirect(`/auth/login?redirect=${encodeURIComponent(returnUrl)}`);
+    }
+  }, [auth.isAuthenticated, auth.isLoading, onGuestRedirect]);
+
+  if (auth.isLoading || !auth.isAuthenticated) return <OAuthConsentLoading />;
 
   if (!search.requestId) {
     return (
@@ -41,6 +52,10 @@ export function OAuthConsentRoutePage() {
     );
   }
   return <OAuthConsentPage requestId={search.requestId} />;
+}
+
+function redirectGuestToLogin(url: string) {
+  window.location.assign(url);
 }
 
 export function OAuthConsentPage({
@@ -131,7 +146,7 @@ function OAuthConsentLoaded({
         <Panel>
           <div className="flex flex-col gap-section p-panel">
             <div className="min-w-0">
-              <Text bold className="truncate">
+              <Text bold className="break-words">
                 {consent.clientName}
               </Text>
               <Text size="sm" className="text-foreground-neutral-muted">

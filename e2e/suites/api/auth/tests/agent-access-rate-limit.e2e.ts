@@ -58,6 +58,7 @@ test('rate-limits a fresh agent-access credential during one burst', async ({req
       }
     }
     expect(allowedCount + rateLimitedCount).toBe(61);
+    expect(allowedCount).toBeLessThanOrEqual(60);
     expect(rateLimitedCount).toBeGreaterThanOrEqual(1);
   } finally {
     await client.close();

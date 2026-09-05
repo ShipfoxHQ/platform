@@ -1,9 +1,10 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {act, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type {ReactElement} from 'react';
 import {AgentAccessSettingsPage} from './agent-access-settings-page.js';
+import {formatAgentAccessDate, formatAgentAccessTimestamp} from './format.js';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -70,6 +71,34 @@ describe('AgentAccessSettingsPage', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Disconnect app'}));
 
     await waitFor(() => expect(screen.getByText('No connected apps')).toBeVisible());
+  });
+
+  test('reveals exact app identity and timestamps to keyboard users', async () => {
+    const user = userEvent.setup();
+    const clientName = `Claude Desktop ${'connection-name-'.repeat(10)}`;
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        grants: [grantDto({client_name: clientName})],
+      }),
+    );
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
+
+    expect((await screen.findAllByText(clientName)).length).toBeGreaterThan(0);
+    const connectedDate = screen.getAllByText(formatAgentAccessDate('2026-09-01T10:00:00.000Z'))[0];
+    const timestampTrigger = connectedDate?.closest('button');
+    if (!timestampTrigger) throw new Error('Connected timestamp trigger not rendered');
+    act(() => timestampTrigger.focus());
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      formatAgentAccessTimestamp('2026-09-01T10:00:00.000Z') ?? '',
+    );
+
+    const revokeButton = screen.getAllByRole('button', {name: `Disconnect ${clientName}`})[0];
+    if (!revokeButton) throw new Error('Disconnect button not rendered');
+    await user.click(revokeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(clientName)).toBeVisible();
   });
 
   test('keeps the disconnect dialog retryable when revocation fails', async () => {

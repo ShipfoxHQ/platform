@@ -2,6 +2,7 @@
 "@shipfox/api-agent-access": major
 "@shipfox/api-agent-access-dto": major
 "@shipfox/api-auth": major
+"@shipfox/api-auth-context": minor
 "@shipfox/api-server": major
 "@shipfox/client-agent": patch
 "@shipfox/client-features": minor
@@ -23,3 +24,7 @@ Applications that replace the standard Auth module with `authModuleFactory`
 must register `AUTH_AGENT_ACCESS`. Include the `createAgentAccessAuthMethod`
 export from `@shipfox/api-auth` in the replacement module's auth methods so the
 default MCP route can authenticate agent-access credentials.
+
+After deployment, fetch
+`$API_PUBLIC_URL/.well-known/oauth-authorization-server` and verify that its
+issuer and endpoint origins match `API_PUBLIC_URL`.
