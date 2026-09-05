@@ -1308,6 +1308,54 @@ describe('listener filter snapshots', () => {
     });
   });
 
+  it('snapshots all jobs for access after a filtered comprehension', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.executions.filter(e, e.status == "failed")[0].outputs.pr_number == 42',
+        },
+      ],
+      until: null,
+    });
+    expect(plan.on[0]?.jobsAreBroad).toBe(true);
+
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {pr_number: 42, unrelated: 'large'}},
+          executions: [
+            jobExecution({status: 'failed', outputs: {pr_number: 42, unrelated: 'large'}}),
+          ],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: expect.objectContaining({
+          key: 'build',
+          status: 'succeeded',
+          outputs: {pr_number: 42, unrelated: 'large'},
+          executions: [
+            expect.objectContaining({
+              status: 'failed',
+              outputs: {pr_number: 42, unrelated: 'large'},
+            }),
+          ],
+        }),
+      },
+    });
+  });
+
   it('snapshots full jobs when a comprehension uses a whole element alias', () => {
     const plan = planListenerFilterSnapshots({
       on: [
