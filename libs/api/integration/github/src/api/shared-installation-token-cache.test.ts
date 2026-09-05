@@ -21,7 +21,12 @@ import {
 } from './shared-installation-token-cache.js';
 
 const errorMonitoring = vi.hoisted(() => ({reportError: vi.fn()}));
+const loggerMocks = vi.hoisted(() => ({info: vi.fn(), warn: vi.fn()}));
 vi.mock('@shipfox/node-error-monitoring', () => errorMonitoring);
+vi.mock('@shipfox/node-opentelemetry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shipfox/node-opentelemetry')>()),
+  logger: () => loggerMocks,
+}));
 
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const installationId = 123;
@@ -167,6 +172,8 @@ describe('SharedInstallationTokenCache', () => {
 
   beforeEach(() => {
     errorMonitoring.reportError.mockReset();
+    loggerMocks.info.mockReset();
+    loggerMocks.warn.mockReset();
   });
 
   it('mints once on a cold winner miss and writes the secret envelope', async () => {
@@ -719,6 +726,51 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('persists compatibility-profile backoff without nested lock polling', async () => {
+    const store = createStore();
+    const lockCalls: string[] = [];
+    let lockHeld = false;
+    const withLock = async <T>(
+      _id: number,
+      permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ): Promise<InstallationTokenLockResult<T>> => {
+      lockCalls.push(permissionFingerprint);
+      if (lockHeld) return {acquired: false};
+      lockHeld = true;
+      try {
+        return {acquired: true, value: await fn()};
+      } finally {
+        lockHeld = false;
+      }
+    };
+    const sleep = vi.fn(() => Promise.resolve());
+    const shared = cache({
+      store,
+      withLock,
+      sleep,
+      pollDelaysMs: [100, 200],
+    });
+    const mint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({reason: 'provider-rejected'});
+
+    expect(lockCalls).toEqual([
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+    ]);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain('provider-rejected');
+  });
+
   it('keeps the backoff result when profile preservation fails', async () => {
     const store = createStore();
     const profileKey = githubInstallationTokenKey('broad');
@@ -835,6 +887,10 @@ describe('SharedInstallationTokenCache', () => {
       ),
     ).toContain('provider-rejected');
     expect(profileLockAttempts).toBe(2);
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      expect.objectContaining({backoffPersisted: true}),
+      expect.any(String),
+    );
   });
 
   it('does not claim a profile backoff was persisted when both locks contend', async () => {
@@ -867,6 +923,10 @@ describe('SharedInstallationTokenCache', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
       ),
     ).toBe(false);
+    expect(loggerMocks.warn).toHaveBeenCalledWith(
+      expect.objectContaining({backoffPersisted: false}),
+      expect.any(String),
+    );
   });
 
   it('serves stale when refresh minting fails while the token is still valid', async () => {

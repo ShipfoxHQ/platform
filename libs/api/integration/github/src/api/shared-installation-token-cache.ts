@@ -71,7 +71,7 @@ export interface SharedInstallationTokenCacheOptions {
   withLock: InstallationTokenLock;
   withBackoffLock?: InstallationTokenLock | undefined;
   /** Whether the compatibility-profile lock is the same lock as withLock. */
-  shareCompatibilityLock?: boolean | undefined;
+  shareCompatibilityLock: boolean;
   resolveWorkspaceId: (installationId: number) => Promise<string>;
   now?: (() => Date) | undefined;
   sleep?: ((ms: number) => Promise<void>) | undefined;
@@ -102,9 +102,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     this.pollDelaysMs = options.pollDelaysMs ?? DEFAULT_POLL_DELAYS_MS;
     this.workspaceCacheTtlMs = options.workspaceCacheTtlMs ?? DEFAULT_WORKSPACE_CACHE_TTL_MS;
     this.mintTimeoutMs = options.mintTimeoutMs ?? DEFAULT_MINT_TIMEOUT_MS;
-    this.shareCompatibilityLock =
-      options.shareCompatibilityLock ??
-      (options.withBackoffLock === undefined || options.withBackoffLock === options.withLock);
+    this.shareCompatibilityLock = options.shareCompatibilityLock;
   }
 
   async deleteInstallation(
