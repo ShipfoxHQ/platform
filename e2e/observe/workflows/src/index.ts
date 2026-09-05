@@ -276,13 +276,14 @@ async function findInCursorPages<TPage, TItem>(options: {
   match: (item: TItem) => boolean;
   onPage?: ((page: TPage) => void) | undefined;
   onNextCursor?: ((cursor: string | null) => void) | undefined;
+  seenCursors?: Set<string> | undefined;
   path: string;
   query: Record<string, string>;
   signal: AbortSignal | undefined;
   cursorDescription: string;
 }): Promise<TItem | null> {
   let cursor: string | null = options.cursor ?? null;
-  const seenCursors = new Set<string>();
+  const seenCursors = options.seenCursors ?? new Set<string>();
   const maxPages = options.maxPages ?? MAX_LIST_PAGES_PER_PROBE;
 
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
@@ -316,10 +317,11 @@ interface CursorProbeState {
   initialized: boolean;
   nextCursor: string | null;
   scanOlderNext: boolean;
+  seenCursors: Set<string>;
 }
 
 function createCursorProbeState(): CursorProbeState {
-  return {initialized: false, nextCursor: null, scanOlderNext: false};
+  return {initialized: false, nextCursor: null, scanOlderNext: false, seenCursors: new Set()};
 }
 
 async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
@@ -365,15 +367,18 @@ async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
       cursor: options.state.nextCursor,
       maxPages: 1,
       onNextCursor: updateCursor,
+      seenCursors: options.state.seenCursors,
     });
     options.state.scanOlderNext = false;
     return olderPageMatch;
   }
 
+  const shouldStartNewOlderTraversal = options.state.nextCursor === null;
+  if (shouldStartNewOlderTraversal) options.state.seenCursors.clear();
   const frontWindowMatch = await findInCursorPages({
     ...options,
     cursor: null,
-    onNextCursor: updateCursor,
+    ...(shouldStartNewOlderTraversal ? {onNextCursor: updateCursor} : {}),
   });
   options.state.scanOlderNext = options.state.nextCursor !== null;
   return frontWindowMatch;

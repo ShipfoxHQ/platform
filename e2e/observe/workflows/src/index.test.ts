@@ -35,6 +35,8 @@ const RUN_BY_COMMIT_OBSERVED_RE = /headCommitSha=other/u;
 const RUN_BY_DELIVERY_TIMEOUT_RE =
   /Timed out waiting for workflow run by delivery ID: expectedDeliveryId=delivery-1/u;
 const RUN_BY_DELIVERY_OBSERVED_RE = /deliveryId=other-delivery/u;
+const REPEATED_RUN_CURSOR_RE =
+  /last error: Repeated workflow run list cursor while waiting: runs-page-2/u;
 const RUN_TERMINAL_TIMEOUT_RE =
   /Timed out waiting for workflow run terminal status: runId=33333333/u;
 const RUN_TERMINAL_OBSERVED_RE = /status=running/u;
@@ -365,6 +367,9 @@ function paginatedCommitFetch(paths: string[]) {
       );
     }
     if (cursor === 'runs-page-3') {
+      return response(listResponse({runs: [], next_cursor: 'runs-page-4'}));
+    }
+    if (cursor === 'runs-page-4') {
       return response(listResponse({runs: [run()]}));
     }
     throw new Error(`Unexpected workflow run cursor: ${cursor}`);
@@ -430,7 +435,7 @@ describe('waitForRunByCommit', () => {
     expect(result.id).toBe(runId);
   });
 
-  test('limits each probe to two pages and advances to older pages on the next poll', async () => {
+  test('limits each probe to two pages, rechecks the front window, and advances older pages', async () => {
     const paths: string[] = [];
     const result = await waitForRunByCommit({
       fetch: paginatedCommitFetch(paths),
@@ -448,6 +453,10 @@ describe('waitForRunByCommit', () => {
       `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
       `/workflows/runs?project_id=${projectId}&limit=100`,
       `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-4`,
     ]);
   });
 
@@ -518,6 +527,41 @@ describe('waitForRunByCommit', () => {
       `/workflows/runs?project_id=${projectId}&limit=100`,
       `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
     ]);
+  });
+
+  test('reports a repeated older cursor instead of polling it until timeout', async () => {
+    const result = waitForRunByCommit({
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname !== '/workflows/runs') {
+          throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+        }
+        return response(
+          listResponse({
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'other',
+                  actor: 'e2e',
+                },
+              }),
+            ],
+            next_cursor: 'runs-page-2',
+          }),
+        );
+      },
+      backoffFactor: 1,
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      projectId,
+      timeoutMs: 100,
+      token: 'user-token',
+    });
+
+    await expect(result).rejects.toThrow(REPEATED_RUN_CURSOR_RE);
   });
 
   test('times out with a bounded run list summary', async () => {
