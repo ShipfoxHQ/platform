@@ -719,6 +719,33 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the backoff result when profile preservation fails', async () => {
+    const store = createStore();
+    const profileKey = githubInstallationTokenKey('broad');
+    const originalWrite = store.write;
+    store.write = async (writeWorkspaceId, writeInstallationId, key, envelope) => {
+      if (key === profileKey) return Promise.reject(new Error('profile write failed'));
+      return await originalWrite(writeWorkspaceId, writeInstallationId, key, envelope);
+    };
+    const shared = cache({store});
+    const mint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+
+    await expect(shared.getOrMint(installationId, 'broad', mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+    });
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      ),
+    ).toContain('provider-rejected');
+    expect(errorMonitoring.reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({operation: 'write-profile-envelope'}),
+    );
+  });
+
   it('records terminal backoff without hiding access denied as provider unavailable', async () => {
     const store = createStore();
     const mint = vi

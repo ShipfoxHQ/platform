@@ -103,7 +103,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     this.workspaceCacheTtlMs = options.workspaceCacheTtlMs ?? DEFAULT_WORKSPACE_CACHE_TTL_MS;
     this.mintTimeoutMs = options.mintTimeoutMs ?? DEFAULT_MINT_TIMEOUT_MS;
     this.shareCompatibilityLock =
-      options.shareCompatibilityLock ?? options.withBackoffLock === undefined;
+      options.shareCompatibilityLock ??
+      (options.withBackoffLock === undefined || options.withBackoffLock === options.withLock);
   }
 
   async deleteInstallation(
@@ -564,10 +565,26 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         ),
       );
     }
-    const writeResults = await Promise.all(writes);
+    const [backoffResult, profileResult] = await Promise.allSettled(writes);
+    if (profileResult?.status === 'rejected') {
+      logger().warn(
+        {
+          installationId: params.installationId,
+          permissionProfile: params.profileKey,
+          error: profileResult.reason,
+        },
+        'github installation token profile cache preservation failed',
+      );
+      reportError(profileResult.reason, {
+        boundary: 'integration.cache',
+        operation: 'write-profile-envelope',
+        extra: {installationId: params.installationId},
+      });
+    }
+    if (backoffResult?.status === 'rejected') throw backoffResult.reason;
     return {
       until: selectedBackoff.backoffUntil,
-      persisted: writeResults.every((result) => result === 'written'),
+      persisted: backoffResult?.status === 'fulfilled' && backoffResult.value === 'written',
     };
   }
 
