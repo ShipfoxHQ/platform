@@ -1,5 +1,37 @@
 # @shipfox/api-integration-core
 
+## 22.0.1
+
+### Patch Changes
+
+- d958f16: Uses explicit `while (true)` syntax for the credential-cache retry loop.
+  - @shipfox/api-agent-dto@21.1.0
+  - @shipfox/api-auth-context@20.4.0
+  - @shipfox/api-integration-core-dto@22.0.0
+  - @shipfox/api-integration-gitea@22.0.0
+  - @shipfox/api-integration-github@22.0.0
+  - @shipfox/api-integration-jira@22.0.0
+  - @shipfox/api-integration-linear@22.0.0
+  - @shipfox/api-integration-sentry@22.0.0
+  - @shipfox/api-integration-slack@22.0.0
+  - @shipfox/api-integration-spi@4.1.1
+  - @shipfox/api-integration-webhook@22.0.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-workflows-dto@22.0.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/inter-module@0.2.3
+  - @shipfox/redact@0.2.7
+  - @shipfox/regex@0.3.0
+  - @shipfox/node-drizzle@0.3.5
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-outbox@0.2.7
+  - @shipfox/node-postgres@0.5.1
+  - @shipfox/node-temporal@0.5.0
+
 ## 22.0.0
 
 ### Patch Changes

@@ -1,5 +1,45 @@
 # @shipfox/api-server
 
+## 22.0.1
+
+### Patch Changes
+
+- Updated dependencies [d958f16]
+  - @shipfox/api-integration-core@22.0.1
+  - @shipfox/api-agent@22.0.0
+  - @shipfox/api-agent-dto@21.1.0
+  - @shipfox/annotations@21.2.0
+  - @shipfox/annotations-dto@20.3.0
+  - @shipfox/api-auth@21.2.0
+  - @shipfox/api-auth-dto@20.4.0
+  - @shipfox/api-definitions@22.0.0
+  - @shipfox/api-definitions-dto@21.2.0
+  - @shipfox/api-dispatcher@21.2.0
+  - @shipfox/api-email-challenges@1.1.15
+  - @shipfox/api-integration-core-dto@22.0.0
+  - @shipfox/api-logs@22.0.0
+  - @shipfox/api-logs-dto@20.0.0
+  - @shipfox/api-projects@22.0.0
+  - @shipfox/api-projects-dto@21.0.0
+  - @shipfox/api-runners@22.0.0
+  - @shipfox/api-runners-dto@21.1.0
+  - @shipfox/api-secrets@21.2.0
+  - @shipfox/api-secrets-dto@12.0.0
+  - @shipfox/api-triggers@22.0.0
+  - @shipfox/api-usage@22.0.0
+  - @shipfox/api-usage-dto@22.0.0
+  - @shipfox/api-workflows@22.0.0
+  - @shipfox/api-workflows-dto@22.0.0
+  - @shipfox/api-workspaces@21.2.0
+  - @shipfox/api-workspaces-dto@15.0.0
+  - @shipfox/config@1.2.4
+  - @shipfox/node-error-monitoring@0.3.0
+  - @shipfox/node-fastify@0.4.4
+  - @shipfox/node-jwt@0.4.0
+  - @shipfox/node-module@1.0.10
+  - @shipfox/node-opentelemetry@0.6.5
+  - @shipfox/node-postgres@0.5.1
+
 ## 22.0.0
 
 ### Patch Changes
