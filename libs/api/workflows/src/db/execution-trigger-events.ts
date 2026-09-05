@@ -14,8 +14,8 @@ import {jobListenerEvents} from './schema/job-listener-events.js';
 export async function loadJobExecutionsWithCanonicalTriggerEvents(
   source: ReturnType<typeof db> | Tx,
   executions: readonly JobExecutionDb[],
-): Promise<JobExecutionDb[]> {
-  if (executions.length === 0) return [];
+): Promise<ReadonlyMap<string, JobExecutionDb>> {
+  if (executions.length === 0) return new Map();
 
   const eventRows = await source
     .select()
@@ -40,10 +40,13 @@ export async function loadJobExecutionsWithCanonicalTriggerEvents(
     eventsByExecutionId.set(eventRow.consumedByExecutionId, events);
   }
 
-  return executions.map((execution) => {
-    const canonicalEvents = eventsByExecutionId.get(execution.id);
-    return canonicalEvents === undefined
-      ? execution
-      : {...execution, triggerEvents: canonicalEvents};
-  });
+  return new Map(
+    executions.map((execution) => {
+      const canonicalEvents = eventsByExecutionId.get(execution.id);
+      return [
+        execution.id,
+        canonicalEvents === undefined ? execution : {...execution, triggerEvents: canonicalEvents},
+      ] as const;
+    }),
+  );
 }

@@ -6,7 +6,7 @@ import {
 import {createWorkflowExpression} from '@shipfox/expression';
 import {and, asc, eq, isNull} from 'drizzle-orm';
 import type {JobListeningTrigger, JobStatus} from '#core/entities/job.js';
-import type {JobExecutionStatus} from '#core/entities/job-execution.js';
+import type {JobExecutionStatus, WorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
 import {
@@ -22,6 +22,7 @@ import {
   resolveJobListener,
   settleListenerJobExecution,
 } from '#db/job-listeners.js';
+import {getListenerEventStorageStats} from '#db/listener-storage.js';
 import {jobExecutions} from '#db/schema/job-executions.js';
 import {jobListenerEvents} from '#db/schema/job-listener-events.js';
 import {jobs} from '#db/schema/jobs.js';
@@ -32,6 +33,8 @@ import {jobExecutionTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {jobFactory, workflowModel, workflowRunFactory} from '#test/index.js';
 import {
   getFirstJobExecutionByJobId,
+  getJobExecutionsByJobId,
+  getJobExecutionsByWorkflowRunAttemptId,
   getJobsByWorkflowRunId,
   getLatestJobExecutionByJobId,
   updateJobExecutionStatus,
@@ -1208,6 +1211,76 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(executions.map((execution) => execution.triggerEvents)).toEqual([null, null]);
   });
 
+  it('orders canonical events and falls back to retained legacy arrays', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    await bufferEvent(
+      job.id,
+      'fire',
+      crypto.randomUUID(),
+      new Date('2026-01-01T00:01:00.000Z'),
+      null,
+      {order: 'middle'},
+    );
+    await bufferEvent(
+      job.id,
+      'fire',
+      crypto.randomUUID(),
+      new Date('2026-01-01T00:02:00.000Z'),
+      null,
+      {order: 'last'},
+    );
+    await bufferEvent(
+      job.id,
+      'fire',
+      crypto.randomUUID(),
+      new Date('2026-01-01T00:00:00.000Z'),
+      null,
+      {order: 'first'},
+    );
+    const firstDrain = await drainListenerEventsIntoExecution({
+      jobId: job.id,
+      expectedSequence: 1,
+      maxSize: 3,
+    });
+    const legacyEvent: WorkflowExecutionEvent = {
+      source: 'github',
+      event: 'push',
+      delivery_id: 'legacy-fallback',
+      received_at: '2026-01-01T00:03:00.000Z',
+      project: null,
+      repository: null,
+      ref: null,
+      commit: null,
+      data: {order: 'legacy'},
+    };
+    const legacyExecution = await insertExecution(job.id, 2, 'succeeded');
+    await db()
+      .update(jobExecutions)
+      .set({triggerEvents: [legacyEvent]})
+      .where(eq(jobExecutions.id, legacyExecution.id));
+
+    const first = await getFirstJobExecutionByJobId(job.id);
+    const latest = await getLatestJobExecutionByJobId(job.id);
+    const byJob = await getJobExecutionsByJobId(job.id);
+    const byAttempt = await getJobExecutionsByWorkflowRunAttemptId(job.workflowRunAttemptId);
+
+    expect(firstDrain).toMatchObject({kind: 'execution'});
+    expect(first?.triggerEvents.map((event) => (event.data as {order: string}).order)).toEqual([
+      'first',
+      'middle',
+      'last',
+    ]);
+    expect(latest?.triggerEvents).toEqual([legacyEvent]);
+    expect(byJob.map((execution) => execution.triggerEvents)).toEqual([
+      first?.triggerEvents,
+      [legacyEvent],
+    ]);
+    expect(byAttempt.map((execution) => execution.triggerEvents)).toEqual([
+      first?.triggerEvents,
+      [legacyEvent],
+    ]);
+  });
+
   it('persists step conditions for listener firings', async () => {
     const condition = conditionExpression('false');
     const job = await createListeningJobFromModel({
@@ -1446,5 +1519,82 @@ describe('drainListenerEventsIntoExecution', () => {
       .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
     expect(result).toMatchObject({kind: 'execution', status: 'failed'});
     expect(execution?.status).toBe('failed');
+  });
+});
+
+describe('getListenerEventStorageStats', () => {
+  it('counts retained payloads, ages, and legacy bytes with database queries', async () => {
+    const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
+    const before = await getListenerEventStorageStats();
+    const execution = await insertExecution(job.id, 1, 'pending');
+    const legacyEvent: WorkflowExecutionEvent = {
+      source: 'github',
+      event: 'push',
+      delivery_id: 'legacy-storage-metric',
+      received_at: '2026-01-01T00:00:00.000Z',
+      project: null,
+      repository: null,
+      ref: null,
+      commit: null,
+      data: {legacy: true},
+    };
+    await db()
+      .update(jobExecutions)
+      .set({triggerEvents: [legacyEvent]})
+      .where(eq(jobExecutions.id, execution.id));
+
+    await db()
+      .insert(jobListenerEvents)
+      .values([
+        {
+          jobId: job.id,
+          disposition: 'fire',
+          outcome: 'consumed',
+          eventRef: 'storage-metric-consumed',
+          deliveryId: 'storage-metric-consumed',
+          source: 'github',
+          event: 'push',
+          payload: {state: 'consumed'},
+          storedPayloadBytes: 11,
+          normalizedEventBytes: 12,
+          receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+          consumedByExecutionId: execution.id,
+        },
+        {
+          jobId: job.id,
+          disposition: 'fire',
+          outcome: 'pending',
+          eventRef: 'storage-metric-pending',
+          deliveryId: 'storage-metric-pending',
+          source: 'github',
+          event: 'push',
+          payload: {state: 'pending'},
+          storedPayloadBytes: 13,
+          normalizedEventBytes: 14,
+          receivedAt: new Date('2026-01-02T00:00:00.000Z'),
+        },
+        {
+          jobId: job.id,
+          disposition: 'fire',
+          outcome: 'rejected',
+          outcomeReason: 'payload_too_large',
+          eventRef: 'storage-metric-rejected',
+          deliveryId: 'storage-metric-rejected',
+          source: 'github',
+          event: 'push',
+          payload: null,
+          storedPayloadBytes: 97,
+          normalizedEventBytes: 98,
+          receivedAt: new Date('2026-01-03T00:00:00.000Z'),
+        },
+      ]);
+
+    const after = await getListenerEventStorageStats();
+
+    expect(after.listenerEventRows - before.listenerEventRows).toBe(3);
+    expect(after.listenerEventPayloadBytes - before.listenerEventPayloadBytes).toBe(24);
+    expect(after.consumedListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
+    expect(after.pendingListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
+    expect(after.duplicateTriggerEventsBytes).toBeGreaterThan(before.duplicateTriggerEventsBytes);
   });
 });

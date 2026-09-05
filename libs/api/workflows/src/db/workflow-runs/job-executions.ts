@@ -52,8 +52,8 @@ async function toHydratedJobExecution(
   row: JobExecutionDb,
   fallbackName: string,
 ): Promise<JobExecution> {
-  const [hydrated] = await loadJobExecutionsWithCanonicalTriggerEvents(source, [row]);
-  return toJobExecution(hydrated ?? row, fallbackName);
+  const hydrated = await loadJobExecutionsWithCanonicalTriggerEvents(source, [row]);
+  return toJobExecution(hydrated.get(row.id) ?? row, fallbackName);
 }
 
 export async function getJobExecutionById(id: string, tx?: Tx): Promise<JobExecution | undefined> {
@@ -70,6 +70,7 @@ export async function getJobExecutionById(id: string, tx?: Tx): Promise<JobExecu
 
 export async function getJobExecutionsByWorkflowRunAttemptId(
   workflowRunAttemptId: string,
+  options: {includeTriggerEvents?: boolean} = {},
 ): Promise<JobExecution[]> {
   const rows = await db()
     .select({jobExecution: jobExecutions, job: jobs})
@@ -77,14 +78,16 @@ export async function getJobExecutionsByWorkflowRunAttemptId(
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+  if (options.includeTriggerEvents === false) {
+    return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
+  }
   const executions = await loadJobExecutionsWithCanonicalTriggerEvents(
     db(),
     rows.map((row) => row.jobExecution),
   );
-  const executionsById = new Map(executions.map((execution) => [execution.id, execution]));
   return rows.map((row) =>
     toJobExecution(
-      executionsById.get(row.jobExecution.id) ?? row.jobExecution,
+      executions.get(row.jobExecution.id) ?? row.jobExecution,
       row.job.name ?? row.job.key,
     ),
   );
@@ -101,10 +104,9 @@ export async function getJobExecutionsByJobId(jobId: string): Promise<JobExecuti
     db(),
     rows.map((row) => row.jobExecution),
   );
-  const executionsById = new Map(executions.map((execution) => [execution.id, execution]));
   return rows.map((row) =>
     toJobExecution(
-      executionsById.get(row.jobExecution.id) ?? row.jobExecution,
+      executions.get(row.jobExecution.id) ?? row.jobExecution,
       row.job.name ?? row.job.key,
     ),
   );
@@ -221,14 +223,15 @@ async function resolveJobExecutionOutputs(
     executionRows,
   );
   const fallbackName = target.job.name ?? target.job.key;
-  const executions = hydratedExecutionRows.map((row) =>
-    row.id === target.execution.id
+  const executions = executionRows.map((row) => {
+    const hydrated = hydratedExecutionRows.get(row.id) ?? row;
+    return row.id === target.execution.id
       ? toJobExecution(
-          {...row, status: params.status, statusReason: params.statusReason},
+          {...hydrated, status: params.status, statusReason: params.statusReason},
           fallbackName,
         )
-      : toJobExecution(row, fallbackName),
-  );
+      : toJobExecution(hydrated, fallbackName);
+  });
   const jobExecution = executions.find((execution) => execution.id === target.execution.id);
   if (!jobExecution) throw new JobNotFoundError(params.jobExecutionId);
 
@@ -437,7 +440,7 @@ export async function queueJobExecution(params: {jobExecutionId: string}): Promi
     });
 
     return {
-      execution: await toHydratedJobExecution(tx, queued, row.job.name ?? row.job.key),
+      execution: {...existing, queuedAt: queued.queuedAt, updatedAt: queued.updatedAt},
       changed: true,
     };
   });

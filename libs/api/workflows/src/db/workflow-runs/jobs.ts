@@ -25,7 +25,7 @@ import {db, type Tx} from '../db.js';
 import {loadJobExecutionsWithCanonicalTriggerEvents} from '../execution-trigger-events.js';
 import {writeWorkflowsOutboxEvent} from '../outbox-writes.js';
 import {type JobExecutionDb, jobExecutions, toJobExecution} from '../schema/job-executions.js';
-import {jobs, toJob} from '../schema/jobs.js';
+import {type JobDb, jobs, toJob} from '../schema/jobs.js';
 import {workflowRunAttempts} from '../schema/workflow-run-attempts.js';
 import {toWorkflowRun, toWorkflowRunOriginState, workflowRuns} from '../schema/workflow-runs.js';
 import {getWorkflowRunById} from './queries.js';
@@ -41,11 +41,15 @@ function outputTypesByJobKey(
   );
 }
 
-function canonicalExecutionRow(
-  row: JobExecutionDb,
-  executionsById: ReadonlyMap<string, JobExecutionDb>,
-): JobExecutionDb {
-  return executionsById.get(row.id) ?? row;
+function toDependencyExecution(
+  row: {job: JobDb; execution: JobExecutionDb | null},
+  hydratedExecutions: ReadonlyMap<string, JobExecutionDb>,
+): JobExecution | undefined {
+  if (!row.execution) return undefined;
+  return toJobExecution(
+    hydratedExecutions.get(row.execution.id) ?? row.execution,
+    row.job.name ?? row.job.key,
+  );
 }
 
 export async function getJobsByWorkflowRunAttemptId(workflowRunAttemptId: string): Promise<Job[]> {
@@ -146,7 +150,6 @@ export async function getDirectDependencyJobContexts(
     tx ?? db(),
     rows.flatMap((row) => (row.execution === null ? [] : [row.execution])),
   );
-  const executionsById = new Map(hydratedExecutions.map((execution) => [execution.id, execution]));
 
   const contextsByJobId = new Map<string, JobContextInput & {executions: JobExecution[]}>();
   for (const row of rows) {
@@ -160,14 +163,8 @@ export async function getDirectDependencyJobContexts(
       };
       contextsByJobId.set(row.job.id, context);
     }
-    if (row.execution) {
-      context.executions.push(
-        toJobExecution(
-          canonicalExecutionRow(row.execution, executionsById),
-          row.job.name ?? row.job.key,
-        ),
-      );
-    }
+    const execution = toDependencyExecution(row, hydratedExecutions);
+    if (execution) context.executions.push(execution);
   }
 
   return [...contextsByJobId.values()];
@@ -338,7 +335,6 @@ async function directDependencyContextsByJobKey(
     tx,
     rows.flatMap((row) => (row.execution === null ? [] : [row.execution])),
   );
-  const executionsById = new Map(hydratedExecutions.map((execution) => [execution.id, execution]));
 
   const contextsByJobKey = new Map<string, JobContextInput & {executions: JobExecution[]}>();
   for (const row of rows) {
@@ -352,14 +348,8 @@ async function directDependencyContextsByJobKey(
       };
       contextsByJobKey.set(row.job.key, context);
     }
-    if (row.execution) {
-      context.executions.push(
-        toJobExecution(
-          canonicalExecutionRow(row.execution, executionsById),
-          row.job.name ?? row.job.key,
-        ),
-      );
-    }
+    const execution = toDependencyExecution(row, hydratedExecutions);
+    if (execution) context.executions.push(execution);
   }
 
   return contextsByJobKey;
@@ -544,8 +534,11 @@ export async function resolveJobStatusFromJobExecutions(params: {
 
     const {status, statusReason, trace} = evaluateJobSuccess({
       success: jobRow.success,
-      executions: hydratedExecutionRows.map((execution) =>
-        toJobExecution(execution, jobRow.name ?? jobRow.key),
+      executions: jobExecutionRows.map((execution) =>
+        toJobExecution(
+          hydratedExecutionRows.get(execution.id) ?? execution,
+          jobRow.name ?? jobRow.key,
+        ),
       ),
       jobs: await getDirectDependencyJobContexts(params.jobId, tx),
       vars: workflowContext.vars ?? undefined,

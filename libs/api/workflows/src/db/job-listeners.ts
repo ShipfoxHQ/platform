@@ -1102,5 +1102,7 @@ async function loadListenerPriorExecutions(
     source,
     priorExecutions,
   );
-  return hydratedExecutions.map((execution) => toJobExecution(execution, fallbackName));
+  return priorExecutions.map((execution) =>
+    toJobExecution(hydratedExecutions.get(execution.id) ?? execution, fallbackName),
+  );
 }

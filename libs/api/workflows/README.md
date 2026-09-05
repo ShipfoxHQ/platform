@@ -71,8 +71,11 @@ display label and workflow expression value.
 
 Listener event rows are canonical for new execution context. The legacy
 execution array remains readable for retained executions and is not backfilled.
-Deploy canonical readers before stopping array writes. If rollback is needed,
-restore the prior dual-write, dual-read release before deploying array-only readers.
+Deploy canonical readers and complete one normal compatibility window before
+stopping array writes. An array-only reader cannot recover event context from
+new executions after this release. If rollback is needed, restore a release
+that reads canonical rows before deploying it; do not roll back to an
+array-only reader without a dual-write bridge.
 
 Run numbers are sequential within one workflow lineage, start at `1`, and are
 unique for `(definition_id, number)`. `workflow_runs.definition_id` carries the
@@ -110,6 +113,11 @@ remain in logs and traces.
 | `workflows_next_step_response_overflow` | Instance | `kind` | Count of serialized `/steps/next` responses over the 1,000,000-byte budget; overflow is reported while the response remains served. |
 | `workflows_tool_invocations_queued` | Service | none | Current count of queued tool invocations across the shared database. |
 | `workflows_tool_invocations_in_flight` | Service | none | Current count of tool invocations claimed by an executor. |
+| `workflows_listener_event_rows` | Service | none | Number of retained canonical listener-event rows across the shared database. The value is cached for up to 60 seconds. |
+| `workflows_listener_event_payload_bytes` | Service | none | Stored payload bytes for retained canonical listener-event rows with a payload. The value is cached for up to 60 seconds. |
+| `workflows_listener_event_consumed_oldest_age` | Service | none | Age in milliseconds of the oldest consumed canonical listener-event row still retained. This is a retention-depth signal, not a consumer-liveness signal. The value is cached for up to 60 seconds. |
+| `workflows_listener_event_pending_oldest_age` | Service | none | Age in milliseconds of the oldest pending canonical listener-event row. The value is cached for up to 60 seconds. |
+| `workflows_duplicate_trigger_events_bytes` | Service | none | Serialized bytes retained in legacy job-execution trigger-event arrays. The value is cached for up to 60 seconds. |
 
 ## Development
 

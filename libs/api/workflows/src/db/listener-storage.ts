@@ -16,7 +16,9 @@ export async function getListenerEventStorageStats(): Promise<ListenerEventStora
     db()
       .select({
         listenerEventRows: count(),
-        listenerEventPayloadBytes: sql<number>`coalesce(sum(${jobListenerEvents.storedPayloadBytes}), 0)`,
+        listenerEventPayloadBytes: sql<number>`coalesce(sum(
+          ${jobListenerEvents.storedPayloadBytes}
+        ) filter (where ${jobListenerEvents.payload} is not null), 0)`,
         consumedListenerEventOldestAgeMilliseconds: listenerEventOldestAge(
           sql`${jobListenerEvents.consumedByExecutionId} is not null`,
         ),

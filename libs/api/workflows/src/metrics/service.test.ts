@@ -66,6 +66,8 @@ describe('registerWorkflowsServiceMetrics', () => {
     const observer = {observe: vi.fn()};
 
     await callback?.(observer);
+    await callback?.(observer);
+    expect(mocks.getListenerEventStorageStats).toHaveBeenCalledTimes(1);
 
     expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.get('workflows_running_runs'), 2);
     expect(observer.observe).toHaveBeenCalledWith(
@@ -104,5 +106,50 @@ describe('registerWorkflowsServiceMetrics', () => {
       mocks.gauges.get('workflows_duplicate_trigger_events_bytes'),
       11,
     );
+    expect(mocks.addBatchObservableCallback.mock.calls[0]?.[1]).toEqual(
+      expect.arrayContaining([
+        mocks.gauges.get('workflows_listener_event_rows'),
+        mocks.gauges.get('workflows_listener_event_payload_bytes'),
+        mocks.gauges.get('workflows_listener_event_consumed_oldest_age'),
+        mocks.gauges.get('workflows_listener_event_pending_oldest_age'),
+        mocks.gauges.get('workflows_duplicate_trigger_events_bytes'),
+      ]),
+    );
+  });
+
+  test('keeps existing gauges observable when storage stats fail', async () => {
+    mocks.getWorkflowJobExecutionDepth.mockResolvedValue({runningRuns: 2, runningJobExecutions: 3});
+    mocks.countActiveListeners.mockResolvedValue(4);
+    mocks.getToolInvocationDepth.mockResolvedValue({queued: 5, inFlight: 6});
+    mocks.getListenerEventStorageStats.mockRejectedValue(new Error('storage unavailable'));
+
+    registerWorkflowsServiceMetrics();
+    const callback = mocks.addBatchObservableCallback.mock.calls[0]?.[0];
+    const observer = {observe: vi.fn()};
+
+    await callback?.(observer);
+
+    expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.get('workflows_running_runs'), 2);
+    expect(observer.observe).toHaveBeenCalledWith(
+      mocks.gauges.get('workflows_running_job_executions'),
+      3,
+    );
+    expect(observer.observe).toHaveBeenCalledWith(
+      mocks.gauges.get('workflows_active_listeners'),
+      4,
+    );
+    expect(observer.observe).toHaveBeenCalledWith(
+      mocks.gauges.get('workflows_tool_invocations_queued'),
+      5,
+    );
+    expect(observer.observe).toHaveBeenCalledWith(
+      mocks.gauges.get('workflows_tool_invocations_in_flight'),
+      6,
+    );
+    expect(
+      observer.observe.mock.calls.some(
+        ([gauge]) => gauge === mocks.gauges.get('workflows_listener_event_rows'),
+      ),
+    ).toBe(false);
   });
 });
