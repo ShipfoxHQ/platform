@@ -327,6 +327,17 @@ describe('Usage projections', () => {
     expect(inferenceSegmentUsageHttpSchema.parse(legacyHttpDto)).toMatchObject({
       web_search_requests: 0,
     });
+
+    const boundaryWorkspaceId = crypto.randomUUID();
+    const boundarySegment = inferenceSegment(boundaryWorkspaceId);
+    boundarySegment.webSearchRequests = 2_147_483_647;
+    await expect(
+      recordInferenceSegments({segments: [boundarySegment], now: recordedAt}),
+    ).resolves.toEqual({recorded: 1, duplicates: 0});
+    const boundaryPage = await listInferenceSegments({workspaceId: boundaryWorkspaceId, limit: 1});
+    const persistedBoundarySegment = boundaryPage.segments[0];
+    if (!persistedBoundarySegment) throw new Error('Expected the boundary inference segment');
+    expect(toInferenceSegmentUsage(persistedBoundarySegment).webSearchRequests).toBe(2_147_483_647);
   });
 
   it('replays terminal job executions by a stable timestamp and id cursor', async () => {
