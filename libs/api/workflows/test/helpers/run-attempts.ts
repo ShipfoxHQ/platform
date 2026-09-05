@@ -9,7 +9,7 @@ export async function listTestRunAttempts(params: {
   const attempts: WorkflowRunAttempt[] = [];
   let cursor: {value: number; id: string} | undefined;
 
-  for (;;) {
+  while (true) {
     const page = await listRunAttemptsPage({
       ...params,
       limit: 100,
