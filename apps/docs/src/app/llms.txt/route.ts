@@ -1,4 +1,5 @@
 import {canonicalDocsUrl} from '@/lib/machine-readable';
+import {PRODUCT_DEFINITION} from '@/lib/product-definition';
 import {source} from '@/lib/source';
 
 export const revalidate = false;
@@ -87,7 +88,7 @@ export function GET() {
   const lines: string[] = [
     '# Shipfox Documentation',
     '',
-    '> Shipfox is a continuous shipping platform for engineering teams. Define YAML workflows in your repo, run shell and AI agent steps on your own runners, and trigger pipelines from GitHub, Sentry, and more.',
+    `> ${PRODUCT_DEFINITION} Define YAML workflows in your repository, run shell and AI agent steps on your own runners, and trigger workflows from GitHub, Sentry, and more.`,
     '',
   ];
 
