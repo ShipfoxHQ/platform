@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {readFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
+import {removeStaleRootConfigProbes, withRootConfigProbe} from './root-config-probes.js';
 
 const execFileAsync = promisify(execFile);
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
@@ -45,7 +45,9 @@ const storageRulePattern = /client-architecture\/no-direct-browser-storage/u;
 const rawSpacingRulePattern = /client-architecture\/no-raw-spacing/u;
 const rawSpacingDiagnosticPattern = /client-architecture\/no-raw-spacing/g;
 const rawSpacingRejectedLocationPattern = /rejected\.tsx:/u;
-const rootConfigProbePrefix = resolve(tmpdir(), 'shipfox-biome-root-config-probe-');
+const surfaceSystemRejectedLocationPattern = /rejected\.tsx:/u;
+const darkVariantFirstRejectedLocationPattern = /rejected\.tsx:2:/u;
+const darkVariantSecondRejectedLocationPattern = /rejected\.tsx:3:/u;
 
 const fixtureRuleNames = [
   'fixture-boundary',
@@ -65,6 +67,8 @@ const surfaceSystemRuleNames = [
 ] as const;
 
 describe('client-architecture Biome plugins', () => {
+  beforeAll(removeStaleRootConfigProbes);
+
   for (const ruleName of fixtureRuleNames) {
     const ruleRoot = resolve(fixtureRoot, ruleName);
 
@@ -113,10 +117,10 @@ describe('client-architecture Biome plugins', () => {
           const commandError = error as {stdout?: string; stderr?: string};
           const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
           assert.match(output, new RegExp(`client-architecture/${ruleName}`, 'u'));
-          assert.match(output, /rejected\.tsx:/u);
+          assert.match(output, surfaceSystemRejectedLocationPattern);
           if (ruleName === 'no-dark-variants') {
-            assert.match(output, /rejected\.tsx:2:/u);
-            assert.match(output, /rejected\.tsx:3:/u);
+            assert.match(output, darkVariantFirstRejectedLocationPattern);
+            assert.match(output, darkVariantSecondRejectedLocationPattern);
           }
           return true;
         },
@@ -303,87 +307,70 @@ describe('client-architecture Biome plugins', () => {
   });
 
   test('enforces all surface-system plugins through the real root config', async () => {
-    const probeRoot = await mkdtemp(rootConfigProbePrefix);
-    const probePath = resolve(
-      probeRoot,
+    await withRootConfigProbe(
       'libs/client/workflows/src/pages/surface-system-glob-regression.tsx',
+      [
+        "import {Panel} from '@shipfox/react-ui/panel';",
+        "import {Table} from '@shipfox/react-ui/table';",
+        'export function SurfaceSystemProbe() {',
+        '  return (',
+        '    <div className="bg-background-subtle-base dark:bg-black max-w-[1120px]">',
+        '      <Table />',
+        '      <Panel>',
+        '        <Panel />',
+        '      </Panel>',
+        '    </div>',
+        '  );',
+        '}',
+        '',
+      ].join('\n'),
+      async (probePath) => {
+        await assert.rejects(
+          execFileAsync(process.execPath, [biomeCheck, '--config-path', rootConfig, probePath], {
+            cwd: workspaceRoot,
+          }),
+          (error: unknown) => {
+            const commandError = error as {stdout?: string; stderr?: string};
+            const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
+            for (const ruleName of surfaceSystemRuleNames) {
+              assert.match(output, new RegExp(`client-architecture/${ruleName}`, 'u'));
+            }
+            return true;
+          },
+        );
+      },
     );
-    try {
-      await mkdir(dirname(probePath), {recursive: true});
-      await writeFile(
-        probePath,
-        [
-          "import {Panel} from '@shipfox/react-ui/panel';",
-          "import {Table} from '@shipfox/react-ui/table';",
-          'export function SurfaceSystemProbe() {',
-          '  return (',
-          '    <div className="bg-background-subtle-base dark:bg-black max-w-[1120px]">',
-          '      <Table />',
-          '      <Panel>',
-          '        <Panel />',
-          '      </Panel>',
-          '    </div>',
-          '  );',
-          '}',
-          '',
-        ].join('\n'),
-      );
-      await assert.rejects(
-        execFileAsync(
-          process.execPath,
-          [biomeCheck, '--config-path', rootConfig, probePath],
-          {cwd: workspaceRoot},
-        ),
-        (error: unknown) => {
-          const commandError = error as {stdout?: string; stderr?: string};
-          const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
-          for (const ruleName of surfaceSystemRuleNames) {
-            assert.match(output, new RegExp(`client-architecture/${ruleName}`, 'u'));
-          }
-          return true;
-        },
-      );
-    } finally {
-      await rm(probeRoot, {recursive: true, force: true});
-    }
   });
 
   // The fixture config scopes each rule to its fixture directory. These tests run
   // the real root config so a regression in the repository glob shape cannot make
   // the production rules silently inert.
   test('enforces client-architecture plugins against the real root config', async () => {
-    const probeRoot = await mkdtemp(rootConfigProbePrefix);
-    const probePath = resolve(probeRoot, 'libs/client/plugin-glob-regression-probe.ts');
-    try {
-      await mkdir(dirname(probePath), {recursive: true});
-      await writeFile(
-        probePath,
-        [
-          "import {useSearch} from '@tanstack/react-router';",
-          'export function ProbeComponent() {',
-          '  const search = useSearch({strict: false});',
-          "  return search ?? window.localStorage.getItem('x');",
-          '}',
-          '',
-        ].join('\n'),
-      );
-      await assert.rejects(
-        execFileAsync(
-          process.execPath,
-          [biomeCheck, '--config-path', rootConfig, probePath],
-          {cwd: workspaceRoot},
-        ),
-        (error: unknown) => {
-          const commandError = error as {stdout?: string; stderr?: string};
-          const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
-          assert.match(output, routeInputRulePattern);
-          assert.match(output, storageRulePattern);
-          return true;
-        },
-      );
-    } finally {
-      await rm(probeRoot, {recursive: true, force: true});
-    }
+    await withRootConfigProbe(
+      'libs/client/plugin-glob-regression-probe.ts',
+      [
+        "import {useSearch} from '@tanstack/react-router';",
+        'export function ProbeComponent() {',
+        '  const search = useSearch({strict: false});',
+        "  return search ?? window.localStorage.getItem('x');",
+        '}',
+        '',
+      ].join('\n'),
+      async (probePath) => {
+        await assert.rejects(
+          execFileAsync(process.execPath, [biomeCheck, '--config-path', rootConfig, probePath], {
+            cwd: workspaceRoot,
+          }),
+          (error: unknown) => {
+            const commandError = error as {stdout?: string; stderr?: string};
+            const output = `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`;
+            assert.match(output, routeInputRulePattern);
+            assert.match(output, storageRulePattern);
+            return true;
+          },
+        );
+      },
+    );
   });
 
   test('exempts the route-input and browser-storage runtime files under the real root config', async () => {

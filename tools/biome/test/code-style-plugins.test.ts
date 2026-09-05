@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {readFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
+import {removeStaleRootConfigProbes, withRootConfigProbe} from './root-config-probes.js';
 
 const execFileAsync = promisify(execFile);
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +20,6 @@ const fixtureRoot = resolve(
 );
 const diagnosticPattern = /code-style\/no-fully-empty-for-loop/u;
 const rejectedLocationPattern = /rejected\.ts:2:3/u;
-const rootConfigProbePrefix = resolve(tmpdir(), 'shipfox-biome-root-config-probe-');
 const maintainedSourceRootMarker = 'apps/**';
 const pluginSpecificExclusions = [
   '!**/node_modules/**',
@@ -29,6 +28,8 @@ const pluginSpecificExclusions = [
 ];
 
 describe('code-style Biome plugins', () => {
+  beforeAll(removeStaleRootConfigProbes);
+
   test('rejects a fully empty for loop', async () => {
     await assert.rejects(
       execFileAsync(process.execPath, [biomeCheck, '--config-path', fixtureConfig, fixtureRoot], {
@@ -62,8 +63,8 @@ describe('code-style Biome plugins', () => {
       }[];
     };
     const plugin = config.plugins.find(({path}) => path.endsWith('/no-fully-empty-for-loop.grit'));
-    const maintainedSourceOverride = config.overrides.find(
-      ({includes}) => includes?.includes(maintainedSourceRootMarker),
+    const maintainedSourceOverride = config.overrides.find(({includes}) =>
+      includes?.includes(maintainedSourceRootMarker),
     );
 
     assert.ok(plugin, 'Expected the root Biome config to register no-fully-empty-for-loop.');
@@ -87,30 +88,24 @@ describe('code-style Biome plugins', () => {
   });
 
   test('enforces the rule through the real root config', async () => {
-    const probeRoot = await mkdtemp(rootConfigProbePrefix);
-    const probePath = resolve(probeRoot, 'tools/biome/fully-empty-for-loop.ts');
-
-    try {
-      await mkdir(dirname(probePath), {recursive: true});
-      await writeFile(
-        probePath,
-        ['export function runForever(): void {', '  for (;;) {', '    break;', '  }', '}', ''].join(
-          '\n',
-        ),
-      );
-      await assert.rejects(
-        execFileAsync(process.execPath, [biomeCheck, probePath], {cwd: workspaceRoot}),
-        (error: unknown) => {
-          const commandError = error as {stdout?: string; stderr?: string};
-          assert.match(
-            `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`,
-            diagnosticPattern,
-          );
-          return true;
-        },
-      );
-    } finally {
-      await rm(probeRoot, {recursive: true, force: true});
-    }
+    await withRootConfigProbe(
+      'tools/biome/fully-empty-for-loop.ts',
+      ['export function runForever(): void {', '  for (;;) {', '    break;', '  }', '}', ''].join(
+        '\n',
+      ),
+      async (probePath) => {
+        await assert.rejects(
+          execFileAsync(process.execPath, [biomeCheck, probePath], {cwd: workspaceRoot}),
+          (error: unknown) => {
+            const commandError = error as {stdout?: string; stderr?: string};
+            assert.match(
+              `${commandError.stdout ?? ''}${commandError.stderr ?? ''}`,
+              diagnosticPattern,
+            );
+            return true;
+          },
+        );
+      },
+    );
   });
 });
