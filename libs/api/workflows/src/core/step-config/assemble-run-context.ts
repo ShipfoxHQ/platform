@@ -1,5 +1,7 @@
 import {
-  analyzeContextRootKeyAccess,
+  analyzeContextPathAccess,
+  type ContextPathReference,
+  type ContextPathSegment,
   type ExpressionType,
   extractExactContextRoots,
   getWorkflowPredicateContextRoots,
@@ -229,6 +231,8 @@ export interface MatcherSnapshotPlan {
   readonly matcher: JobListeningTrigger;
   readonly roots: ReadonlySet<ListenerSnapshotRoot>;
   readonly jobKeys: ReadonlySet<string>;
+  readonly jobPaths: readonly ContextPathReference[];
+  readonly jobsAreBroad: boolean;
 }
 
 export interface ListenerSnapshotPlan {
@@ -236,6 +240,8 @@ export interface ListenerSnapshotPlan {
   readonly until: readonly MatcherSnapshotPlan[];
   readonly roots: ReadonlySet<ListenerSnapshotRoot>;
   readonly jobKeys: ReadonlySet<string>;
+  readonly jobPaths: readonly ContextPathReference[];
+  readonly jobsAreBroad: boolean;
 }
 
 export type ListenerFilterOutputTypes = Record<string, Record<string, ExpressionType>>;
@@ -246,45 +252,84 @@ export function planListenerFilterSnapshots(params: {
 }): ListenerSnapshotPlan {
   const roots = new Set<ListenerSnapshotRoot>();
   const jobKeys = new Set<string>();
-  const on = params.on.map((matcher) =>
-    planMatcherFilterSnapshot('listener.on', matcher, roots, jobKeys),
-  );
+  const on = params.on.map((matcher) => planMatcherFilterSnapshot('listener.on', matcher));
   const until = (params.until ?? []).map((matcher) =>
-    planMatcherFilterSnapshot('listener.until', matcher, roots, jobKeys),
+    planMatcherFilterSnapshot('listener.until', matcher),
   );
-  return {on, until, roots, jobKeys};
+  const plans = [...on, ...until];
+  for (const plan of plans) {
+    for (const root of plan.roots) roots.add(root);
+    for (const key of plan.jobKeys) jobKeys.add(key);
+  }
+  return {
+    on,
+    until,
+    roots,
+    jobKeys,
+    jobPaths: plans.flatMap((plan) => plan.jobPaths),
+    jobsAreBroad: plans.some((plan) => plan.jobsAreBroad),
+  };
 }
 
 function planMatcherFilterSnapshot(
   field: ListenerPredicateField,
   matcher: JobListeningTrigger,
-  allRoots: Set<ListenerSnapshotRoot>,
-  allJobKeys: Set<string>,
 ): MatcherSnapshotPlan {
-  if (matcher.filter === undefined) return {matcher, roots: new Set(), jobKeys: new Set()};
+  if (matcher.filter === undefined) {
+    return {
+      matcher,
+      roots: new Set(),
+      jobKeys: new Set(),
+      jobPaths: [],
+      jobsAreBroad: false,
+    };
+  }
 
   let roots: ListenerSnapshotRoot[];
+  let jobPaths: readonly ContextPathReference[] = [];
+  let jobsAreBroad = false;
   try {
     roots = extractExactContextRoots(matcher.filter).filter((root) =>
       isListenerSnapshotRoot(field, root),
     );
+    if (roots.includes('jobs')) {
+      const analysis = analyzeContextPathAccess(matcher.filter, ['jobs']);
+      jobPaths = analysis.references;
+      jobsAreBroad =
+        analysis.unknown.length > 0 || analysis.references.some(isBroadJobsPathReference);
+    }
   } catch {
-    return {matcher, roots: new Set(), jobKeys: new Set()};
+    return {
+      matcher,
+      roots: new Set(),
+      jobKeys: new Set(),
+      jobPaths: [],
+      jobsAreBroad: false,
+    };
   }
 
-  if (roots.length === 0) return {matcher, roots: new Set(), jobKeys: new Set()};
+  if (roots.length === 0) {
+    return {
+      matcher,
+      roots: new Set(),
+      jobKeys: new Set(),
+      jobPaths: [],
+      jobsAreBroad: false,
+    };
+  }
 
-  const jobKeys =
-    roots.includes('jobs') && matcher.filter !== undefined
-      ? new Set(
-          analyzeContextRootKeyAccess(matcher.filter, ['jobs']).references.map(
-            (reference) => reference.key,
-          ),
-        )
-      : new Set<string>();
-  for (const root of roots) allRoots.add(root);
-  for (const key of jobKeys) allJobKeys.add(key);
-  return {matcher, roots: new Set(roots), jobKeys};
+  const jobKeys = new Set(
+    jobPaths.flatMap((reference) => {
+      const [jobKey] = reference.segments;
+      return typeof jobKey === 'string' && jobKey !== '*' ? [jobKey] : [];
+    }),
+  );
+  return {matcher, roots: new Set(roots), jobKeys, jobPaths, jobsAreBroad};
+}
+
+function isBroadJobsPathReference(reference: ContextPathReference): boolean {
+  const [jobKey] = reference.segments;
+  return jobKey === undefined || jobKey === '*' || typeof jobKey !== 'string';
 }
 
 function isListenerSnapshotRoot(
@@ -349,26 +394,25 @@ function addListenerDirectContext(
     };
   }
   if (params.plan.roots.has('jobs')) {
-    context.jobs = requestedJobsContext(params.dependencyJobs, params.plan.jobKeys);
+    context.jobs = requestedJobsContext(params.dependencyJobs, params.plan);
   }
 }
 
 function requestedJobsContext(
   dependencyJobs: readonly JobContextInput[],
-  jobKeys: ReadonlySet<string>,
+  plan: Pick<ListenerSnapshotPlan, 'jobKeys' | 'jobPaths' | 'jobsAreBroad'>,
 ): Record<string, unknown> {
   // Listener snapshots cross a JSON outbox boundary; their type metadata is persisted separately.
   const options: AssembleJobsContextOptions = {
     skipCelNativeRehydration: true,
     skipTypedOutputRehydration: true,
   };
-  if (jobKeys.size === 0) {
-    return assembleJobsContext(dependencyJobs, options).jobs;
-  }
-
-  const filtered = dependencyJobs.filter(({job}) => jobKeys.has(job.key));
-
-  return assembleJobsContext(filtered, options).jobs;
+  const selected =
+    plan.jobsAreBroad || plan.jobKeys.size === 0
+      ? dependencyJobs
+      : dependencyJobs.filter(({job}) => plan.jobKeys.has(job.key));
+  const assembled = assembleJobsContext(selected, options).jobs;
+  return projectJobsContext(assembled, plan);
 }
 
 export type ListenerTriggerWithSnapshot = JobListeningTrigger & {
@@ -456,7 +500,11 @@ function filterOutputTypesForPlan(
 
   const entries = Object.keys(jobsSnapshot).flatMap((jobKey) => {
     const types = outputTypes[jobKey];
-    return types === undefined ? [] : [[jobKey, {...types}] as const];
+    if (types === undefined) return [];
+    const paths = outputTypePathsForJob(plan, jobKey);
+    if (paths === undefined) return [];
+    const projected = projectOutputTypes(types, paths);
+    return projected === undefined ? [] : [[jobKey, projected] as const];
   });
   return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
@@ -488,14 +536,203 @@ function jobsSnapshotForPlan(
   }
 
   const jobsContext = context.jobs as Record<string, unknown>;
-  if (plan.jobKeys.size === 0) return {...jobsContext};
+  return projectJobsContext(jobsContext, plan);
+}
 
-  const snapshot = Object.fromEntries(
-    [...plan.jobKeys].flatMap((key) =>
-      Object.hasOwn(jobsContext, key) ? [[key, jobsContext[key]]] : [],
-    ),
+function projectJobsContext(
+  jobsContext: Record<string, unknown>,
+  plan: Pick<MatcherSnapshotPlan, 'jobKeys' | 'jobPaths' | 'jobsAreBroad'>,
+): Record<string, unknown> {
+  if (plan.jobsAreBroad) return {...jobsContext};
+
+  return Object.fromEntries(
+    [...plan.jobKeys].flatMap((jobKey) => {
+      const job = jobsContext[jobKey];
+      if (!Object.hasOwn(jobsContext, jobKey)) return [];
+
+      const paths = plan.jobPaths.flatMap((reference) => {
+        const [referenceJobKey, ...path] = reference.segments;
+        return referenceJobKey === jobKey ? [path] : [];
+      });
+      return [[jobKey, projectJobContext(job, paths)] as const];
+    }),
   );
-  return snapshot;
+}
+
+function projectJobContext(
+  job: unknown,
+  paths: readonly (readonly ContextPathSegment[])[],
+): unknown {
+  if (!isRecord(job)) return job;
+  const compactPaths = compactProjectionPaths(paths);
+  if (compactPaths.some((path) => path.length === 0)) return {...job};
+
+  const projected = projectValueByPaths(job, compactPaths);
+  if (!isRecord(projected)) return projected;
+
+  return {
+    ...(Object.hasOwn(job, 'key') ? {key: job.key} : {}),
+    ...(Object.hasOwn(job, 'status') ? {status: job.status} : {}),
+    ...projected,
+  };
+}
+
+function compactProjectionPaths(
+  paths: readonly (readonly ContextPathSegment[])[],
+): readonly (readonly ContextPathSegment[])[] {
+  const unique = new Map<string, readonly ContextPathSegment[]>();
+  for (const path of paths) unique.set(JSON.stringify(path), path);
+
+  const values = [...unique.values()];
+  return values.filter(
+    (path) =>
+      !values.some(
+        (candidate) =>
+          candidate.length > path.length && isPathPrefix(path, candidate) && path.at(-1) === '*',
+      ),
+  );
+}
+
+function isPathPrefix(prefix: readonly ContextPathSegment[], path: readonly ContextPathSegment[]) {
+  return prefix.every((segment, index) => segment === path[index]);
+}
+
+function projectValueByPaths(
+  value: unknown,
+  paths: readonly (readonly ContextPathSegment[])[],
+): unknown {
+  if (paths.some((path) => path.length === 0)) return value;
+  if (Array.isArray(value)) return projectArrayByPaths(value, paths);
+  if (!isRecord(value)) return value;
+  if (paths.some((path) => path[0] === '*')) return value;
+
+  const projected: Record<string, unknown> = {};
+  for (const path of paths) {
+    const segment = path[0];
+    if (typeof segment !== 'string' || !Object.hasOwn(value, segment)) return {};
+
+    const child = projectValueByPaths(value[segment], [path.slice(1)]);
+    projected[segment] = mergeProjectedValues(projected[segment], child);
+  }
+  return projected;
+}
+
+function projectArrayByPaths(
+  value: readonly unknown[],
+  paths: readonly (readonly ContextPathSegment[])[],
+): unknown[] {
+  const indexedPaths = new Map<number, (readonly ContextPathSegment[])[]>();
+  const elementPaths: (readonly ContextPathSegment[])[] = [];
+  for (const path of paths) {
+    const segment = path[0];
+    const rest = path.slice(1);
+    if (typeof segment === 'number' && Number.isSafeInteger(segment) && segment >= 0) {
+      const pathsForIndex = indexedPaths.get(segment) ?? [];
+      pathsForIndex.push(rest);
+      indexedPaths.set(segment, pathsForIndex);
+      continue;
+    }
+    elementPaths.push(segment === '*' ? rest : path);
+  }
+
+  if (elementPaths.length > 0) {
+    return value.map((element, index) =>
+      projectValueByPaths(element, [...elementPaths, ...(indexedPaths.get(index) ?? [])]),
+    );
+  }
+
+  const lastIndex = Math.max(...indexedPaths.keys(), -1);
+  return value.slice(0, lastIndex + 1).map((element, index) => {
+    const pathsForIndex = indexedPaths.get(index);
+    return pathsForIndex === undefined ? {} : projectValueByPaths(element, pathsForIndex);
+  });
+}
+
+function mergeProjectedValues(left: unknown, right: unknown): unknown {
+  if (left === undefined) return right;
+  if (!isRecord(left) || !isRecord(right)) return right;
+  return {...left, ...right};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function outputTypePathsForJob(
+  plan: MatcherSnapshotPlan,
+  jobKey: string,
+): readonly (readonly ContextPathSegment[])[] | undefined {
+  if (plan.jobsAreBroad) return [[]];
+
+  const paths: (readonly ContextPathSegment[])[] = [];
+  for (const reference of plan.jobPaths) {
+    const [referenceJobKey, ...jobPath] = reference.segments;
+    if (referenceJobKey !== jobKey) continue;
+    const outputPath = outputPathFromJobPath(jobPath);
+    if (outputPath !== undefined) paths.push(outputPath);
+  }
+  return paths.length === 0 ? undefined : compactProjectionPaths(paths);
+}
+
+function outputPathFromJobPath(
+  path: readonly ContextPathSegment[],
+): readonly ContextPathSegment[] | undefined {
+  const outputsIndex = path.indexOf('outputs');
+  if (outputsIndex === -1) return undefined;
+  return path.slice(outputsIndex + 1);
+}
+
+function projectOutputTypes(
+  types: Record<string, ExpressionType>,
+  paths: readonly (readonly ContextPathSegment[])[],
+): Record<string, ExpressionType> | undefined {
+  if (paths.some((path) => path.length === 0)) return {...types};
+  const projected = projectExpressionTypeRecord(types, paths);
+  return Object.keys(projected).length === 0 ? undefined : projected;
+}
+
+function projectExpressionTypeRecord(
+  types: Record<string, ExpressionType>,
+  paths: readonly (readonly ContextPathSegment[])[],
+): Record<string, ExpressionType> {
+  const projected: Record<string, ExpressionType> = {};
+  for (const path of paths) {
+    const [key, ...rest] = path;
+    if (typeof key !== 'string') return {...types};
+    const type = types[key];
+    if (type === undefined) continue;
+    const projectedType = projectExpressionType(type, [rest]);
+    if (projectedType !== undefined) projected[key] = projectedType;
+  }
+  return projected;
+}
+
+function projectExpressionType(
+  type: ExpressionType,
+  paths: readonly (readonly ContextPathSegment[])[],
+): ExpressionType | undefined {
+  if (paths.some((path) => path.length === 0)) return type;
+  if (typeof type === 'string') return type;
+
+  switch (type.kind) {
+    case 'dyn':
+      return undefined;
+    case 'map':
+      return type;
+    case 'list': {
+      const elementPaths = paths.map((path) => {
+        const segment = path[0];
+        const rest = path.slice(1);
+        return segment === '*' || typeof segment === 'number' ? rest : path;
+      });
+      const element = projectExpressionType(type.element, elementPaths);
+      return element === undefined ? undefined : {kind: 'list', element};
+    }
+    case 'object': {
+      const fields = projectExpressionTypeRecord(type.fields, paths);
+      return {kind: 'object', fields};
+    }
+  }
 }
 
 function assembleJobContext(

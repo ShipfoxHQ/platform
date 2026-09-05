@@ -53,6 +53,7 @@ export {
   listenerStatusSchema,
   listeningTriggerSchema,
   logOutcomeSchema,
+  MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
   MAX_LISTENER_FIRE_EVENT_BYTES,
   MAX_LISTENER_TRIGGER_EVENTS_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,

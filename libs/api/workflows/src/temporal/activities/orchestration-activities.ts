@@ -7,7 +7,7 @@ import {defaultJobConditionTrace} from '#core/condition-trace.js';
 import type {JobStatus, JobStatusReason, ResolutionReason} from '#core/entities/job.js';
 import type {PersistedEvaluationTraceEntry, StepStatus} from '#core/entities/step.js';
 import type {WorkflowRunStatus} from '#core/entities/workflow-run.js';
-import {JobNotFoundError} from '#core/errors.js';
+import {JobNotFoundError, WorkflowExecutionPayloadTooLargeError} from '#core/errors.js';
 import type {
   RuntimeCompletionStatus,
   RuntimeDagNode,
@@ -247,7 +247,14 @@ export async function activateJobListenerActivity(params: {
   jobId: string;
   expectedVersion: number;
 }) {
-  return await activateJobListener(params);
+  try {
+    return await activateJobListener(params);
+  } catch (error) {
+    if (error instanceof WorkflowExecutionPayloadTooLargeError) {
+      throw ApplicationFailure.nonRetryable(error.message, error.name);
+    }
+    throw error;
+  }
 }
 
 export function createDrainListenerEventsActivity(clients: {
