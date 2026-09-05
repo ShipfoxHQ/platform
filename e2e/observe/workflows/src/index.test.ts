@@ -445,7 +445,78 @@ describe('waitForRunByCommit', () => {
       `/workflows/runs?project_id=${projectId}&limit=100`,
       `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
       `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
       `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+    ]);
+  });
+
+  test('rechecks the front window while polling for a newly visible run', async () => {
+    let poll = 0;
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: (input) => {
+        const url = new URL(input);
+        paths.push(`${url.pathname}${url.search}`);
+        const cursor = url.searchParams.get('cursor');
+        if (url.pathname !== '/workflows/runs') {
+          throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+        }
+        if (cursor === null) {
+          poll += 1;
+          return response(
+            listResponse({
+              runs: [
+                run({
+                  id: `other-page-${poll}`,
+                  trigger_reference: {
+                    repository: 'acme/api',
+                    ref: 'refs/heads/main',
+                    commit: 'other',
+                    actor: 'e2e',
+                  },
+                }),
+              ],
+              next_cursor: 'runs-page-2',
+            }),
+          );
+        }
+        if (cursor === 'runs-page-2') {
+          return response(
+            listResponse({
+              runs: [
+                run(
+                  poll === 2
+                    ? {}
+                    : {
+                        id: 'second-page',
+                        trigger_reference: {
+                          repository: 'acme/api',
+                          ref: 'refs/heads/main',
+                          commit: 'other',
+                          actor: 'e2e',
+                        },
+                      },
+                ),
+              ],
+              next_cursor: 'runs-page-3',
+            }),
+          );
+        }
+        throw new Error(`Unexpected workflow run cursor: ${cursor}`);
+      },
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
     ]);
   });
 

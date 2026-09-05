@@ -315,10 +315,11 @@ async function findInCursorPages<TPage, TItem>(options: {
 interface CursorProbeState {
   initialized: boolean;
   nextCursor: string | null;
+  scanOlderNext: boolean;
 }
 
 function createCursorProbeState(): CursorProbeState {
-  return {initialized: false, nextCursor: null};
+  return {initialized: false, nextCursor: null, scanOlderNext: false};
 }
 
 async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
@@ -348,23 +349,34 @@ async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
     return result;
   }
 
-  // Keep the newest page live so a run or event created during the wait is not skipped.
-  const currentPageMatch = await findInCursorPages({
+  if (options.state.scanOlderNext && options.state.nextCursor !== null) {
+    // Keep the newest page live so a run or event created during the wait is not skipped.
+    const currentPageMatch = await findInCursorPages({
+      ...options,
+      cursor: null,
+      maxPages: 1,
+    });
+    if (currentPageMatch) return currentPageMatch;
+
+    // Alternate the live front-window probe with one older-page request. This keeps page 2
+    // findable under contention while still advancing through targets beyond the page budget.
+    const olderPageMatch = await findInCursorPages({
+      ...options,
+      cursor: options.state.nextCursor,
+      maxPages: 1,
+      onNextCursor: updateCursor,
+    });
+    options.state.scanOlderNext = false;
+    return olderPageMatch;
+  }
+
+  const frontWindowMatch = await findInCursorPages({
     ...options,
     cursor: null,
-    maxPages: 1,
-  });
-  if (currentPageMatch) return currentPageMatch;
-  if (options.state.nextCursor === null) return null;
-
-  // Use the second request to advance the older-page cursor. This keeps every probe bounded
-  // while allowing a target that was already beyond the initial page budget to be found.
-  return await findInCursorPages({
-    ...options,
-    cursor: options.state.nextCursor,
-    maxPages: 1,
     onNextCursor: updateCursor,
   });
+  options.state.scanOlderNext = options.state.nextCursor !== null;
+  return frontWindowMatch;
 }
 
 function findWorkflowRunAcrossProbes(options: {
