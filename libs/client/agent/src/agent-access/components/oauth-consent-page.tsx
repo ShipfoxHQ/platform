@@ -9,6 +9,7 @@ import {Code, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useState} from 'react';
 import type {OAuthConsent} from '#agent-access/core/agent-access.js';
 import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
+import {createOAuthConsentLoginRedirect} from '#agent-access/routes/login-redirect.js';
 import {
   useApproveOAuthConsentMutation,
   useDenyOAuthConsentMutation,
@@ -28,7 +29,7 @@ export function OAuthConsentRoutePage({
   useEffect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
       const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      onGuestRedirect(`/auth/login?redirect=${encodeURIComponent(returnUrl)}`);
+      onGuestRedirect(createOAuthConsentLoginRedirect(returnUrl).href);
     }
   }, [auth.isAuthenticated, auth.isLoading, onGuestRedirect]);
 

@@ -17,6 +17,7 @@ describe('normalizeOAuthPublicOrigin', () => {
     ' https://api.example.test',
     'https://api.example.test?region=eu',
     'https://api.example.test#fragment',
+    'https://api.example.test/\u0001',
     'https://api.example.test/\u007f',
   ])('rejects an unsafe public origin: %s', (value) => {
     expect(() => normalizeOAuthPublicOrigin(value)).toThrow(InvalidOAuthPublicOriginError);
