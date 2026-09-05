@@ -212,10 +212,45 @@ describe('GithubInstallationTokenProvider', () => {
     const provider = createGithubInstallationTokenProvider();
 
     await provider.getInstallationAccessToken(1);
-    await provider.deleteInstallation?.(1);
+    await (
+      provider as typeof provider & {
+        deleteInstallation?: (installationId: number) => Promise<number>;
+      }
+    ).deleteInstallation?.(1);
     const refreshed = await provider.getInstallationAccessToken(1);
 
     expect(refreshed.token).toBe('ghs_second');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not recache an in-flight token after installation eviction', async () => {
+    let resolveMint: (
+      value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
+    ) => void = () => undefined;
+    createInstallationAccessTokenMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMint = resolve;
+      }),
+    );
+    const provider = createGithubInstallationTokenProvider();
+
+    const pending = provider.getInstallationAccessToken(1);
+    await (
+      provider as typeof provider & {
+        deleteInstallation?: (installationId: number) => Promise<number>;
+      }
+    ).deleteInstallation?.(1);
+    resolveMint({
+      data: {token: 'ghs_late', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(pending).resolves.toMatchObject({token: 'ghs_late'});
+
+    createInstallationAccessTokenMock.mockResolvedValueOnce({
+      data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_fresh',
+    });
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
@@ -351,6 +386,14 @@ describe('GithubInstallationTokenProvider', () => {
             `${writeWorkspaceId}:${writeInstallationId}:${key}`,
             encodeInstallationTokenEnvelope(envelope),
           );
+          return Promise.resolve();
+        },
+        readGeneration: (readWorkspaceId, readInstallationId) =>
+          Promise.resolve(
+            values.get(`${readWorkspaceId}:${readInstallationId}:GENERATION`) ?? null,
+          ),
+        writeGeneration: (writeWorkspaceId, writeInstallationId, generation) => {
+          values.set(`${writeWorkspaceId}:${writeInstallationId}:GENERATION`, generation);
           return Promise.resolve();
         },
       },

@@ -16,6 +16,7 @@ import {
   TOKEN_REFRESH_MARGIN_MS,
 } from './installation-token-envelope.js';
 import {
+  type DeleteInstallationNamespaceFn,
   type InstallationTokenCache,
   type InstallationTokenSecretStore,
   SharedInstallationTokenCache,
@@ -28,7 +29,6 @@ export interface GithubInstallationTokenProvider {
     permissionFingerprint?: string,
     permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken>;
-  deleteInstallation?(installationId: number): Promise<number>;
 }
 
 export interface GithubInstallationTokenProviderOptions {
@@ -87,8 +87,11 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
     );
   }
 
-  async deleteInstallation(installationId: number): Promise<number> {
-    return (await this.cache.deleteInstallation?.(installationId)) ?? 0;
+  async deleteInstallation(
+    installationId: number,
+    deleteNamespace?: DeleteInstallationNamespaceFn,
+  ): Promise<number> {
+    return (await this.cache.deleteInstallation?.(installationId, deleteNamespace)) ?? 0;
   }
 
   private async assertInstallationIsActive(installationId: number): Promise<void> {
@@ -172,6 +175,8 @@ class OctokitGithubInstallationTokenProvider implements GithubInstallationTokenP
 class InMemoryInstallationTokenCache implements InstallationTokenCache {
   private readonly tokens = new Map<string, GithubInstallationAccessToken>();
   private readonly inFlightMints = new Map<string, Promise<GithubInstallationAccessToken>>();
+  private readonly inFlightEpochs = new Map<string, number>();
+  private readonly pendingMints = new Map<number, Set<Promise<GithubInstallationAccessToken>>>();
   private readonly deletionEpochs = new Map<number, number>();
 
   constructor(
@@ -198,7 +203,9 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
     }
 
     const inFlightMint = this.inFlightMints.get(cacheKey);
-    if (inFlightMint) return inFlightMint;
+    if (inFlightMint && this.inFlightEpochs.get(cacheKey) === deletionEpoch) {
+      return inFlightMint;
+    }
 
     const freshToken = mint()
       .then((token) => {
@@ -210,13 +217,27 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
       .finally(() => {
         if (this.inFlightMints.get(cacheKey) === freshToken) {
           this.inFlightMints.delete(cacheKey);
+          this.inFlightEpochs.delete(cacheKey);
+        }
+        const pending = this.pendingMints.get(installationId);
+        pending?.delete(freshToken);
+        if (pending?.size === 0) {
+          this.pendingMints.delete(installationId);
+          this.cleanupDeletionEpoch(installationId);
         }
       });
     this.inFlightMints.set(cacheKey, freshToken);
+    this.inFlightEpochs.set(cacheKey, deletionEpoch);
+    const pending = this.pendingMints.get(installationId) ?? new Set();
+    pending.add(freshToken);
+    this.pendingMints.set(installationId, pending);
     return freshToken;
   }
 
-  deleteInstallation(installationId: number): Promise<number> {
+  async deleteInstallation(
+    installationId: number,
+    deleteNamespace?: DeleteInstallationNamespaceFn,
+  ): Promise<number> {
     this.deletionEpochs.set(installationId, (this.deletionEpochs.get(installationId) ?? 0) + 1);
     const prefix = `${installationId}\u0000`;
     let deleted = 0;
@@ -225,10 +246,17 @@ class InMemoryInstallationTokenCache implements InstallationTokenCache {
       this.tokens.delete(cacheKey);
       deleted += 1;
     }
+    this.cleanupDeletionEpoch(installationId);
+    if (deleteNamespace === undefined) return deleted;
+    return deleted + (await deleteNamespace(installationId));
+  }
+
+  private cleanupDeletionEpoch(installationId: number): void {
+    const prefix = `${installationId}\u0000`;
     for (const cacheKey of this.inFlightMints.keys()) {
-      if (cacheKey.startsWith(prefix)) this.inFlightMints.delete(cacheKey);
+      if (cacheKey.startsWith(prefix)) return;
     }
-    return Promise.resolve(deleted);
+    this.deletionEpochs.delete(installationId);
   }
 
   private isInsideRefreshMargin(expiresAt: Date): boolean {
@@ -256,9 +284,13 @@ class TieredInstallationTokenCache implements InstallationTokenCache {
     );
   }
 
-  async deleteInstallation(installationId: number): Promise<number> {
+  async deleteInstallation(
+    installationId: number,
+    deleteNamespace?: DeleteInstallationNamespaceFn,
+  ): Promise<number> {
     const deletedRam = (await this.ram.deleteInstallation?.(installationId)) ?? 0;
-    const deletedShared = (await this.shared.deleteInstallation?.(installationId)) ?? 0;
+    const deletedShared =
+      (await this.shared.deleteInstallation?.(installationId, deleteNamespace)) ?? 0;
     return deletedRam + deletedShared;
   }
 }

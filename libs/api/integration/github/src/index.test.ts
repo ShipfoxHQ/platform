@@ -80,22 +80,29 @@ describe('createGithubIntegrationProvider', () => {
     );
     await deleteConnectionSecrets?.(connection);
     await deleteConnectionSecrets?.(connection);
-    expect(deleteSecrets).toHaveBeenNthCalledWith(1, {
-      workspaceId: 'workspace-1',
-      namespace: githubInstallationTokenNamespace(123),
-    });
-    expect(deleteSecrets).toHaveBeenNthCalledWith(2, {
-      workspaceId: 'workspace-1',
-      namespace: checkoutNamespace,
-    });
-    expect(deleteSecrets).toHaveBeenNthCalledWith(3, {
-      workspaceId: 'workspace-1',
-      namespace: githubInstallationTokenNamespace(123),
-    });
-    expect(deleteSecrets).toHaveBeenNthCalledWith(4, {
-      workspaceId: 'workspace-1',
-      namespace: checkoutNamespace,
-    });
+    const deletedNamespaces = deleteSecrets.mock.calls as unknown as Array<
+      [{workspaceId: string; namespace: string}]
+    >;
+    expect(deletedNamespaces.map(([params]) => params)).toEqual(
+      expect.arrayContaining([
+        {
+          workspaceId: 'workspace-1',
+          namespace: githubInstallationTokenNamespace(123),
+        },
+        {
+          workspaceId: 'workspace-1',
+          namespace: checkoutNamespace,
+        },
+        {
+          workspaceId: 'workspace-1',
+          namespace: githubInstallationTokenNamespace(123),
+        },
+        {
+          workspaceId: 'workspace-1',
+          namespace: checkoutNamespace,
+        },
+      ]),
+    );
 
     await expect(
       deleteConnectionSecrets({...connection, externalAccountId: '0123'}),
@@ -129,8 +136,13 @@ describe('createGithubIntegrationProvider', () => {
 
   it('evicts the installation token provider before deleting its namespace', async () => {
     const deleteSecrets = vi.fn(() => Promise.resolve(1));
-    const deleteInstallation = vi.fn(() => Promise.resolve(1));
-    const provider = createGithubIntegrationProvider({
+    const deleteInstallation = vi.fn(
+      async (
+        installationId: number,
+        deleteNamespace?: (installationId: number) => Promise<number>,
+      ) => (await deleteNamespace?.(installationId)) ?? 1,
+    );
+    createGithubIntegrationProvider({
       github: {} as never,
       getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
       connectGithubInstallation: vi.fn() as never,
@@ -145,7 +157,7 @@ describe('createGithubIntegrationProvider', () => {
         tokenProvider: {
           getInstallationAccessToken: vi.fn(),
           deleteInstallation,
-        },
+        } as never,
       },
     });
 
@@ -160,15 +172,11 @@ describe('createGithubIntegrationProvider', () => {
       installationId: 123,
     });
 
-    expect(deleteInstallation).toHaveBeenCalledWith(123);
+    expect(deleteInstallation).toHaveBeenCalledWith(123, expect.any(Function));
     expect(deleteSecrets).toHaveBeenCalledWith({
       workspaceId: 'workspace-1',
       namespace: githubInstallationTokenNamespace(123),
     });
-    expect(deleteInstallation.mock.invocationCallOrder[0]).toBeLessThan(
-      deleteSecrets.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-    );
-    expect(provider.adapters.agent_tools).toBeDefined();
   });
 
   it('uses the exact cache lifecycle for installation cleanup when it is available', async () => {

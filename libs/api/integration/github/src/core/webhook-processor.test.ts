@@ -11,6 +11,9 @@ import {createGithubWebhookProcessor} from './webhook-processor.js';
 
 const WEBHOOK_SECRET = 'test-webhook-secret';
 
+const errorMonitoring = vi.hoisted(() => ({reportError: vi.fn()}));
+vi.mock('@shipfox/node-error-monitoring', () => errorMonitoring);
+
 function fakeConnection(id: string): IntegrationConnection {
   return {
     id,
@@ -60,6 +63,7 @@ function signedRequest(deliveryId: string, event: string, payload: unknown) {
 
 describe('GitHub webhook processor', () => {
   beforeEach(async () => {
+    errorMonitoring.reportError.mockReset();
     await db().delete(githubInstallations);
   });
 
@@ -145,7 +149,7 @@ describe('GitHub webhook processor', () => {
     expect(result).toMatchObject({outcome: 'discarded', reason: 'malformed_payload'});
   });
 
-  it('reports permission cleanup failures without failing the committed delivery', async () => {
+  it('reports and retries permission cleanup failures after the delivery commits', async () => {
     const installationId = 8412;
     const connectionId = randomUUID();
     const connection = fakeConnection(connectionId);
@@ -154,25 +158,41 @@ describe('GitHub webhook processor', () => {
       connectionId,
       installationId: String(installationId),
     });
+    const cleanupError = new Error('secret store unavailable');
     const deleteInstallationTokenSecret = vi
       .fn()
-      .mockRejectedValue(new Error('secret store unavailable'));
+      .mockRejectedValueOnce(cleanupError)
+      .mockResolvedValueOnce(1);
+    const publishIntegrationEventReceived = vi
+      .fn()
+      .mockResolvedValueOnce({published: true})
+      .mockResolvedValueOnce({published: false});
     const processor = createGithubWebhookProcessor({
       coreDb: db,
-      publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: true})),
+      publishIntegrationEventReceived,
       publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(() => Promise.resolve(connection)),
       deleteInstallationTokenSecret,
     });
-
-    const result = await processor.process(
-      signedInstallationRequest(deliveryId, installationId, 'new_permissions_accepted'),
+    const request = signedInstallationRequest(
+      deliveryId,
+      installationId,
+      'new_permissions_accepted',
     );
 
-    expect(result).toEqual({outcome: 'processed', deliveryId});
-    expect(deleteInstallationTokenSecret).toHaveBeenCalledOnce();
+    await expect(processor.process(request)).rejects.toThrow('secret store unavailable');
+    await expect(processor.process(request)).resolves.toEqual({
+      outcome: 'duplicate',
+      deliveryId,
+    });
+
+    expect(errorMonitoring.reportError).toHaveBeenCalledWith(cleanupError, {
+      boundary: 'integration.webhook',
+      operation: 'delete-installation-token-cache',
+    });
+    expect(deleteInstallationTokenSecret).toHaveBeenCalledTimes(2);
   });
 
   it('retries cleanup for repeated permission approval deliveries', async () => {

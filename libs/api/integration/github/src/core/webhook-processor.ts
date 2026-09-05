@@ -126,6 +126,7 @@ async function processGithubWebhookRequest(
         boundary: 'integration.webhook',
         operation: 'delete-installation-token-cache',
       });
+      throw error;
     }
   }
 

@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {secretKeySchema} from '@shipfox/api-secrets-dto';
 import {GithubIntegrationProviderError} from '#core/errors.js';
+import type {GithubInstallationAccessToken} from './client.js';
 import {
   backoffActive,
   encodeInstallationTokenEnvelope,
@@ -62,6 +63,15 @@ function createStore(): InstallationTokenSecretStore & {
       );
       return Promise.resolve();
     },
+    readGeneration(readWorkspaceId: string, readInstallationId: number) {
+      return Promise.resolve(
+        values.get(`${readWorkspaceId}:${readInstallationId}:GENERATION`) ?? null,
+      );
+    },
+    writeGeneration(writeWorkspaceId: string, writeInstallationId: number, generation: string) {
+      values.set(`${writeWorkspaceId}:${writeInstallationId}:GENERATION`, generation);
+      return Promise.resolve();
+    },
   };
   return store;
 }
@@ -77,6 +87,13 @@ function cache(
           fn: () => Promise<T>,
         ) => Promise<InstallationTokenLockResult<T>>)
       | undefined;
+    withBackoffLock?:
+      | (<T>(
+          installationId: number,
+          permissionFingerprint: string,
+          fn: () => Promise<T>,
+        ) => Promise<InstallationTokenLockResult<T>>)
+      | undefined;
     resolveWorkspaceId?: ((installationId: number) => Promise<string>) | undefined;
     sleep?: ((ms: number) => Promise<void>) | undefined;
     pollDelaysMs?: number[] | undefined;
@@ -85,6 +102,10 @@ function cache(
   return new SharedInstallationTokenCache({
     secretStore: options.store ?? createStore(),
     withLock:
+      options.withLock ??
+      (async (_id, _permissionFingerprint, fn) => ({acquired: true, value: await fn()})),
+    withBackoffLock:
+      options.withBackoffLock ??
       options.withLock ??
       (async (_id, _permissionFingerprint, fn) => ({acquired: true, value: await fn()})),
     resolveWorkspaceId: options.resolveWorkspaceId ?? (() => Promise.resolve(workspaceId)),
@@ -317,10 +338,16 @@ describe('SharedInstallationTokenCache', () => {
       resolveMintStarted();
       return Promise.resolve(token('ghs_shared'));
     });
-    const firstReplica = cache({store, withLock});
+    const withBackoffLock = async <T>(
+      _id: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ) => ({acquired: true as const, value: await fn()});
+    const firstReplica = cache({store, withLock, withBackoffLock});
     const secondReplica = cache({
       store,
       withLock,
+      withBackoffLock,
       sleep: () => lockReleased,
       pollDelaysMs: [1],
     });
@@ -380,6 +407,59 @@ describe('SharedInstallationTokenCache', () => {
     await deletion;
     await expect(failedMint).rejects.toMatchObject({reason: 'provider-rejected'});
     expect(store.values.size).toBe(0);
+  });
+
+  it('skips token and backoff writes from a mint crossing invalidation', async () => {
+    const store = createStore();
+    const shared = cache({store});
+    let resolveMint: (value: GithubInstallationAccessToken) => void = () => undefined;
+    let resolveMintStarted: () => void = () => undefined;
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
+    const pendingMint = shared.getOrMint(installationId, 'broad', () => {
+      resolveMintStarted();
+      return new Promise<GithubInstallationAccessToken>((resolve) => {
+        resolveMint = resolve;
+      });
+    });
+    await mintStarted;
+    await shared.deleteInstallation(installationId);
+    resolveMint(token('late-token'));
+    await expect(pendingMint).resolves.toEqual(token('late-token'));
+    expect(
+      store.values.has(`${workspaceId}:${installationId}:${githubInstallationTokenKey('broad')}`),
+    ).toBe(false);
+
+    const refreshed = await shared.getOrMint(installationId, 'broad', () =>
+      Promise.resolve(token('fresh-token')),
+    );
+    expect(refreshed).toEqual(token('fresh-token'));
+  });
+
+  it('skips a backoff write from a failed mint crossing invalidation', async () => {
+    const store = createStore();
+    const shared = cache({store});
+    let rejectMint: (error: Error) => void = () => undefined;
+    let resolveMintStarted: () => void = () => undefined;
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
+    const pendingMint = shared.getOrMint(installationId, 'broad', () => {
+      resolveMintStarted();
+      return new Promise<GithubInstallationAccessToken>((_resolve, reject) => {
+        rejectMint = reject;
+      });
+    });
+    await mintStarted;
+    await shared.deleteInstallation(installationId);
+    rejectMint(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+    await expect(pendingMint).rejects.toMatchObject({reason: 'provider-rejected'});
+    expect(
+      store.values.has(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      ),
+    ).toBe(false);
   });
 
   it('returns a warm store hit without minting', async () => {

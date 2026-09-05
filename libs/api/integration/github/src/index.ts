@@ -42,6 +42,13 @@ import {createGithubWebhookRoutes} from '#presentation/routes/webhooks.js';
 
 const GITHUB_INSTALLATION_ID_PATTERN = /^[1-9]\d*$/u;
 
+type GithubInstallationTokenProviderWithCleanup = GithubInstallationTokenProvider & {
+  deleteInstallation?: (
+    installationId: number,
+    deleteNamespace?: (installationId: number) => Promise<number>,
+  ) => Promise<number>;
+};
+
 export type {GithubApiClient} from '#api/client.js';
 export {
   createGithubCheckoutTokenCache,
@@ -126,12 +133,11 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     options.getGithubInstallationByConnectionId ?? getGithubInstallationByConnectionId;
   const deleteSecrets = options.deleteSecrets;
   const checkoutTokenCache = options.checkoutTokenCache;
-  const installationTokenProvider =
-    options.agentTools?.tokenProvider ??
+  const installationTokenProvider = (options.agentTools?.tokenProvider ??
     createGithubInstallationTokenProvider({
       getGithubInstallationByInstallationId:
         options.getGithubInstallationByInstallationId ?? getGithubInstallationByInstallationId,
-    });
+    })) as GithubInstallationTokenProviderWithCleanup;
   const checkoutTokenProviderInstance =
     deleteSecrets || checkoutTokenCache
       ? githubProviderInstanceFingerprint(normalizedGithubApiBaseUrl(), config.GITHUB_APP_ID)
@@ -139,16 +145,20 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
   const deleteInstallationSecrets =
     deleteSecrets || checkoutTokenCache
       ? async (params: {workspaceId: string; installationId: number}): Promise<number> => {
-          let deletedEntries =
-            (await installationTokenProvider.deleteInstallation?.(params.installationId)) ?? 0;
-          if (deleteSecrets) {
-            deletedEntries += await deleteGithubInstallationTokenSecret({
-              workspaceId: params.workspaceId,
-              installationId: params.installationId,
-              deleteSecrets,
-            });
-          }
-          const cleanup: Promise<number>[] = [];
+          const deleteNamespace = deleteSecrets
+            ? (installationId: number) =>
+                deleteGithubInstallationTokenSecret({
+                  workspaceId: params.workspaceId,
+                  installationId,
+                  deleteSecrets,
+                })
+            : undefined;
+          const tokenCleanup = Promise.resolve().then(() =>
+            installationTokenProvider.deleteInstallation
+              ? installationTokenProvider.deleteInstallation(params.installationId, deleteNamespace)
+              : (deleteNamespace?.(params.installationId) ?? 0),
+          );
+          const cleanup: Promise<number>[] = [tokenCleanup];
           if (checkoutTokenProviderInstance) {
             cleanup.push(
               (async () => {
@@ -173,8 +183,15 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
               })(),
             );
           }
-          const deleted = await Promise.all(cleanup);
-          return deletedEntries + deleted.reduce((total, count) => total + count, 0);
+          const results = await Promise.allSettled(cleanup);
+          const failure = results.find(
+            (result): result is PromiseRejectedResult => result.status === 'rejected',
+          );
+          if (failure) throw failure.reason;
+          return results.reduce(
+            (total, result) => total + (result.status === 'fulfilled' ? result.value : 0),
+            0,
+          );
         }
       : undefined;
   const deleteInstallationTokenSecret = deleteInstallationSecrets
