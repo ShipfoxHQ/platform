@@ -117,7 +117,7 @@ export class AgentAccessSettingsScreen {
 
   async openDisconnectDialog(clientName: string): Promise<Dialog> {
     await this.connectedAppRow(clientName)
-      .getByRole('button', {name: 'Disconnect', exact: true})
+      .getByRole('button', {name: `Disconnect ${clientName}`, exact: true})
       .click();
     const dialog = new Dialog(this.page, `Disconnect ${clientName}?`);
     await dialog.expectVisible();

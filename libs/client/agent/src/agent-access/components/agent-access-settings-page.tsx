@@ -141,7 +141,12 @@ function RevokeGrantButton({grant}: {grant: AgentGrant}) {
   return (
     <Modal open={open} onOpenChange={handleOpenChange}>
       <ModalTrigger asChild>
-        <Button type="button" size="sm" variant="transparent">
+        <Button
+          type="button"
+          size="sm"
+          variant="transparent"
+          aria-label={`Disconnect ${grant.clientName}`}
+        >
           Disconnect
         </Button>
       </ModalTrigger>

@@ -61,7 +61,7 @@ describe('AgentAccessSettingsPage', () => {
     renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
 
     expect((await screen.findAllByText('Claude Desktop')).length).toBeGreaterThan(0);
-    const revokeButton = screen.getAllByRole('button', {name: 'Disconnect'})[0];
+    const revokeButton = screen.getAllByRole('button', {name: 'Disconnect Claude Desktop'})[0];
     if (!revokeButton) throw new Error('Disconnect button not rendered');
     await user.click(revokeButton);
     const dialog = await screen.findByRole('dialog');

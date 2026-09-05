@@ -15,6 +15,10 @@ import {createInterModuleKnownError} from '@shipfox/inter-module';
 import {createTestWorkflowsClient} from '#test/fixtures/workflows-client.js';
 import {createAgentAccessLogTools} from './log-tools.js';
 
+const recordAgentAccessLogSectionUnavailable = vi.hoisted(() => vi.fn());
+
+vi.mock('#metrics/index.js', () => ({recordAgentAccessLogSectionUnavailable}));
+
 const workspaceId = uuid(1);
 const runId = uuid(2);
 const stepId = uuid(3);
@@ -29,6 +33,10 @@ const context: AgentAccessContext = {
 };
 
 describe('bounded step-log agent-access tool', () => {
+  beforeEach(() => {
+    recordAgentAccessLogSectionUnavailable.mockReset();
+  });
+
   test('validates the mutually exclusive direct and failed-only input modes', () => {
     expect(getStepLogsInputSchema.safeParse({step_id: stepId}).success).toBe(true);
     expect(getStepLogsInputSchema.safeParse({run_id: runId, failed_only: true}).success).toBe(true);
@@ -235,6 +243,9 @@ describe('bounded step-log agent-access tool', () => {
       }),
       expect.objectContaining({step_id: readable.step_id, content: 'readable failed section'}),
     ]);
+    expect(recordAgentAccessLogSectionUnavailable).toHaveBeenCalledExactlyOnceWith(
+      'compacted-log-unavailable',
+    );
     expect(getStepLogsResultSchema.safeParse(result).success).toBe(true);
   });
 

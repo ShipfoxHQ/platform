@@ -55,6 +55,17 @@ describe('agent-access MCP routes', () => {
     await closeApp();
   });
 
+  test('rejects a partial core producer composition at startup', () => {
+    expect(() =>
+      createAgentAccessRoutes({
+        projects: {} as unknown as ProjectsModuleClient,
+        definitions: {} as unknown as DefinitionsInterModuleClient,
+      }),
+    ).toThrow(
+      'Agent-access core producer clients must be configured together: projects, definitions, workflows, annotations, and triggers',
+    );
+  });
+
   test('keeps diagnostic tools when optional log reads are not configured', async () => {
     const app = await createTestApp(createAgentAccessRateLimiter(), {
       projects: {} as unknown as ProjectsModuleClient,
