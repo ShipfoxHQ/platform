@@ -3,4 +3,4 @@
 "@shipfox/api-integration-github": minor
 ---
 
-Clears shared GitHub installation-token entries and permission backoff after approval, while evicting the handling process's in-memory token entries.
+Clears shared GitHub installation-token entries and permission backoff after approval.

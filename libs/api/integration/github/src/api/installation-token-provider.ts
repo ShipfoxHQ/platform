@@ -23,19 +23,15 @@ import {
   type SharedInstallationTokenCacheOptions,
 } from './shared-installation-token-cache.js';
 
+export type {DeleteInstallationOptions};
+
 export interface GithubInstallationTokenProvider {
   getInstallationAccessToken(
     installationId: number,
     permissionFingerprint?: string,
     permissions?: GithubInstallationTokenPermissions,
   ): Promise<GithubInstallationAccessToken>;
-  deleteInstallation?(
-    installationId: number,
-    options?: {
-      workspaceId?: string | undefined;
-      deleteNamespace?: ((installationId: number) => Promise<number>) | undefined;
-    },
-  ): Promise<number>;
+  deleteInstallation?(installationId: number, options?: DeleteInstallationOptions): Promise<number>;
 }
 
 export interface GithubInstallationTokenProviderOptions {
@@ -325,6 +321,7 @@ function createInstallationTokenCache(
   const shared = new SharedInstallationTokenCache({
     secretStore: options.secretStore,
     withLock: options.withLock ?? withInstallationTokenLock,
+    shareCompatibilityLock: true,
     resolveWorkspaceId: createGithubInstallationWorkspaceResolver(
       options.getIntegrationConnectionById,
     ),

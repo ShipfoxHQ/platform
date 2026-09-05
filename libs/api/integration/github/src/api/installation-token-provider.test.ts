@@ -254,6 +254,42 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
+  it('does not adopt an in-flight mint from before installation eviction', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    let resolveFirstMint: (
+      value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
+    ) => void = () => undefined;
+    let resolveFirstMintStarted: () => void = () => undefined;
+    const firstMintStarted = new Promise<void>((resolve) => {
+      resolveFirstMintStarted = resolve;
+    });
+    createInstallationAccessTokenMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstMint = resolve;
+            resolveFirstMintStarted();
+          }),
+      )
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    const staleRequest = provider.getInstallationAccessToken(1);
+    await firstMintStarted;
+    await provider.deleteInstallation?.(1);
+    const freshRequest = provider.getInstallationAccessToken(1);
+
+    resolveFirstMint({
+      data: {token: 'ghs_stale', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(staleRequest).resolves.toMatchObject({token: 'ghs_stale'});
+    await expect(freshRequest).resolves.toMatchObject({token: 'ghs_fresh'});
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the eviction epoch while a mint is registering', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));

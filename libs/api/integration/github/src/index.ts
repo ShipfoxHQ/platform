@@ -62,6 +62,7 @@ export {
 } from '#api/installation-token-envelope.js';
 export {
   createGithubInstallationTokenProvider,
+  type DeleteInstallationOptions,
   type GithubInstallationTokenProvider,
 } from '#api/installation-token-provider.js';
 export {
