@@ -35,6 +35,9 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
   ordered literal and expression segments.
 - **`extractCelContextRoots`**: Returns the sorted top-level CEL identifiers mentioned
   by an expression for downstream context and agent-selection checks.
+- **`analyzeContextPathAccess`**: Returns exact literal context paths per root and
+  reports dynamic access as unknown for conservative snapshot planning. Its
+  `ContextPath*` types describe path segments, references, and unknown accesses.
 - **Typed errors**: Reports bad text and run failures with stable error classes.
 - **`workflowContextDefinitions`**: Names the workflow contexts (`run`,
   `trigger`, `event`, `inputs`, `job`, `executions`, `execution`, `jobs`, `step`) and

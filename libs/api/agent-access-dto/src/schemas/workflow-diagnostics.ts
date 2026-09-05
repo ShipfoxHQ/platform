@@ -31,6 +31,7 @@ const diagnosticFields = [
   'execution_evaluation_trace',
   'condition',
   'trigger_events',
+  'filter_snapshot',
 ] as const;
 
 export const agentAccessWorkflowDiagnosticFieldSchema = z.enum(diagnosticFields);

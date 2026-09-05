@@ -82,7 +82,6 @@ export {
   type ContextPathAccessUnknown,
   type ContextPathReference,
   type ContextPathSegment,
-  extractExactContextPaths,
 } from './plan/extract-context-paths.js';
 export {extractExactContextRoots} from './plan/extract-exact-context-roots.js';
 export {

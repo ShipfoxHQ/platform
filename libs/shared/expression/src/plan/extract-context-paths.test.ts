@@ -1,4 +1,4 @@
-import {analyzeContextPathAccess, extractExactContextPaths} from './extract-context-paths.js';
+import {analyzeContextPathAccess} from './extract-context-paths.js';
 
 describe('analyzeContextPathAccess', () => {
   it('extracts exact nested and indexed paths', () => {
@@ -82,7 +82,7 @@ describe('analyzeContextPathAccess', () => {
   it('supports nested historical event paths for future audits', () => {
     const source = 'executions.map(e, e.trigger_events.map(event, event.data.action))';
 
-    expect(extractExactContextPaths(source)).toEqual({
+    expect(analyzeContextPathAccess(source)).toEqual({
       references: [
         {root: 'executions', segments: ['*'], source: 'executions'},
         {
@@ -103,6 +103,37 @@ describe('analyzeContextPathAccess', () => {
   it('represents broad root access as an empty known path', () => {
     expect(analyzeContextPathAccess('jobs', ['jobs'])).toEqual({
       references: [{root: 'jobs', segments: [], source: 'jobs'}],
+      unknown: [],
+    });
+  });
+
+  it('keeps selected roots referenced by dynamic index dependencies', () => {
+    expect(analyzeContextPathAccess('inputs[jobs.target]', ['jobs'])).toEqual({
+      references: [{root: 'jobs', segments: ['target'], source: 'jobs.target'}],
+      unknown: [],
+    });
+  });
+
+  it('propagates paths through chained comprehensions', () => {
+    expect(
+      analyzeContextPathAccess(
+        'jobs.build.executions.filter(e, e.status == "failed").exists(x, x.outputs.pr_number == 42)',
+        ['jobs'],
+      ),
+    ).toEqual({
+      references: [
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'status'],
+          source: 'e.status',
+        },
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'outputs', 'pr_number'],
+          source: 'x.outputs.pr_number',
+        },
+      ],
       unknown: [],
     });
   });

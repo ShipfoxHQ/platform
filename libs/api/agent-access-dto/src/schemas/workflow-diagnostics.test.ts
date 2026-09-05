@@ -33,6 +33,21 @@ describe('workflow diagnostic Agent Access schemas', () => {
     );
   });
 
+  test('accepts filter snapshot oversized-field diagnostics', () => {
+    expect(
+      getWorkflowExecutionContextResultSchema.safeParse({
+        ...contextResult(),
+        oversized_fields: [
+          {field: 'filter_snapshot', stored_bytes: 524_289, reason: 'value_exceeds_inline_limit'},
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      getWorkflowExecutionContextResultJsonSchema.properties.oversized_fields.items.properties
+        .field,
+    ).toMatchObject({enum: expect.arrayContaining(['filter_snapshot'])});
+  });
+
   test('keeps source availability branches distinct in the JSON schema mirror', () => {
     const branches = getWorkflowRunSourceResultJsonSchema.oneOf;
     expect(branches).toHaveLength(2);

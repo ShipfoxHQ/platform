@@ -271,8 +271,11 @@ async function writeListenerActivatedEvent(
           snapshotContext,
           listenerOutputTypes,
         );
-  for (const matcher of [...on, ...(until ?? [])]) {
-    assertWorkflowExecutionPayloadSize('filter_snapshot', matcher.filter_snapshot);
+  const filterSnapshots = [...on, ...(until ?? [])].flatMap(({filter_snapshot}) =>
+    filter_snapshot === undefined ? [] : [filter_snapshot],
+  );
+  if (filterSnapshots.length > 0) {
+    assertWorkflowExecutionPayloadSize('filter_snapshot', filterSnapshots);
   }
 
   await writeWorkflowsOutboxEvent(tx, {

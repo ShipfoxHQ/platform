@@ -53,6 +53,8 @@ export interface TestConfig {
   runningJobStatus?: string;
   /** Result returned by activateJobListenerActivity (defaults to a running listener) */
   listenerActivated?: ActivateJobListenerResult;
+  /** If set, listener activation fails with an oversized-payload application failure. */
+  listenerActivationError?: string;
   /** Scripted drain results consumed in order; once exhausted, drain returns {kind: 'empty'} */
   drainResults?: DrainListenerEventsResult[];
   /** Scripted listener buffer peeks consumed in order; once exhausted, returns an empty buffer */
@@ -370,8 +372,15 @@ function createMockActivities() {
       return {newVersion: nextVersion()};
     },
 
-    activateJobListenerActivity: (params: {jobId: string; expectedVersion: number}) => {
+    activateJobListenerActivity: async (params: {jobId: string; expectedVersion: number}) => {
       calls.push({name: 'activateJobListenerActivity', params});
+      if (cfg.listenerActivationError) {
+        const {ApplicationFailure} = await import('@temporalio/common');
+        throw ApplicationFailure.nonRetryable(
+          cfg.listenerActivationError,
+          'WorkflowExecutionPayloadTooLargeError',
+        );
+      }
       return (
         cfg.listenerActivated ?? {
           status: 'running',

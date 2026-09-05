@@ -60,9 +60,6 @@ export function analyzeContextPathAccess(
   return {references, unknown};
 }
 
-/** Alias for callers that use the extractor terminology for expression planning. */
-export const extractExactContextPaths = analyzeContextPathAccess;
-
 function collectContextPaths(
   node: ASTNode,
   source: string,
@@ -320,15 +317,29 @@ function bindComprehensionAlias(
   const [alias] = args;
   if (alias?.op !== 'id') return {scopedPaths, skipArgs: 0};
 
-  const receiverPath = accessChain(receiver, scopedPaths);
-  const aliasPath =
-    receiverPath === undefined
-      ? null
-      : {...receiverPath, segments: [...receiverPath.segments, '*']};
+  const receiverPath = comprehensionElementPath(receiver, scopedPaths);
+  const aliasPath = receiverPath === undefined ? null : receiverPath;
   const nextScopedPaths = new Map(scopedPaths);
   nextScopedPaths.set(alias.args, aliasPath);
 
   return {scopedPaths: nextScopedPaths, skipArgs: 1};
+}
+
+function comprehensionElementPath(
+  receiver: ASTNode,
+  scopedPaths: ScopedPaths,
+): PathChain | undefined {
+  const chain = accessChain(receiver, scopedPaths);
+  if (chain !== undefined) return {...chain, segments: [...chain.segments, '*']};
+
+  if (receiver.op !== 'rcall') return undefined;
+  const [method, nestedReceiver, args] = receiver.args as [string, ASTNode, ASTNode[]];
+  if (!comprehensionMethods.has(method) || args[0]?.op !== 'id') return undefined;
+
+  const nestedPath = comprehensionElementPath(nestedReceiver, scopedPaths);
+  return method === 'filter' || nestedPath === undefined
+    ? nestedPath
+    : {...nestedPath, unknown: 'dynamic'};
 }
 
 function sourceForNode(node: ASTNode, source: string): string {

@@ -667,8 +667,57 @@ describe('listener filter snapshots', () => {
         {
           source: 'github',
           event: 'pull_request',
-          filter:
-            'jobs.build.outputs.size() > 0 && jobs.build.outputs.all(output, output == "ready")',
+          filter: 'jobs.build.outputs.all(output, output == "ready")',
+        },
+      ],
+      until: null,
+    });
+    const dependencyJobs = [
+      {
+        job: {
+          key: 'build',
+          status: 'succeeded' as const,
+          outputs: {status: 'ready', createdAt: '2026-06-30T12:00:00.000Z'},
+        },
+        outputTypes: {status: 'string' as const, createdAt: 'timestamp' as const},
+        executions: [],
+      },
+    ];
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs,
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          outputs: {status: 'ready', createdAt: '2026-06-30T12:00:00.000Z'},
+        },
+      },
+    });
+    expect(matcher?.filter_output_types).toEqual({
+      build: {status: 'string', createdAt: 'timestamp'},
+    });
+  });
+
+  it('retains available sibling paths when another referenced field is absent', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.outputs.pr_number == 42 || jobs.build.outputs.fork_number == 42',
         },
       ],
       until: null,
@@ -680,11 +729,7 @@ describe('listener filter snapshots', () => {
       plan,
       dependencyJobs: [
         {
-          job: {
-            key: 'build',
-            status: 'succeeded',
-            outputs: {status: 'ready', unrelated: 'also-needed-for-map-iteration'},
-          },
+          job: {key: 'build', status: 'succeeded', outputs: {pr_number: 42}},
           executions: [],
         },
       ],
@@ -697,7 +742,93 @@ describe('listener filter snapshots', () => {
         build: {
           key: 'build',
           status: 'succeeded',
-          outputs: {status: 'ready', unrelated: 'also-needed-for-map-iteration'},
+          outputs: {pr_number: 42},
+        },
+      },
+    });
+  });
+
+  it('merges projections for multiple fields in one indexed execution', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.executions[0].outputs.pr_number == 42 && jobs.build.executions[0].name == "Build #1"',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {}},
+          executions: [
+            jobExecution({
+              name: 'Build #1',
+              outputs: {pr_number: 42, unrelated: 'large'},
+            }),
+          ],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          executions: [{name: 'Build #1', outputs: {pr_number: 42}}],
+        },
+      },
+    });
+  });
+
+  it('propagates paths through chained comprehensions', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.executions.filter(e, e.status == "failed").exists(x, x.outputs.pr_number == 42)',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {}},
+          executions: [
+            jobExecution({
+              status: 'failed',
+              outputs: {pr_number: 42, unrelated: 'large'},
+            }),
+          ],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          executions: [{status: 'failed', outputs: {pr_number: 42}}],
         },
       },
     });
@@ -841,6 +972,60 @@ describe('listener filter snapshots', () => {
       },
       filter_output_types: {
         build: {details: {kind: 'object', fields: {count: 'int'}}},
+      },
+    });
+  });
+
+  it('merges output types for multiple fields in one nested output', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.outputs.details.count == 42 && jobs.build.outputs.details.createdAt == timestamp("2026-06-30T12:00:00.000Z")',
+        },
+      ],
+      until: null,
+    });
+    const dependencyJobs = [
+      {
+        job: {
+          key: 'build',
+          status: 'succeeded' as const,
+          outputs: {
+            details: {count: 42, createdAt: '2026-06-30T12:00:00.000Z'},
+          },
+        },
+        outputTypes: {
+          details: {
+            kind: 'object' as const,
+            fields: {count: 'int' as const, createdAt: 'timestamp' as const},
+          },
+        },
+        executions: [],
+      },
+    ];
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs,
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
+
+    expect(matcher?.filter_output_types).toEqual({
+      build: {
+        details: {
+          kind: 'object',
+          fields: {count: 'int', createdAt: 'timestamp'},
+        },
       },
     });
   });

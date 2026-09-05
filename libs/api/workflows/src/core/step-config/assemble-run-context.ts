@@ -609,7 +609,7 @@ function projectValueByPaths(
   const projected: Record<string, unknown> = {};
   for (const path of paths) {
     const segment = path[0];
-    if (typeof segment !== 'string' || !Object.hasOwn(value, segment)) return {};
+    if (typeof segment !== 'string' || !Object.hasOwn(value, segment)) continue;
 
     const child = projectValueByPaths(value[segment], [path.slice(1)]);
     projected[segment] = mergeProjectedValues(projected[segment], child);
@@ -650,8 +650,18 @@ function projectArrayByPaths(
 
 function mergeProjectedValues(left: unknown, right: unknown): unknown {
   if (left === undefined) return right;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return Array.from({length: Math.max(left.length, right.length)}, (_, index) =>
+      mergeProjectedValues(left[index], right[index]),
+    );
+  }
   if (!isRecord(left) || !isRecord(right)) return right;
-  return {...left, ...right};
+
+  const merged: Record<string, unknown> = {...left};
+  for (const [key, value] of Object.entries(right)) {
+    merged[key] = mergeProjectedValues(merged[key], value);
+  }
+  return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -698,13 +708,45 @@ function projectExpressionTypeRecord(
   const projected: Record<string, ExpressionType> = {};
   for (const path of paths) {
     const [key, ...rest] = path;
-    if (typeof key !== 'string') return {...types};
+    if (key === '*' || typeof key !== 'string') return {...types};
     const type = types[key];
     if (type === undefined) continue;
     const projectedType = projectExpressionType(type, [rest]);
-    if (projectedType !== undefined) projected[key] = projectedType;
+    if (projectedType !== undefined) {
+      projected[key] = mergeProjectedExpressionTypes(projected[key], projectedType);
+    }
   }
   return projected;
+}
+
+function mergeProjectedExpressionTypes(
+  left: ExpressionType | undefined,
+  right: ExpressionType,
+): ExpressionType {
+  if (left === undefined) return right;
+  if (typeof left === 'object' && typeof right === 'object') {
+    if (left.kind === 'object' && right.kind === 'object') {
+      return {
+        kind: 'object',
+        fields: mergeProjectedExpressionTypeRecords(left.fields, right.fields),
+      };
+    }
+    if (left.kind === 'list' && right.kind === 'list') {
+      return {kind: 'list', element: mergeProjectedExpressionTypes(left.element, right.element)};
+    }
+  }
+  return right;
+}
+
+function mergeProjectedExpressionTypeRecords(
+  left: Readonly<Record<string, ExpressionType>>,
+  right: Readonly<Record<string, ExpressionType>>,
+): Record<string, ExpressionType> {
+  const merged: Record<string, ExpressionType> = {...left};
+  for (const [key, value] of Object.entries(right)) {
+    merged[key] = mergeProjectedExpressionTypes(merged[key], value);
+  }
+  return merged;
 }
 
 function projectExpressionType(
