@@ -56,9 +56,7 @@ describe('bounded step-log agent-access tool', () => {
     });
     const result = success(response);
 
-    expect(
-      mocks.workflowHandlers.getWorkflowStepAttemptDetail.mock.calls[0]?.[0],
-    ).toStrictEqual({
+    expect(mocks.workflowHandlers.getWorkflowStepAttemptDetail.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       stepId,
     });
@@ -208,7 +206,7 @@ describe('bounded step-log agent-access tool', () => {
     if (unavailable === undefined || readable === undefined) {
       throw new Error('Expected failed coordinates');
     }
-    mocks.workflows.listFailedStepAttempts.mockResolvedValue({
+    mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({
       workflow_run_attempt: 4,
       items: coordinates,
     });

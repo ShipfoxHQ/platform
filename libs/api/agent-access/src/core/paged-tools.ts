@@ -322,13 +322,11 @@ async function resolveRunAttempt(
     ).attempt;
   }
 
-  const overview = await workflows.getWorkflowRunOverview(
-    omitUndefined({
-      workspaceId: context.workspaceId,
-      workflowRunId: input.run_id,
-      attempt: input.attempt,
-    }),
-  );
+  const overview = await workflows.getWorkflowRunOverview({
+    workspaceId: context.workspaceId,
+    workflowRunId: input.run_id,
+    ...optionalField('attempt', input.attempt),
+  });
   return overview === null ? null : input.attempt;
 }
 
