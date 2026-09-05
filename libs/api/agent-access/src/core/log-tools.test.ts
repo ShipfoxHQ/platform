@@ -310,7 +310,7 @@ describe('bounded step-log agent-access tool', () => {
     expect(JSON.parse(JSON.stringify(response))).toEqual(response);
   });
 
-  test('does not split a newest line that exceeds the section budget', async () => {
+  test('clips a newest line that exceeds the section budget', async () => {
     const mocks = clients();
     const content = 'x'.repeat(AGENT_ACCESS_LOG_CONTENT_MAX_BYTES + 1);
     mocks.workflowHandlers.getWorkflowStepAttemptDetail.mockResolvedValue(stepDetail(1));
@@ -321,9 +321,40 @@ describe('bounded step-log agent-access tool', () => {
     const section = result.sections[0];
     if (section === undefined) throw new Error('Expected a log section');
 
-    expect(section.content).toBe('');
+    expect(section.content).toBe('x'.repeat(AGENT_ACCESS_LOG_CONTENT_MAX_BYTES));
     expect(section.content_truncated).toBe(true);
     expect(section.content_total_bytes).toBe(content.length);
+  });
+
+  test('keeps readable UTF-8 content in oversized single-line failed sections', async () => {
+    const mocks = clients();
+    const coordinates = Array.from({length: AGENT_ACCESS_LOG_SECTION_MAX_ITEMS}, (_, index) =>
+      failedCoordinate(index),
+    );
+    mocks.workflowHandlers.listFailedStepAttempts.mockResolvedValue({
+      workflow_run_attempt: 4,
+      items: coordinates,
+    });
+    mocks.logs.readStepLogTail.mockResolvedValue({content: '🙂'.repeat(3_000)});
+
+    const response = await tool(mocks).execute({
+      context,
+      arguments: {run_id: runId, failed_only: true},
+    });
+    const result = success(response);
+    const sectionBudget = Math.floor(
+      AGENT_ACCESS_LOG_CONTENT_MAX_BYTES / AGENT_ACCESS_LOG_SECTION_MAX_ITEMS,
+    );
+
+    expect(result.sections).toHaveLength(AGENT_ACCESS_LOG_SECTION_MAX_ITEMS);
+    for (const section of result.sections) {
+      expect(section.content).not.toBe('');
+      expect(section.content).not.toContain('�');
+      expect(new TextEncoder().encode(section.content).byteLength).toBeLessThanOrEqual(
+        sectionBudget,
+      );
+      expect(section.content_truncated).toBe(true);
+    }
   });
 
   test('maps unavailable compacted logs to a bounded tool error', async () => {

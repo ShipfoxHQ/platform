@@ -21,9 +21,19 @@ export function OAuthConsentRoutePage() {
   const auth = useAuthState();
   const search = useRouteSearch(validateOAuthConsentSearch);
 
-  if (auth.isLoading) return <OAuthConsentLoading />;
+  return <OAuthConsentRouteContent isAuthLoading={auth.isLoading} requestId={search.requestId} />;
+}
 
-  if (!search.requestId) {
+export function OAuthConsentRouteContent({
+  isAuthLoading,
+  requestId,
+}: {
+  isAuthLoading: boolean;
+  requestId: string | undefined;
+}) {
+  if (isAuthLoading) return <OAuthConsentLoading />;
+
+  if (!requestId) {
     return (
       <AuthShell
         title="Connection request unavailable"
@@ -40,7 +50,7 @@ export function OAuthConsentRoutePage() {
       </AuthShell>
     );
   }
-  return <OAuthConsentPage requestId={search.requestId} />;
+  return <OAuthConsentPage requestId={requestId} />;
 }
 
 export function OAuthConsentPage({

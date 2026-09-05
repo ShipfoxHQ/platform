@@ -32,7 +32,7 @@ test('reviews consent and disconnects an MCP app', async ({
   await expect(agentAccessSettings.heading()).toBeVisible();
 
   const apiOrigin = new URL(config.API_URL).origin;
-  const publicOrigin = new URL(process.env.API_PUBLIC_URL ?? config.API_URL).origin;
+  const publicOrigin = new URL(config.API_PUBLIC_URL).origin;
   const redirectUri = 'http://127.0.0.1:43124/oauth/callback';
   const authorization = await requestAgentAccessConsent({
     request,

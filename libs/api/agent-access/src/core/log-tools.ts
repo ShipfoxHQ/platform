@@ -281,6 +281,7 @@ interface BoundedLogContent {
 }
 
 const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder();
 
 function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
   const totalBytes = utf8Encoder.encode(value).byteLength;
@@ -296,7 +297,12 @@ function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
     const line = lines[index] ?? '';
     const lineBytes = utf8Encoder.encode(line).byteLength;
     const separatorBytes = selected.length > 0 || hasTrailingNewline ? 1 : 0;
-    if (selectedBytes + separatorBytes + lineBytes > maxBytes) break;
+    if (selectedBytes + separatorBytes + lineBytes > maxBytes) {
+      if (selected.length === 0) {
+        selected.push(utf8Suffix(line, maxBytes - separatorBytes));
+      }
+      break;
+    }
     selected.push(line);
     selectedBytes += separatorBytes + lineBytes;
   }
@@ -306,4 +312,14 @@ function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
     truncated: true,
     totalBytes,
   };
+}
+
+function utf8Suffix(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  const encoded = utf8Encoder.encode(value);
+  if (encoded.byteLength <= maxBytes) return value;
+
+  let start = encoded.byteLength - maxBytes;
+  while (start < encoded.byteLength && (encoded[start] ?? 0) >> 6 === 2) start += 1;
+  return utf8Decoder.decode(encoded.subarray(start));
 }

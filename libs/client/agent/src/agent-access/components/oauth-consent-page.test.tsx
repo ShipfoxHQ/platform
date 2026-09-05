@@ -2,7 +2,7 @@ import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {act, render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {OAuthConsentPage} from './oauth-consent-page.js';
+import {OAuthConsentPage, OAuthConsentRouteContent} from './oauth-consent-page.js';
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -41,7 +41,38 @@ function renderConsent(onRedirect = vi.fn()) {
   };
 }
 
+function renderConsentRoute(isAuthLoading: boolean) {
+  const queryClient = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  const renderRoute = (loading: boolean) => (
+    <QueryClientProvider client={queryClient}>
+      <OAuthConsentRouteContent isAuthLoading={loading} requestId={REQUEST_ID} />
+    </QueryClientProvider>
+  );
+  const view = render(renderRoute(isAuthLoading));
+  return {...view, renderRoute};
+}
+
 describe('OAuthConsentPage', () => {
+  test('waits for the auth session before loading the connection request', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(consentResponse()));
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {rerender, renderRoute} = renderConsentRoute(true);
+
+    expect(screen.getByRole('status', {name: 'Loading connection request'})).toBeVisible();
+    expect(screen.queryByText('Could not load connection request')).not.toBeInTheDocument();
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    rerender(renderRoute(false));
+
+    expect(
+      await screen.findByRole('heading', {name: 'Allow Claude Desktop to access Shipfox?'}),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('status', {name: 'Loading connection request'}),
+    ).not.toBeInTheDocument();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   test('shows verified request facts and requires an explicit approval click', async () => {
     const user = userEvent.setup();
     let approvalBody: unknown;

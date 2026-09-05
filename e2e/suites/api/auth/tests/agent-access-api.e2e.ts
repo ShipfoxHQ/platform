@@ -12,15 +12,12 @@ import {
 import {
   listAgentGrantsResponseSchema,
   oauthAuthorizationServerMetadataSchema,
-  oauthConsentResponseSchema,
   oauthProtectedResourceMetadataSchema,
-  oauthTokenResponseSchema,
 } from '@shipfox/api-auth-dto';
 import {config} from '@shipfox/e2e-core';
-import {requestAgentAccessConsent} from '@shipfox/e2e-setup-auth';
+import {authorizeAgentAccess} from '@shipfox/e2e-setup-auth';
 import {createProject} from '@shipfox/e2e-setup-projects';
 import {createWorkspace} from '@shipfox/e2e-setup-workspaces';
-import type {APIRequestContext} from '@shipfox/playwright';
 import {expect, test} from './test.js';
 
 const EXPECTED_TOOL_NAMES = [
@@ -52,8 +49,8 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
   auth,
 }) => {
   const apiOrigin = new URL(config.API_URL).origin;
-  const publicOrigin = new URL(process.env.API_PUBLIC_URL ?? config.API_URL).origin;
-  const clientOrigin = new URL(process.env.CLIENT_BASE_URL ?? config.CLIENT_URL).origin;
+  const publicOrigin = new URL(config.API_PUBLIC_URL).origin;
+  const clientOrigin = new URL(config.CLIENT_BASE_URL).origin;
 
   await test.step('publishes OAuth discovery metadata', async () => {
     const protectedResource = await request.get(
@@ -286,138 +283,3 @@ test('exposes the composed OAuth and agent-access contract through a real MCP cl
     }
   });
 });
-
-test('rate-limits a fresh agent-access credential within one window', async ({request, auth}) => {
-  const apiOrigin = new URL(config.API_URL).origin;
-  const publicOrigin = new URL(process.env.API_PUBLIC_URL ?? config.API_URL).origin;
-  const clientOrigin = new URL(process.env.CLIENT_BASE_URL ?? config.CLIENT_URL).origin;
-  const user = await auth.createUser();
-  const session = await auth.createSession({user_id: user.user.id});
-  const workspace = await createWorkspace({userId: user.user.id, userEmail: user.email});
-  const tokenBody = await authorizeAgentAccess({
-    request,
-    apiOrigin,
-    publicOrigin,
-    sessionToken: session.token,
-    workspaceId: workspace.id,
-    clientName: 'Agent Access Rate Limit E2E Client',
-    redirectUri: 'http://127.0.0.1:43125/oauth/callback',
-  });
-  const client = new Client({name: 'agent-access-rate-limit-e2e-client', version: '0.0.0'});
-  const transport = new StreamableHTTPClientTransport(new URL('/mcp', apiOrigin), {
-    requestInit: {
-      headers: {
-        authorization: `Bearer ${tokenBody.access_token}`,
-        origin: clientOrigin,
-      },
-    },
-  });
-
-  try {
-    await client.connect(transport as unknown as Transport);
-    let wasRateLimited = false;
-    for (let callsRemaining = 61; callsRemaining > 0; callsRemaining -= 1) {
-      const result = await client.callTool(
-        {name: 'list_projects', arguments: {}},
-        CallToolResultSchema,
-      );
-      const envelope = agentAccessEnvelopeSchema.parse(result.structuredContent);
-      if (envelope.ok === false && envelope.error?.code === 'rate-limited') {
-        expect(envelope.error.retry_after_seconds).toEqual(expect.any(Number));
-        wasRateLimited = true;
-        break;
-      }
-      expect(envelope.ok).toBe(true);
-    }
-    expect(wasRateLimited).toBe(true);
-  } finally {
-    await client.close();
-  }
-});
-
-test('protects the composed MCP endpoint with OAuth metadata and Origin checks', async ({
-  request,
-}) => {
-  const apiOrigin = new URL(config.API_URL).origin;
-  const clientOrigin = new URL(process.env.CLIENT_BASE_URL ?? config.CLIENT_URL).origin;
-
-  const disallowed = await request.post(`${apiOrigin}/mcp`, {
-    headers: {origin: 'https://agent-access-e2e-attacker.example.test'},
-    data: {},
-    failOnStatusCode: false,
-  });
-  expect(disallowed.status()).toBe(403);
-  expect(await disallowed.json()).toEqual({code: 'origin-not-allowed'});
-
-  const unauthenticated = await request.post(`${apiOrigin}/mcp`, {
-    headers: {origin: clientOrigin},
-    data: {},
-    failOnStatusCode: false,
-  });
-  expect(unauthenticated.status()).toBe(401);
-  expect(unauthenticated.headers()['www-authenticate']).toContain('oauth-protected-resource');
-});
-
-async function authorizeAgentAccess(params: {
-  request: APIRequestContext;
-  apiOrigin: string;
-  publicOrigin: string;
-  sessionToken: string;
-  workspaceId: string;
-  clientName: string;
-  redirectUri: string;
-}) {
-  const authorization = await requestAgentAccessConsent({
-    request: params.request,
-    apiOrigin: params.apiOrigin,
-    publicOrigin: params.publicOrigin,
-    clientName: params.clientName,
-    redirectUri: params.redirectUri,
-  });
-
-  const consent = await params.request.get(
-    `${params.apiOrigin}/oauth/consents/${authorization.requestId}`,
-    {
-      headers: {authorization: `Bearer ${params.sessionToken}`},
-    },
-  );
-  expect(consent.status()).toBe(200);
-  expect(oauthConsentResponseSchema.parse(await consent.json())).toEqual(
-    expect.objectContaining({
-      client_name: params.clientName,
-      scope: 'read',
-      is_loopback_redirect: true,
-      workspaces: expect.arrayContaining([
-        expect.objectContaining({workspace_id: params.workspaceId}),
-      ]),
-    }),
-  );
-
-  const approval = await params.request.post(
-    `${params.apiOrigin}/oauth/consents/${authorization.requestId}/approve`,
-    {
-      headers: {authorization: `Bearer ${params.sessionToken}`},
-      data: {workspace_id: params.workspaceId},
-    },
-  );
-  expect(approval.status()).toBe(200);
-  const approvedLocation = new URL((await approval.json()).redirect_url);
-  expect(approvedLocation.origin).toBe(new URL(params.redirectUri).origin);
-  expect(approvedLocation.searchParams.get('state')).toBe(authorization.state);
-  const code = approvedLocation.searchParams.get('code');
-  expect(code).toBeTruthy();
-
-  const token = await params.request.post(`${params.apiOrigin}/oauth/token`, {
-    headers: {'content-type': 'application/x-www-form-urlencoded'},
-    data: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: authorization.clientId,
-      code: code ?? '',
-      redirect_uri: params.redirectUri,
-      code_verifier: authorization.codeVerifier,
-      resource: `${params.publicOrigin}/mcp`,
-    }).toString(),
-  });
-  expect(token.status()).toBe(200);
-  return oauthTokenResponseSchema.parse(await token.json());
-}

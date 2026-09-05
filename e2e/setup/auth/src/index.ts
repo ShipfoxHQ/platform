@@ -6,7 +6,13 @@ import type {
   E2eCreateUserResponseDto,
   E2eSessionDto,
 } from '@shipfox/api-auth-dto';
-import {oauthDynamicClientRegistrationResponseSchema} from '@shipfox/api-auth-dto';
+import {
+  type OAuthTokenResponseDto,
+  oauthConsentDecisionResponseSchema,
+  oauthConsentResponseSchema,
+  oauthDynamicClientRegistrationResponseSchema,
+  oauthTokenResponseSchema,
+} from '@shipfox/api-auth-dto';
 import {config, request, requestJson} from '@shipfox/e2e-core';
 import type {APIRequestContext, BrowserContext, Page} from '@shipfox/playwright';
 
@@ -162,6 +168,71 @@ export async function requestAgentAccessConsent(
     requestId,
     state,
   };
+}
+
+export interface AgentAccessAuthorizationOptions extends AgentAccessConsentRequestOptions {
+  sessionToken: string;
+  workspaceId: string;
+}
+
+export async function authorizeAgentAccess(
+  options: AgentAccessAuthorizationOptions,
+): Promise<OAuthTokenResponseDto> {
+  const authorization = await requestAgentAccessConsent(options);
+  const consent = await options.request.get(
+    `${options.apiOrigin}/oauth/consents/${authorization.requestId}`,
+    {headers: {authorization: `Bearer ${options.sessionToken}`}},
+  );
+  if (consent.status() !== 200) {
+    throw new Error(`OAuth consent detail returned ${consent.status()}, expected 200`);
+  }
+  const consentBody = oauthConsentResponseSchema.parse(await consent.json());
+  if (
+    consentBody.client_name !== options.clientName ||
+    !consentBody.is_loopback_redirect ||
+    !consentBody.workspaces.some(({workspace_id}) => workspace_id === options.workspaceId)
+  ) {
+    throw new Error(
+      'OAuth consent detail did not match the requested loopback client and workspace',
+    );
+  }
+
+  const approval = await options.request.post(
+    `${options.apiOrigin}/oauth/consents/${authorization.requestId}/approve`,
+    {
+      headers: {authorization: `Bearer ${options.sessionToken}`},
+      data: {workspace_id: options.workspaceId},
+    },
+  );
+  if (approval.status() !== 200) {
+    throw new Error(`OAuth consent approval returned ${approval.status()}, expected 200`);
+  }
+  const approvalBody = oauthConsentDecisionResponseSchema.parse(await approval.json());
+  const approvedLocation = new URL(approvalBody.redirect_url);
+  const code = approvedLocation.searchParams.get('code');
+  if (
+    approvedLocation.origin !== new URL(options.redirectUri).origin ||
+    approvedLocation.searchParams.get('state') !== authorization.state ||
+    !code
+  ) {
+    throw new Error('OAuth consent approval returned an invalid client redirect');
+  }
+
+  const token = await options.request.post(`${options.apiOrigin}/oauth/token`, {
+    headers: {'content-type': 'application/x-www-form-urlencoded'},
+    data: new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: authorization.clientId,
+      code,
+      redirect_uri: options.redirectUri,
+      code_verifier: authorization.codeVerifier,
+      resource: `${options.publicOrigin}/mcp`,
+    }).toString(),
+  });
+  if (token.status() !== 200) {
+    throw new Error(`OAuth token exchange returned ${token.status()}, expected 200`);
+  }
+  return oauthTokenResponseSchema.parse(await token.json());
 }
 
 function createRunId(): string {
