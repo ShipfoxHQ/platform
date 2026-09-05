@@ -54,6 +54,7 @@ import {
   recordWorkflowListenerResolved,
 } from '#metrics/instance.js';
 import {db, type Tx} from './db.js';
+import {loadJobExecutionsWithCanonicalTriggerEvents} from './execution-trigger-events.js';
 import {
   type FinalizedListenerEventCounts,
   finalizePendingListenerEvents,
@@ -567,21 +568,19 @@ async function deriveJobListenerResolutionDecision(
   });
 
   const [executionRows, dependencyJobs] = await Promise.all([
-    (includePriorExecutionTriggerEvents
-      ? db().select().from(jobExecutions)
-      : db().select(listenerPriorExecutionSelection).from(jobExecutions)
-    )
-      .where(eq(jobExecutions.jobId, jobId))
-      .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id)),
+    loadListenerPriorExecutions(
+      jobId,
+      jobRow.name ?? jobRow.key,
+      db(),
+      includePriorExecutionTriggerEvents,
+    ),
     getDirectDependencyJobContexts(jobId),
   ]);
   return {
     expectedVersion: jobRow.version,
     ...deriveJobSuccess({
       success: jobRow.success,
-      executions: executionRows.map((execution) =>
-        toJobExecution(execution, jobRow.name ?? jobRow.key),
-      ),
+      executions: executionRows,
       jobs: dependencyJobs,
       vars: target.attempt.vars ?? undefined,
     }),
@@ -913,7 +912,6 @@ async function persistMaterializedListenerExecution(
       runner: params.materialized.runner.length === 0 ? null : [...params.materialized.runner],
       status: params.materialized.status,
       statusReason: params.materialized.statusReason,
-      triggerEvents: [...params.materialized.triggerEvents],
       evaluationTrace: params.materialized.evaluationTrace,
       ...(params.materialized.status === 'failed' ? {finishedAt: sql`now()`} : {}),
     })
@@ -985,7 +983,6 @@ async function persistRejectedMaterializedListenerExecution(
       status: 'failed',
       statusReason: 'output_too_large',
       statusReasonMessage: boundedListenerDiagnosticMessage(error.message),
-      triggerEvents: [],
       evaluationTrace: null,
       finishedAt: sql`now()`,
     })
@@ -1084,14 +1081,26 @@ async function loadListenerMaterializationTarget(jobId: string, tx?: Tx) {
 async function loadListenerPriorExecutions(
   jobId: string,
   fallbackName: string,
-  tx: Tx,
+  source: ReturnType<typeof db> | Tx,
   includeTriggerEvents: boolean,
 ): Promise<JobExecution[]> {
-  const priorExecutions = await (includeTriggerEvents
-    ? tx.select().from(jobExecutions)
-    : tx.select(listenerPriorExecutionSelection).from(jobExecutions)
-  )
+  if (!includeTriggerEvents) {
+    const priorExecutions = await source
+      .select(listenerPriorExecutionSelection)
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, jobId))
+      .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+    return priorExecutions.map((execution) => toJobExecution(execution, fallbackName));
+  }
+
+  const priorExecutions = await source
+    .select()
+    .from(jobExecutions)
     .where(eq(jobExecutions.jobId, jobId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  return priorExecutions.map((execution) => toJobExecution(execution, fallbackName));
+  const hydratedExecutions = await loadJobExecutionsWithCanonicalTriggerEvents(
+    source,
+    priorExecutions,
+  );
+  return hydratedExecutions.map((execution) => toJobExecution(execution, fallbackName));
 }

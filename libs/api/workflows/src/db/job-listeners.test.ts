@@ -30,7 +30,12 @@ import {steps} from '#db/schema/steps.js';
 import {workflowRunAttempts} from '#db/schema/workflow-run-attempts.js';
 import {jobExecutionTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {jobFactory, workflowModel, workflowRunFactory} from '#test/index.js';
-import {getJobsByWorkflowRunId, updateJobExecutionStatus} from './workflow-runs.js';
+import {
+  getFirstJobExecutionByJobId,
+  getJobsByWorkflowRunId,
+  getLatestJobExecutionByJobId,
+  updateJobExecutionStatus,
+} from './workflow-runs.js';
 
 interface ListeningJobOptions {
   status?: JobStatus;
@@ -80,7 +85,7 @@ async function createListeningJobFromModel(model: Parameters<typeof workflowMode
 async function insertExecution(jobId: string, sequence: number, status: JobExecutionStatus) {
   const [row] = await db()
     .insert(jobExecutions)
-    .values({jobId, sequence, name: `firing #${sequence}`, status, triggerEvents: []})
+    .values({jobId, sequence, name: `firing #${sequence}`, status})
     .returning();
   if (!row) throw new Error('insertExecution: no row returned');
   return row;
@@ -115,6 +120,14 @@ function readJob(jobId: string) {
     .where(eq(jobs.id, jobId))
     .limit(1)
     .then((rows) => rows[0]);
+}
+
+function readListenerEvents(jobId: string) {
+  return db()
+    .select()
+    .from(jobListenerEvents)
+    .where(eq(jobListenerEvents.jobId, jobId))
+    .orderBy(asc(jobListenerEvents.receivedAt), asc(jobListenerEvents.id));
 }
 
 async function activatedPayload(jobId: string): Promise<WorkflowsJobActivatedEventDto> {
@@ -568,7 +581,7 @@ describe('resolveJobListener', () => {
 });
 
 describe('drainListenerEventsIntoExecution', () => {
-  it('stores trigger events in received_at order', async () => {
+  it('stores canonical listener events in received_at order without an execution array', async () => {
     const job = await createListeningJob({status: 'running', listenerStatus: 'listening'});
     const middle = new Date('2026-01-01T00:01:00.000Z');
     const first = new Date('2026-01-01T00:00:00.000Z');
@@ -579,15 +592,17 @@ describe('drainListenerEventsIntoExecution', () => {
 
     await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1});
 
+    const events = await readListenerEvents(job.id);
+    expect(
+      events
+        .filter((event) => event.consumedByExecutionId !== null)
+        .map((event) => event.receivedAt.toISOString()),
+    ).toEqual([first.toISOString(), middle.toISOString(), last.toISOString()]);
     const [execution] = await db()
       .select()
       .from(jobExecutions)
       .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
-    expect(execution?.triggerEvents.map((event) => event.received_at)).toEqual([
-      first.toISOString(),
-      middle.toISOString(),
-      last.toISOString(),
-    ]);
+    expect(execution?.triggerEvents).toBeNull();
   });
 
   it('exposes each buffered event reference on its execution event', async () => {
@@ -624,31 +639,21 @@ describe('drainListenerEventsIntoExecution', () => {
 
     await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1});
 
-    const [execution] = await db()
-      .select()
-      .from(jobExecutions)
-      .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
-    // The execution event carries the reference's location fields, not its actor:
-    // `WorkflowExecutionEvent` enumerates its own shape and the trigger actor is not part of
-    // it. Widening that is the listening-jobs contract's call, not this branch's.
-    const {actor: _firstActor, ...firstEventFields} = firstReference;
-    const {actor: _secondActor, ...secondEventFields} = secondReference;
-    expect(execution?.triggerEvents).toEqual([
+    const events = await readListenerEvents(job.id);
+    expect(events.filter((event) => event.consumedByExecutionId !== null)).toMatchObject([
       {
         source: 'github',
         event: 'pull_request',
-        delivery_id: expect.any(String),
-        received_at: '2026-01-01T00:00:00.000Z',
-        ...firstEventFields,
-        data: {action: 'opened'},
+        receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+        triggerReference: firstReference,
+        payload: {action: 'opened'},
       },
       {
         source: 'github',
         event: 'pull_request',
-        delivery_id: expect.any(String),
-        received_at: '2026-01-01T00:01:00.000Z',
-        ...secondEventFields,
-        data: {action: 'opened'},
+        receivedAt: new Date('2026-01-01T00:01:00.000Z'),
+        triggerReference: secondReference,
+        payload: {action: 'opened'},
       },
     ]);
   });
@@ -888,8 +893,11 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(firstDrain).toMatchObject({kind: 'execution', sequence: 1});
     expect(secondDrain).toMatchObject({kind: 'execution', sequence: 2});
     expect(
-      executions.map((execution) => execution.triggerEvents).map((events) => events.length),
-    ).toEqual([2, 2]);
+      unconsumedEvents.filter((event) => event.consumedByExecutionId === executions[0]?.id),
+    ).toHaveLength(2);
+    expect(
+      unconsumedEvents.filter((event) => event.consumedByExecutionId === executions[1]?.id),
+    ).toHaveLength(2);
     expect(unconsumedEvents.filter((event) => event.consumedByExecutionId === null)).toHaveLength(
       1,
     );
@@ -935,15 +943,18 @@ describe('drainListenerEventsIntoExecution', () => {
       .select()
       .from(jobExecutions)
       .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
-    const serializedBytes = Buffer.byteLength(
-      JSON.stringify(execution?.triggerEvents ?? []),
-      'utf8',
-    );
+    const events = await readListenerEvents(job.id);
+    const consumedEvents = events.filter((event) => event.consumedByExecutionId === execution?.id);
 
     expect(result).toMatchObject({kind: 'execution', status: 'pending'});
-    expect(execution?.triggerEvents).toHaveLength(1);
-    expect(serializedBytes).toBeGreaterThan(WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES);
-    expect(serializedBytes).toBeLessThanOrEqual(MAX_LISTENER_TRIGGER_EVENTS_BYTES);
+    expect(execution?.triggerEvents).toBeNull();
+    expect(consumedEvents).toHaveLength(1);
+    expect(consumedEvents[0]?.normalizedEventBytes).toBeGreaterThan(
+      WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
+    );
+    expect(consumedEvents[0]?.normalizedEventBytes).toBeLessThanOrEqual(
+      MAX_LISTENER_TRIGGER_EVENTS_BYTES,
+    );
   });
 
   it('partitions a byte-limited listener batch without consuming its tail', async () => {
@@ -983,15 +994,20 @@ describe('drainListenerEventsIntoExecution', () => {
 
     expect(firstDrain).toMatchObject({kind: 'execution', sequence: 1});
     expect(secondDrain).toMatchObject({kind: 'execution', sequence: 2});
-    expect(executions.map((execution) => execution.triggerEvents.length)).toEqual([2, 1]);
+    expect(
+      afterSecondDrain.filter((event) => event.consumedByExecutionId === executions[0]?.id),
+    ).toHaveLength(2);
+    expect(
+      afterSecondDrain.filter((event) => event.consumedByExecutionId === executions[1]?.id),
+    ).toHaveLength(1);
     expect(afterFirstDrain.filter((event) => event.consumedByExecutionId === null)).toHaveLength(1);
     expect(afterSecondDrain.filter((event) => event.consumedByExecutionId === null)).toHaveLength(
       0,
     );
     expect(
-      executions.flatMap((execution) =>
-        execution.triggerEvents.map((event) => (event.data as {name: string}).name),
-      ),
+      afterSecondDrain
+        .filter((event) => event.consumedByExecutionId !== null)
+        .map((event) => (event.payload as {name: string}).name),
     ).toEqual(payloads);
   });
 
@@ -1029,11 +1045,17 @@ describe('drainListenerEventsIntoExecution', () => {
 
     expect(firstDrain).toMatchObject({kind: 'execution', sequence: 1});
     expect(secondDrain).toMatchObject({kind: 'execution', sequence: 2});
-    expect(executions.map((execution) => execution.triggerEvents.length)).toEqual([1, 1]);
+    const events = await readListenerEvents(job.id);
     expect(
-      executions.flatMap((execution) =>
-        execution.triggerEvents.map((event) => (event.data as {name: string}).name),
-      ),
+      events.filter((event) => event.consumedByExecutionId === executions[0]?.id),
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.consumedByExecutionId === executions[1]?.id),
+    ).toHaveLength(1);
+    expect(
+      events
+        .filter((event) => event.consumedByExecutionId !== null)
+        .map((event) => (event.payload as {name: string}).name),
     ).toEqual(payloads);
   });
 
@@ -1062,10 +1084,13 @@ describe('drainListenerEventsIntoExecution', () => {
       .where(and(eq(jobExecutions.jobId, job.id), eq(jobExecutions.sequence, 1)));
 
     expect(result).toMatchObject({kind: 'execution', sequence: 1});
-    expect(execution?.triggerEvents).toHaveLength(2);
-    expect(execution?.triggerEvents.map((event) => (event.data as {name: string}).name)).toEqual(
-      payloads,
-    );
+    const events = await readListenerEvents(job.id);
+    expect(events.filter((event) => event.consumedByExecutionId === execution?.id)).toHaveLength(2);
+    expect(
+      events
+        .filter((event) => event.consumedByExecutionId === execution?.id)
+        .map((event) => (event.payload as {name: string}).name),
+    ).toEqual(payloads);
   });
 
   it('leaves a legacy oversized listener head pending after an empty drain', async () => {
@@ -1140,6 +1165,47 @@ describe('drainListenerEventsIntoExecution', () => {
       ['gpu', 'linux'],
       ['arm', 'linux'],
     ]);
+  });
+
+  it('loads prior listener events from canonical rows after array writes stop', async () => {
+    const job = await createListeningJobFromModel({
+      jobs: {
+        review: {
+          runner: ['linux'],
+          runnerTemplates: [template('executions[0].events[0].data.runner')],
+          steps: [{run: 'echo review'}],
+        },
+      },
+    });
+    await bufferEvent(job.id, 'fire', crypto.randomUUID(), new Date('2026-01-01T00:00:00.000Z'));
+    await db()
+      .update(jobListenerEvents)
+      .set({payload: {runner: 'GPU'}})
+      .where(eq(jobListenerEvents.jobId, job.id));
+
+    const first = await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 1});
+    const persistedFirst = await getFirstJobExecutionByJobId(job.id);
+    expect(persistedFirst?.triggerEvents).toMatchObject([{data: {runner: 'GPU'}}]);
+
+    await bufferEvent(job.id, 'fire', crypto.randomUUID(), new Date('2026-01-01T00:01:00.000Z'));
+    await db()
+      .update(jobListenerEvents)
+      .set({payload: {runner: 'ARM'}})
+      .where(
+        and(eq(jobListenerEvents.jobId, job.id), isNull(jobListenerEvents.consumedByExecutionId)),
+      );
+    const second = await drainListenerEventsIntoExecution({jobId: job.id, expectedSequence: 2});
+    const persistedSecond = await getLatestJobExecutionByJobId(job.id);
+
+    const executions = await db()
+      .select()
+      .from(jobExecutions)
+      .where(eq(jobExecutions.jobId, job.id))
+      .orderBy(asc(jobExecutions.sequence));
+    expect(first).toMatchObject({kind: 'execution', requiredLabels: ['gpu', 'linux']});
+    expect(second).toMatchObject({kind: 'execution', requiredLabels: ['gpu', 'linux']});
+    expect(persistedSecond?.triggerEvents).toMatchObject([{data: {runner: 'ARM'}}]);
+    expect(executions.map((execution) => execution.triggerEvents)).toEqual([null, null]);
   });
 
   it('persists step conditions for listener firings', async () => {

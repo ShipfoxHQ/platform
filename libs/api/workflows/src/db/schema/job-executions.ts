@@ -53,7 +53,9 @@ export const jobExecutions = pgTable(
     status: jobExecutionStatusEnum('status').notNull().default('pending'),
     statusReason: jobStatusReasonEnum('status_reason'),
     statusReasonMessage: text('status_reason_message'),
-    triggerEvents: jsonb('trigger_events').notNull().default([]).$type<WorkflowExecutionEvent[]>(),
+    // Retained for mixed-deployment reads. New listener executions keep their
+    // canonical events in workflows_job_listener_events instead.
+    triggerEvents: jsonb('trigger_events').$type<WorkflowExecutionEvent[] | null>(),
     outputs: jsonb('outputs').$type<Record<string, unknown> | null>(),
     evaluationTrace: jsonb('evaluation_trace').$type<readonly PersistedEvaluationTraceEntry[]>(),
     version: integer('version').notNull().default(1),

@@ -69,6 +69,11 @@ display label and workflow expression value.
 
 ## Behavior Notes
 
+Listener event rows are canonical for new execution context. The legacy
+execution array remains readable for retained executions and is not backfilled.
+Deploy canonical readers before stopping array writes. If rollback is needed,
+restore the prior dual-write, dual-read release before deploying array-only readers.
+
 Run numbers are sequential within one workflow lineage, start at `1`, and are
 unique for `(definition_id, number)`. `workflow_runs.definition_id` carries the
 workflow lineage id: a stable identity per `(project_id, config_path)` shared by
