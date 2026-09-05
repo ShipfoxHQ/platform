@@ -177,7 +177,7 @@ function formatObservedItems<T>(items: readonly T[], formatItem: (item: T) => st
   return `[${visible.join(', ')}${more}]`;
 }
 
-function trackCursor(
+function assertCursorNotSeen(
   cursor: string | null,
   seenCursors: Set<string>,
   cursorDescription: string,
@@ -186,7 +186,10 @@ function trackCursor(
   if (seenCursors.has(cursor)) {
     throw new Error(`Repeated ${cursorDescription} cursor while waiting: ${cursor}`);
   }
-  seenCursors.add(cursor);
+}
+
+function rememberCursor(cursor: string | null, seenCursors: Set<string>): void {
+  if (cursor !== null) seenCursors.add(cursor);
 }
 
 function formatRunObservationObserved(
@@ -287,7 +290,7 @@ async function findInCursorPages<TPage, TItem>(options: {
   const maxPages = options.maxPages ?? MAX_LIST_PAGES_PER_PROBE;
 
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
-    trackCursor(cursor, seenCursors, options.cursorDescription);
+    assertCursorNotSeen(cursor, seenCursors, options.cursorDescription);
     if (Date.now() > options.deadline) return null;
 
     const query = new URLSearchParams({
@@ -302,6 +305,7 @@ async function findInCursorPages<TPage, TItem>(options: {
 
     const item = options.getItems(page).find(options.match);
     if (item) return item;
+    rememberCursor(cursor, seenCursors);
     cursor = options.getNextCursor(page);
     if (cursor === null) {
       options.onNextCursor?.(null);

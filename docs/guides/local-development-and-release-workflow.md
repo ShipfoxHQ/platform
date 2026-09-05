@@ -202,16 +202,6 @@ revision. The publisher re-verifies the generated tree before retrying and its
 closure publisher skips versions already present in npm; do not create a new
 release PR merely to retry publication.
 
-## Roll back a breaking API and client release
-
-When a release removes an API contract used by a published client, restore the
-API contract before rolling back the client package. The older client can call a
-route that the newer API no longer serves.
-
-Before directing traffic to the rolled-back client, verify that the API release
-serves the older contract. Check the client and API versions together after the
-rollback.
-
 If a release or package-publishing incident needs tool-specific diagnosis, read
 the relevant package documentation under `tools/` and the workflow definition
 in [`.github/workflows/publish-packages.yml`](../../.github/workflows/publish-packages.yml).
