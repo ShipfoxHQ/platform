@@ -13,7 +13,8 @@ export type WorkflowDiagnosticField =
   | 'job_evaluation_trace'
   | 'execution_evaluation_trace'
   | 'condition'
-  | 'trigger_events';
+  | 'trigger_events'
+  | 'filter_snapshot';
 
 export type WorkflowDiagnosticUnavailableReason =
   | 'legacy_value_exceeds_inline_limit'
