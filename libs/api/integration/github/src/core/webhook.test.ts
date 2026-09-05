@@ -561,6 +561,41 @@ describe('handleGithubEvent', () => {
     });
   });
 
+  it('returns the cleanup handle and publishes the approval event', async () => {
+    const installationId = 7794;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+    const payload = {
+      action: 'new_permissions_accepted',
+      installation: {id: installationId},
+    };
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId: randomUUID(),
+      event: 'installation',
+      payload,
+      ...handlers,
+    });
+
+    expect(result).toEqual({
+      outcome: 'published-envelope',
+      installationTokenCleanup: {
+        workspaceId: connection.workspaceId,
+        installationId,
+      },
+    });
+    expect(handlers.publishIntegrationEventReceived).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({
+          event: 'installation.new_permissions_accepted',
+          payload,
+        }),
+      }),
+    );
+  });
+
   it('returns the cleanup handle for a deletion delivered after the connection is disabled', async () => {
     const installationId = 7793;
     const connection = fakeConnection({lifecycleStatus: 'disabled'});
@@ -583,6 +618,52 @@ describe('handleGithubEvent', () => {
       },
     });
     expect(handlers.recordDeliveryOnly).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the approval cleanup handle after the connection is disabled', async () => {
+    const installationId = 7795;
+    const connection = fakeConnection({lifecycleStatus: 'disabled'});
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId: randomUUID(),
+      event: 'installation',
+      payload: {action: 'new_permissions_accepted', installation: {id: installationId}},
+      ...handlers,
+    });
+
+    expect(result).toEqual({
+      outcome: 'inactive-connection',
+      installationTokenCleanup: {
+        workspaceId: connection.workspaceId,
+        installationId,
+      },
+    });
+    expect(handlers.publishIntegrationEventReceived).not.toHaveBeenCalled();
+    expect(handlers.recordDeliveryOnly).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['installation', 'created'],
+    ['repository', 'deleted'],
+  ] as const)('does not request cleanup for %s.%s deliveries', async (event, action) => {
+    const installationId = 7796;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId: randomUUID(),
+      event,
+      payload: {action, installation: {id: installationId}},
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published-envelope');
+    expect(result.installationTokenCleanup).toBeUndefined();
   });
 
   it('publishes a bare resource envelope when action is malformed', async () => {

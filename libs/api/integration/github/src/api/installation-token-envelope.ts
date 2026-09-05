@@ -53,6 +53,7 @@ const providerErrorReasonSchemaCoversUnion: Record<MissingProviderErrorReason, n
 void providerErrorReasonSchemaCoversUnion;
 
 const installationTokenEnvelopeSchema = z.object({
+  generation: z.string().min(1).optional(),
   token: z.string().min(1).optional(),
   expiresAt: z.string().datetime().optional(),
   permissions: z.record(z.string(), z.enum(['read', 'write', 'admin'])).optional(),
@@ -62,6 +63,7 @@ const installationTokenEnvelopeSchema = z.object({
 });
 
 export interface InstallationTokenEnvelope {
+  generation?: string | undefined;
   token?: string | undefined;
   expiresAt?: Date | undefined;
   permissions?: Record<string, 'read' | 'write' | 'admin'> | undefined;
@@ -84,6 +86,7 @@ export interface ClassifiedMintError {
 }
 
 export const GITHUB_INSTALLATION_TOKEN_ENVELOPE_KEY = 'ENVELOPE';
+export const GITHUB_INSTALLATION_TOKEN_GENERATION_KEY = 'GENERATION';
 
 export type GithubInstallationTokenPermissions = Record<string, 'read' | 'write'>;
 export type MintBackoffScope = 'installation' | 'profile';
@@ -141,6 +144,7 @@ export function githubInstallationTokenPermissionFingerprint(
 
 export function encodeInstallationTokenEnvelope(envelope: InstallationTokenEnvelope): string {
   return JSON.stringify({
+    ...(envelope.generation !== undefined && {generation: envelope.generation}),
     ...(envelope.token !== undefined && {token: envelope.token}),
     ...(envelope.expiresAt !== undefined && {expiresAt: envelope.expiresAt.toISOString()}),
     ...(envelope.permissions !== undefined && {permissions: envelope.permissions}),
@@ -164,6 +168,7 @@ export function parseInstallationTokenEnvelope(raw: string): InstallationTokenEn
   if (!result.success) return undefined;
 
   return {
+    generation: result.data.generation,
     token: result.data.token,
     expiresAt: result.data.expiresAt ? new Date(result.data.expiresAt) : undefined,
     permissions: result.data.permissions,

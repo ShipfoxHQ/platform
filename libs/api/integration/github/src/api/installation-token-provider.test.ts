@@ -193,6 +193,131 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 
+  it('evicts installation tokens from the RAM cache', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_first',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_second',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    await provider.getInstallationAccessToken(1);
+    await provider.deleteInstallation?.(1);
+    const refreshed = await provider.getInstallationAccessToken(1);
+
+    expect(refreshed.token).toBe('ghs_second');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not recache an in-flight token after installation eviction', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    let resolveMint: (
+      value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
+    ) => void = () => undefined;
+    let resolveMintStarted: () => void = () => undefined;
+    const mintStarted = new Promise<void>((resolve) => {
+      resolveMintStarted = resolve;
+    });
+    createInstallationAccessTokenMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveMint = resolve;
+        resolveMintStarted();
+      }),
+    );
+    const provider = createGithubInstallationTokenProvider();
+
+    const pending = provider.getInstallationAccessToken(1);
+    await mintStarted;
+    await provider.deleteInstallation?.(1);
+    resolveMint({
+      data: {token: 'ghs_late', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(pending).resolves.toMatchObject({token: 'ghs_late'});
+
+    createInstallationAccessTokenMock.mockResolvedValueOnce({
+      data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_fresh',
+    });
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not adopt an in-flight mint from before installation eviction', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    let resolveFirstMint: (
+      value: Awaited<ReturnType<typeof createInstallationAccessTokenMock>>,
+    ) => void = () => undefined;
+    let resolveFirstMintStarted: () => void = () => undefined;
+    const firstMintStarted = new Promise<void>((resolve) => {
+      resolveFirstMintStarted = resolve;
+    });
+    createInstallationAccessTokenMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstMint = resolve;
+            resolveFirstMintStarted();
+          }),
+      )
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    const staleRequest = provider.getInstallationAccessToken(1);
+    await firstMintStarted;
+    await provider.deleteInstallation?.(1);
+    const freshRequest = provider.getInstallationAccessToken(1);
+
+    resolveFirstMint({
+      data: {token: 'ghs_stale', expires_at: '2026-06-10T12:00:00.000Z'},
+    });
+    await expect(staleRequest).resolves.toMatchObject({token: 'ghs_stale'});
+    await expect(freshRequest).resolves.toMatchObject({token: 'ghs_fresh'});
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the eviction epoch while a mint is registering', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    let provider: ReturnType<typeof createGithubInstallationTokenProvider>;
+    let deletion: Promise<number> | undefined;
+    createInstallationAccessTokenMock
+      .mockImplementationOnce(() => {
+        deletion = provider.deleteInstallation?.(1);
+        return Promise.resolve({
+          data: {token: 'ghs_late', expires_at: '2026-06-10T12:00:00.000Z'},
+        });
+      })
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+      });
+    provider = createGithubInstallationTokenProvider();
+
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_late',
+    });
+    expect(deletion).toBeDefined();
+    await deletion;
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_fresh',
+    });
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['suspended', {suspendedAt: new Date()}],
     ['deleted', {deletedAt: new Date()}],
@@ -288,13 +413,29 @@ describe('GithubInstallationTokenProvider', () => {
     await githubInstallationFactory.create({installationId: String(installationId), connectionId});
     const values = new Map<string, string>();
     let lockCalls = 0;
-    function withLock<T>(
+    let deletionInProgress = false;
+    let releaseDeletion: () => void = () => undefined;
+    let resolveDeletionStarted: () => void = () => undefined;
+    const deletionStarted = new Promise<void>((resolve) => {
+      resolveDeletionStarted = resolve;
+    });
+    const deletionGate = new Promise<void>((resolve) => {
+      releaseDeletion = resolve;
+    });
+    async function withLock<T>(
       _installationId: number,
-      _permissionFingerprint: string,
+      permissionFingerprint: string,
       fn: () => Promise<T>,
     ) {
+      if (
+        deletionInProgress &&
+        permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
+      ) {
+        resolveDeletionStarted();
+        await deletionGate;
+      }
       lockCalls += 1;
-      return fn().then((value) => ({acquired: true as const, value}));
+      return {acquired: true as const, value: await fn()};
     }
     const getIntegrationConnectionById: GetIntegrationConnectionByIdFn = () =>
       Promise.resolve({
@@ -309,12 +450,19 @@ describe('GithubInstallationTokenProvider', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-    createInstallationAccessTokenMock.mockResolvedValue({
-      data: {
-        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
-        expires_at: '2026-06-10T12:00:00.000Z',
-      },
-    });
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_refreshed',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      });
     const provider = createGithubInstallationTokenProvider({
       getIntegrationConnectionById,
       secretStore: {
@@ -325,6 +473,14 @@ describe('GithubInstallationTokenProvider', () => {
             `${writeWorkspaceId}:${writeInstallationId}:${key}`,
             encodeInstallationTokenEnvelope(envelope),
           );
+          return Promise.resolve();
+        },
+        readGeneration: (readWorkspaceId, readInstallationId) =>
+          Promise.resolve(
+            values.get(`${readWorkspaceId}:${readInstallationId}:GENERATION`) ?? null,
+          ),
+        writeGeneration: (writeWorkspaceId, writeInstallationId, generation) => {
+          values.set(`${writeWorkspaceId}:${writeInstallationId}:GENERATION`, generation);
           return Promise.resolve();
         },
       },
@@ -344,6 +500,30 @@ describe('GithubInstallationTokenProvider', () => {
     ).toContain(GITHUB_STATELESS_INSTALLATION_TOKEN);
     expect(lockCalls).toBe(2);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
+
+    deletionInProgress = true;
+    const deletion = provider.deleteInstallation?.(installationId, {
+      workspaceId,
+      deleteNamespace: () => {
+        const installationPrefix = `${workspaceId}:${installationId}:`;
+        const keys = [...values.keys()].filter((key) => key.startsWith(installationPrefix));
+        for (const key of keys) values.delete(key);
+        return Promise.resolve(keys.length);
+      },
+    });
+    await deletionStarted;
+
+    const concurrentRead = await provider.getInstallationAccessToken(installationId);
+    expect(concurrentRead.token).toBe(GITHUB_STATELESS_INSTALLATION_TOKEN);
+    releaseDeletion();
+    deletionInProgress = false;
+
+    const deleted = await deletion;
+    expect(deleted).toBe(5);
+
+    const refreshed = await provider.getInstallationAccessToken(installationId);
+    expect(refreshed.token).toBe('ghs_refreshed');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
   it('configures throttle retry handlers on the mint octokit', async () => {

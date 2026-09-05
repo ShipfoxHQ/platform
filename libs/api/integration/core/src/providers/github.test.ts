@@ -48,6 +48,12 @@ type SecretStore = {
     key: string,
     envelope: {token?: string; expiresAt?: Date},
   ) => Promise<void>;
+  readGeneration: (workspaceId: string, installationId: number) => Promise<string | null>;
+  writeGeneration: (
+    workspaceId: string,
+    installationId: number,
+    generation: string,
+  ) => Promise<void>;
 };
 
 describe('githubProviderModule', () => {
@@ -104,6 +110,25 @@ describe('githubProviderModule', () => {
         [profileKey]: encodeInstallationTokenEnvelope(envelope),
       },
     });
+
+    getSecret.mockReset();
+    getSecret.mockResolvedValueOnce('generation-1').mockResolvedValueOnce(undefined);
+    setSecrets.mockReset();
+    await expect(secretStore.readGeneration(workspaceId, installationId)).resolves.toBe(
+      'generation-1',
+    );
+    await secretStore.writeGeneration(workspaceId, installationId, 'generation-2');
+    expect(getSecret).toHaveBeenCalledWith({
+      workspaceId,
+      namespace,
+      key: 'GENERATION',
+    });
+    expect(setSecrets).toHaveBeenCalledWith({
+      workspaceId,
+      namespace,
+      values: {GENERATION: 'generation-2'},
+    });
+    await expect(secretStore.readGeneration(workspaceId, installationId)).resolves.toBeNull();
   });
 
   it('wires the exact-scope cache to the scoped GitHub Secrets adapter', async () => {

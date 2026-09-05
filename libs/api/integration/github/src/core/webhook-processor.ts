@@ -10,6 +10,7 @@ import {
   type StoredWebhookRequest,
   type WebhookProcessingResult,
 } from '@shipfox/api-integration-spi';
+import {reportError} from '@shipfox/node-error-monitoring';
 import {logger} from '@shipfox/node-opentelemetry';
 import type {NodePgDatabase} from 'drizzle-orm/node-postgres';
 import {config} from '#config.js';
@@ -99,7 +100,34 @@ async function processGithubWebhookRequest(
   }
 
   if (result.installationTokenCleanup && options.deleteInstallationTokenSecret) {
-    await options.deleteInstallationTokenSecret(result.installationTokenCleanup);
+    const cleanup = result.installationTokenCleanup;
+    try {
+      const deleted = await options.deleteInstallationTokenSecret(cleanup);
+      logger().info(
+        {
+          deliveryId,
+          workspaceId: cleanup.workspaceId,
+          installationId: cleanup.installationId,
+          deletedEntries: typeof deleted === 'number' ? deleted : undefined,
+        },
+        'github installation token cache cleanup completed',
+      );
+    } catch (error) {
+      logger().error(
+        {
+          deliveryId,
+          workspaceId: cleanup.workspaceId,
+          installationId: cleanup.installationId,
+          err: error,
+        },
+        'github installation token cache cleanup failed after webhook commit',
+      );
+      reportError(error, {
+        boundary: 'integration.webhook',
+        operation: 'delete-installation-token-cache',
+      });
+      throw error;
+    }
   }
 
   return result.outcome.startsWith('duplicate')

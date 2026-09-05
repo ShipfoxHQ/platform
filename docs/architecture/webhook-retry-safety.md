@@ -11,7 +11,7 @@ database transaction.
 
 | Handler | Safety mechanism | Retry result |
 | --- | --- | --- |
-| GitHub `installation.deleted` and `installation.suspend` | The transaction returns the workspace and install IDs. Cleanup runs after commit. A duplicate returns the same IDs. Secret deletion is safe to repeat. | A cleanup error rejects the request. The next run sees the duplicate claim and tries cleanup again. |
+| GitHub `installation.deleted`, `installation.suspend`, and `installation.new_permissions_accepted` | The transaction returns the workspace and install IDs. Cleanup runs after commit. A duplicate returns the same IDs. Secret deletion is safe to repeat. The approval event leaves the installation active; deletion and suspension do not. | A cleanup error rejects the request. The next run sees the duplicate claim and tries cleanup again. |
 | Sentry `installation.created` | A pending row claims the install UUID and code hash before code exchange. A separate `exchange-succeeded` state is written only after a successful exchange. The installed state and delivery record share one transaction. | A retry skips exchange only when the durable success state or an installed row has the same code hash. An ambiguous `access-denied` response stays pending and fails closed. |
 | Sentry `installation.deleted` | Deletion writes a tombstone. It also writes one when creation has not arrived. Creation never changes a deleted row. | Repeated or reordered deletes keep the row deleted. A later creation saves its delivery without code exchange. |
 | Slack `app_uninstalled` and matching `tokens_revoked` | The handler claims the delivery before the update. It rejects old events. A generation check blocks a revoke that races with reconnect. | Duplicate and stale events save only their delivery claim. They do not revoke the current install. |
@@ -38,7 +38,7 @@ the safe secret deletion and removes the records.
 
 The focused tests inject these failures:
 
-- GitHub delivery commit followed by secret-store failure and duplicate retry.
+- GitHub installation cleanup after delivery commit, including permission approval, followed by secret-store failure and duplicate retry.
 - Sentry code exchange followed by a failed state and delivery transaction. The
   retry continues from the durable exchange checkpoint without exchanging again.
 - Sentry rejects a first exchange with `access-denied`. The claim remains pending
