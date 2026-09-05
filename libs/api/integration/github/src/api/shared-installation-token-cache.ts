@@ -82,6 +82,7 @@ const DEFAULT_POLL_DELAYS_MS = [100, 200, 400, 500, 800];
 const DEFAULT_WORKSPACE_CACHE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MINT_TIMEOUT_MS = 30 * 1000;
 type InstallationTokenGeneration = string | null | undefined;
+type InstallationTokenEnvelopeWriteResult = 'written' | 'skipped' | 'contended';
 
 export class SharedInstallationTokenCache implements InstallationTokenCache {
   private readonly workspaceIds = new Map<number, {workspaceId: string; expiresAtMs: number}>();
@@ -173,6 +174,10 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           mint,
           reportReadFailure,
           generation,
+          compatibilityLockHeld:
+            permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT &&
+            (this.options.withBackoffLock === undefined ||
+              this.options.withBackoffLock === this.options.withLock),
         }),
       );
     } catch (error) {
@@ -220,27 +225,6 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       throw error.providerError;
     }
     if (result.acquired) {
-      try {
-        await this.writeEnvelope(
-          workspaceId,
-          installationId,
-          profileKey,
-          {
-            token: result.value.token,
-            expiresAt: result.value.expiresAt,
-            permissions: result.value.permissions,
-          },
-          generation,
-          false,
-        );
-      } catch (error) {
-        logger().warn({installationId, error}, 'github installation token cache write failed');
-        reportError(error, {
-          boundary: 'integration.cache',
-          operation: 'write-minted-token',
-          extra: {installationId},
-        });
-      }
       await this.clearBackoff({
         workspaceId,
         installationId,
@@ -272,6 +256,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     mint: () => Promise<GithubInstallationAccessToken>;
     reportReadFailure: (error: unknown) => void;
     generation: InstallationTokenGeneration;
+    compatibilityLockHeld: boolean;
   }): Promise<GithubInstallationAccessToken> {
     const envelope = await this.readEnvelope(
       params.workspaceId,
@@ -326,6 +311,40 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       'github installation token minted',
     );
     recordInstallationTokenLookup('minted');
+    try {
+      const writeResult = await this.writeEnvelope(
+        params.workspaceId,
+        params.installationId,
+        params.profileKey,
+        {
+          token: token.token,
+          expiresAt: token.expiresAt,
+          permissions: token.permissions,
+        },
+        params.generation,
+        params.compatibilityLockHeld,
+        params.reportReadFailure,
+      );
+      if (writeResult === 'contended') {
+        logger().warn(
+          {
+            installationId: params.installationId,
+            permissionProfile: params.profileKey,
+          },
+          'github installation token cache write lock was contended',
+        );
+      }
+    } catch (error) {
+      logger().warn(
+        {installationId: params.installationId, error},
+        'github installation token cache write failed',
+      );
+      reportError(error, {
+        boundary: 'integration.cache',
+        operation: 'write-minted-token',
+        extra: {installationId: params.installationId},
+      });
+    }
     return token;
   }
 
@@ -345,13 +364,16 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
       backoffScope === 'installation'
         ? GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY
         : params.profileBackoffKey;
-    try {
-      const result = await this.withBackoffLock(
+    const persistWithCompatibility = async (): Promise<InstallationTokenLockResult<Date>> =>
+      await this.withBackoffLock(
         params.installationId,
         GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
         async () => {
+          const generationUnknown = params.generation === undefined;
           if (
+            !generationUnknown &&
             !(await this.generationMatches(
+              params.workspaceId,
               params.installationId,
               params.generation,
               params.reportReadFailure,
@@ -359,43 +381,65 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           ) {
             return candidateUntil;
           }
-          const persist = () =>
-            this.persistBackoff({
-              ...params,
-              backoffKey,
-              candidateUntil,
-            });
-          const locked =
-            backoffScope === 'installation'
-              ? {acquired: true as const, value: await persist()}
-              : await this.withProfileLock(
-                  params.installationId,
-                  params.permissionFingerprint,
-                  persist,
-                );
-          if (!locked.acquired) {
-            logger().warn(
-              {
-                installationId: params.installationId,
-                permissionProfile: params.profileKey,
-                reason: params.failure.failure.reason,
-              },
-              'github installation token profile backoff lock was contended',
-            );
-            return candidateUntil;
-          }
-          return locked.value;
+          return await this.persistBackoff({
+            ...params,
+            generation: generationUnknown ? null : params.generation,
+            allowUnknownGeneration: generationUnknown,
+            backoffKey,
+            candidateUntil,
+          });
         },
       );
-      if (result.acquired) return result.value;
-      logger().warn(
-        {
-          installationId: params.installationId,
-          permissionProfile: params.profileKey,
-          reason: params.failure.failure.reason,
-        },
-        'github installation token backoff lock was contended',
-      );
+
+    try {
+      if (backoffScope === 'installation') {
+        const result = await persistWithCompatibility();
+        if (result.acquired) return result.value;
+        logger().warn(
+          {
+            installationId: params.installationId,
+            permissionProfile: params.profileKey,
+            reason: params.failure.failure.reason,
+          },
+          'github installation token backoff lock was contended',
+        );
+      } else {
+        const profileResult = await this.withProfileLock(
+          params.installationId,
+          params.permissionFingerprint,
+          async () => {
+            const result = await persistWithCompatibility();
+            return result.acquired ? result.value : undefined;
+          },
+        );
+        if (profileResult.acquired && profileResult.value !== undefined) {
+          return profileResult.value;
+        }
+
+        // The profile lock can remain busy while another mint is finishing. The
+        // compatibility lock still serializes the envelope read-modify-write,
+        // so persist after the profile poll rather than dropping the breaker.
+        const fallback = await persistWithCompatibility();
+        if (fallback.acquired) {
+          logger().warn(
+            {
+              installationId: params.installationId,
+              permissionProfile: params.profileKey,
+              reason: params.failure.failure.reason,
+            },
+            'github installation token profile backoff lock was contended; persisted under installation lock',
+          );
+          return fallback.value;
+        }
+        logger().warn(
+          {
+            installationId: params.installationId,
+            permissionProfile: params.profileKey,
+            reason: params.failure.failure.reason,
+          },
+          'github installation token backoff lock was contended',
+        );
+      }
     } catch (error) {
       logger().warn(
         {
@@ -423,6 +467,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     reportReadFailure: (error: unknown) => void;
     failure: InstallationTokenMintFailure;
     generation: InstallationTokenGeneration;
+    allowUnknownGeneration: boolean;
     candidateUntil: Date;
   }): Promise<Date> {
     let readFailed = false;
@@ -467,6 +512,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         selectedBackoff,
         params.generation,
         true,
+        params.reportReadFailure,
+        params.allowUnknownGeneration,
       ),
     ];
     if (!readFailed) {
@@ -482,6 +529,8 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           },
           params.generation,
           true,
+          params.reportReadFailure,
+          params.allowUnknownGeneration,
         ),
       );
     }
@@ -517,6 +566,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         async () => {
           if (
             !(await this.generationMatches(
+              params.workspaceId,
               params.installationId,
               params.generation,
               params.reportReadFailure,
@@ -545,6 +595,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
                 {},
                 params.generation,
                 true,
+                params.reportReadFailure,
               ),
             ),
           );
@@ -724,43 +775,44 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     envelope: InstallationTokenEnvelope,
     generation: InstallationTokenGeneration,
     lockHeld: boolean,
-  ): Promise<void> {
-    const write = async (): Promise<boolean> => {
-      if (generation === undefined) return false;
-      const currentGeneration = await this.readGeneration(workspaceId, installationId);
-      if (currentGeneration !== generation) return false;
+    reportReadFailure?: (error: unknown) => void,
+    allowUnknownGeneration = false,
+  ): Promise<InstallationTokenEnvelopeWriteResult> {
+    const write = async (): Promise<InstallationTokenEnvelopeWriteResult> => {
+      if (generation === undefined) return 'skipped';
+      const currentGeneration = await this.readGeneration(
+        workspaceId,
+        installationId,
+        reportReadFailure,
+      );
+      if (currentGeneration === undefined && allowUnknownGeneration) {
+        await this.options.secretStore.write(workspaceId, installationId, key, envelope);
+        return 'written';
+      }
+      if (currentGeneration !== generation) return 'skipped';
       await this.options.secretStore.write(workspaceId, installationId, key, {
         ...envelope,
         ...(generation === null ? {} : {generation}),
       });
-      return true;
+      return 'written';
     };
-    if (lockHeld) {
-      await write();
-      return;
-    }
+    if (lockHeld) return await write();
     const result = await this.withBackoffLock(
       installationId,
       GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
       write,
     );
-    if (!result.acquired) {
-      throw new GithubIntegrationProviderError(
-        'provider-unavailable',
-        'GitHub installation token cache write lock is still in progress',
-        1,
-      );
-    }
-    if (!result.value) return;
+    if (!result.acquired) return 'contended';
+    return result.value;
   }
 
   private async generationMatches(
+    workspaceId: string,
     installationId: number,
     generation: InstallationTokenGeneration,
     reportReadFailure?: (error: unknown) => void,
   ): Promise<boolean> {
     if (generation === undefined) return false;
-    const workspaceId = await this.resolveWorkspaceId(installationId);
     const currentGeneration = await this.readGeneration(
       workspaceId,
       installationId,
@@ -847,7 +899,10 @@ function matchesGeneration(
   envelope: InstallationTokenEnvelope | undefined,
   generation: InstallationTokenGeneration,
 ): InstallationTokenEnvelope | undefined {
-  if (envelope === undefined || generation === undefined) return undefined;
+  if (envelope === undefined) return undefined;
+  // A failed marker read must not serve a persisted token that may predate an
+  // invalidation. Backoff recording handles this degraded mode separately.
+  if (generation === undefined) return undefined;
   return envelope.generation === (generation ?? undefined) ? envelope : undefined;
 }
 

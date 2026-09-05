@@ -254,6 +254,34 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the eviction epoch while a mint is registering', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    let provider: ReturnType<typeof createGithubInstallationTokenProvider>;
+    let deletion: Promise<number> | undefined;
+    createInstallationAccessTokenMock
+      .mockImplementationOnce(() => {
+        deletion = provider.deleteInstallation?.(1);
+        return Promise.resolve({
+          data: {token: 'ghs_late', expires_at: '2026-06-10T12:00:00.000Z'},
+        });
+      })
+      .mockResolvedValueOnce({
+        data: {token: 'ghs_fresh', expires_at: '2026-06-10T12:00:00.000Z'},
+      });
+    provider = createGithubInstallationTokenProvider();
+
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_late',
+    });
+    expect(deletion).toBeDefined();
+    await deletion;
+    await expect(provider.getInstallationAccessToken(1)).resolves.toMatchObject({
+      token: 'ghs_fresh',
+    });
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['suspended', {suspendedAt: new Date()}],
     ['deleted', {deletedAt: new Date()}],
@@ -349,13 +377,29 @@ describe('GithubInstallationTokenProvider', () => {
     await githubInstallationFactory.create({installationId: String(installationId), connectionId});
     const values = new Map<string, string>();
     let lockCalls = 0;
-    function withLock<T>(
+    let deletionInProgress = false;
+    let releaseDeletion: () => void = () => undefined;
+    let resolveDeletionStarted: () => void = () => undefined;
+    const deletionStarted = new Promise<void>((resolve) => {
+      resolveDeletionStarted = resolve;
+    });
+    const deletionGate = new Promise<void>((resolve) => {
+      releaseDeletion = resolve;
+    });
+    async function withLock<T>(
       _installationId: number,
-      _permissionFingerprint: string,
+      permissionFingerprint: string,
       fn: () => Promise<T>,
     ) {
+      if (
+        deletionInProgress &&
+        permissionFingerprint === GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT
+      ) {
+        resolveDeletionStarted();
+        await deletionGate;
+      }
       lockCalls += 1;
-      return fn().then((value) => ({acquired: true as const, value}));
+      return {acquired: true as const, value: await fn()};
     }
     const getIntegrationConnectionById: GetIntegrationConnectionByIdFn = () =>
       Promise.resolve({
@@ -370,12 +414,19 @@ describe('GithubInstallationTokenProvider', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-    createInstallationAccessTokenMock.mockResolvedValue({
-      data: {
-        token: GITHUB_STATELESS_INSTALLATION_TOKEN,
-        expires_at: '2026-06-10T12:00:00.000Z',
-      },
-    });
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: GITHUB_STATELESS_INSTALLATION_TOKEN,
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_refreshed',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      });
     const provider = createGithubInstallationTokenProvider({
       getIntegrationConnectionById,
       secretStore: {
@@ -411,8 +462,32 @@ describe('GithubInstallationTokenProvider', () => {
         `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
       ),
     ).toContain(GITHUB_STATELESS_INSTALLATION_TOKEN);
-    expect(lockCalls).toBe(3);
+    expect(lockCalls).toBe(2);
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
+
+    deletionInProgress = true;
+    const deletion = provider.deleteInstallation?.(installationId, {
+      workspaceId,
+      deleteNamespace: () => {
+        const installationPrefix = `${workspaceId}:${installationId}:`;
+        const keys = [...values.keys()].filter((key) => key.startsWith(installationPrefix));
+        for (const key of keys) values.delete(key);
+        return Promise.resolve(keys.length);
+      },
+    });
+    await deletionStarted;
+
+    const concurrentRead = await provider.getInstallationAccessToken(installationId);
+    expect(concurrentRead.token).toBe(GITHUB_STATELESS_INSTALLATION_TOKEN);
+    releaseDeletion();
+    deletionInProgress = false;
+
+    const deleted = await deletion;
+    expect(deleted).toBe(5);
+
+    const refreshed = await provider.getInstallationAccessToken(installationId);
+    expect(refreshed.token).toBe('ghs_refreshed');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
   });
 
   it('configures throttle retry handlers on the mint octokit', async () => {

@@ -134,7 +134,7 @@ describe('createGithubIntegrationProvider', () => {
     });
   });
 
-  it('evicts the default installation token provider before deleting its namespace', async () => {
+  it('uses the default installation token provider for installation namespace deletion', async () => {
     const deleteSecrets = vi.fn(() => Promise.resolve(1));
     const provider = createGithubIntegrationProvider({
       github: {} as never,
@@ -151,7 +151,12 @@ describe('createGithubIntegrationProvider', () => {
     const defaultTokenProvider = provider.adapters.agent_tools as unknown as {
       tokenProvider: {deleteInstallation?: ReturnType<typeof vi.fn>};
     };
-    const deleteInstallation = vi.fn(() => Promise.resolve(1));
+    const deleteInstallation = vi.fn(
+      async (
+        installationId: number,
+        options?: {deleteNamespace?: (installationId: number) => Promise<number>},
+      ) => (await options?.deleteNamespace?.(installationId)) ?? 1,
+    );
     defaultTokenProvider.tokenProvider.deleteInstallation = deleteInstallation;
 
     const cleanup = state.processorOptions as {
@@ -162,16 +167,14 @@ describe('createGithubIntegrationProvider', () => {
     };
     await cleanup.deleteInstallationTokenSecret({workspaceId: 'workspace-1', installationId: 123});
     expect(deleteInstallation).toHaveBeenCalledWith(123, expect.any(Object));
+    expect(deleteSecrets).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      namespace: githubInstallationTokenNamespace(123),
+    });
   });
 
-  it('evicts the installation token provider before deleting its namespace', async () => {
-    let providerCleanupStarted = false;
-    const deleteSecrets = vi.fn((params: {namespace: string}) => {
-      if (params.namespace === githubInstallationTokenNamespace(123)) {
-        expect(providerCleanupStarted).toBe(true);
-      }
-      return Promise.resolve(1);
-    });
+  it('passes installation namespace deletion through an injected token provider', async () => {
+    const deleteSecrets = vi.fn(() => Promise.resolve(1));
     const deleteInstallation = vi.fn(
       async (
         installationId: number,
@@ -180,7 +183,6 @@ describe('createGithubIntegrationProvider', () => {
           deleteNamespace?: (installationId: number) => Promise<number>;
         },
       ) => {
-        providerCleanupStarted = true;
         return (await options?.deleteNamespace?.(installationId)) ?? 1;
       },
     );

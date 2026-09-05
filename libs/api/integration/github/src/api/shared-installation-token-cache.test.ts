@@ -369,6 +369,75 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('writes a minted token before releasing its profile lock', async () => {
+    const store = createStore();
+    const profileKey = githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT);
+    let lockHeld = false;
+    let lockReleased = false;
+    let releaseWrite: () => void = () => undefined;
+    let resolveWriteStarted: () => void = () => undefined;
+    const writeStarted = new Promise<void>((resolve) => {
+      resolveWriteStarted = resolve;
+    });
+    let resolveWriteFinished: () => void = () => undefined;
+    const writeFinished = new Promise<void>((resolve) => {
+      resolveWriteFinished = resolve;
+    });
+    const originalWrite = store.write;
+    store.write = async (writeWorkspaceId, writeInstallationId, key, envelope) => {
+      if (key === profileKey) {
+        resolveWriteStarted();
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+        expect(lockReleased).toBe(false);
+      }
+      await originalWrite(writeWorkspaceId, writeInstallationId, key, envelope);
+      if (key === profileKey) resolveWriteFinished();
+    };
+    const withLock = async <T>(
+      _id: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ) => {
+      if (lockHeld) return {acquired: false as const};
+      lockHeld = true;
+      try {
+        return {acquired: true as const, value: await fn()};
+      } finally {
+        lockHeld = false;
+        lockReleased = true;
+      }
+    };
+    const shared = cache({
+      store,
+      withLock,
+      withBackoffLock: withLock,
+      sleep: () => writeFinished,
+      pollDelaysMs: [1],
+    });
+    const mint = vi.fn(() => Promise.resolve(token('ghs_shared')));
+
+    const first = shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
+    await writeStarted;
+    const second = shared.getOrMint(
+      installationId,
+      GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
+      mint,
+    );
+    releaseWrite();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      token('ghs_shared'),
+      token('ghs_shared'),
+    ]);
+    expect(mint).toHaveBeenCalledOnce();
+  });
+
   it('waits for in-flight writes before installation namespace deletion', async () => {
     const store = createStore();
     const backoffKey = githubInstallationTokenBackoffKey('broad');
@@ -678,6 +747,44 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('persists profile backoff after profile lock contention', async () => {
+    const store = createStore();
+    let profileLockAttempts = 0;
+    const withLock = async <T>(
+      _id: number,
+      permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ): Promise<InstallationTokenLockResult<T>> => {
+      if (permissionFingerprint === 'broad' && profileLockAttempts++ > 0) {
+        return {acquired: false};
+      }
+      return {acquired: true, value: await fn()};
+    };
+    const withBackoffLock = async <T>(
+      _id: number,
+      _permissionFingerprint: string,
+      fn: () => Promise<T>,
+    ): Promise<InstallationTokenLockResult<T>> => ({
+      acquired: true,
+      value: await fn(),
+    });
+    const shared = cache({store, withLock, withBackoffLock});
+    const mint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+
+    await expect(shared.getOrMint(installationId, 'broad', mint)).rejects.toMatchObject({
+      reason: 'provider-rejected',
+    });
+
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey('broad')}`,
+      ),
+    ).toContain('provider-rejected');
+    expect(profileLockAttempts).toBe(2);
+  });
+
   it('serves stale when refresh minting fails while the token is still valid', async () => {
     const store = createStore();
     setEnvelope(store, token('ghs_existing', '2026-06-10T11:04:30.000Z'));
@@ -725,6 +832,7 @@ describe('SharedInstallationTokenCache', () => {
 
   it('returns a minted token when the generation read fails', async () => {
     const store = createStore();
+    setEnvelope(store, token('ghs_cached'));
     store.readGeneration = () => Promise.reject(new Error('generation read failed'));
     const shared = cache({store});
 
@@ -734,6 +842,78 @@ describe('SharedInstallationTokenCache', () => {
       ),
     ).resolves.toEqual(token('ghs_new'));
     expect(errorMonitoring.reportError).toHaveBeenCalledOnce();
+  });
+
+  it('records new backoff while the generation marker is unavailable', async () => {
+    const store = createStore();
+    store.readGeneration = () => Promise.reject(new Error('generation read failed'));
+    const shared = cache({store});
+    const mint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, mint),
+    ).rejects.toMatchObject({reason: 'provider-rejected'});
+    expect(
+      store.values.get(
+        `${workspaceId}:${installationId}:${githubInstallationTokenBackoffKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toContain('provider-rejected');
+  });
+
+  it('treats a generation read failure during a cache write as a skipped write', async () => {
+    const store = createStore();
+    const originalReadGeneration = store.readGeneration;
+    let generationReads = 0;
+    store.readGeneration = (readWorkspaceId, readInstallationId) => {
+      generationReads += 1;
+      if (generationReads === 2) return Promise.reject(new Error('generation read failed'));
+      return originalReadGeneration(readWorkspaceId, readInstallationId);
+    };
+    const shared = cache({store});
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
+    ).resolves.toEqual(token('ghs_new'));
+
+    expect(errorMonitoring.reportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({operation: 'read-envelope'}),
+    );
+    expect(errorMonitoring.reportError).not.toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({operation: 'write-minted-token'}),
+    );
+    expect(
+      store.values.has(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toBe(false);
+  });
+
+  it('uses the supplied workspace for installation invalidation', async () => {
+    const store = createStore();
+    const resolveWorkspaceId = vi.fn(() =>
+      Promise.reject(new GithubIntegrationProviderError('installation-not-found', 'missing')),
+    );
+    const shared = cache({store, resolveWorkspaceId});
+    const deleteNamespace = vi.fn(() => {
+      store.values.clear();
+      return Promise.resolve(1);
+    });
+
+    await expect(
+      shared.deleteInstallation(installationId, {workspaceId, deleteNamespace}),
+    ).resolves.toBe(1);
+
+    expect(resolveWorkspaceId).not.toHaveBeenCalled();
+    expect(store.values.get(`${workspaceId}:${installationId}:GENERATION`)).toEqual(
+      expect.any(String),
+    );
+    expect(deleteNamespace).toHaveBeenCalledOnce();
   });
 
   it('returns a minted token when the cache read fails', async () => {
@@ -780,6 +960,26 @@ describe('SharedInstallationTokenCache', () => {
     );
 
     expect(result).toEqual(token('ghs_new'));
+  });
+
+  it('returns a minted token when the cache write lock is contended', async () => {
+    const store = createStore();
+    const shared = cache({
+      store,
+      withBackoffLock: () => Promise.resolve({acquired: false}),
+    });
+
+    await expect(
+      shared.getOrMint(installationId, GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT, () =>
+        Promise.resolve(token('ghs_new')),
+      ),
+    ).resolves.toEqual(token('ghs_new'));
+    expect(errorMonitoring.reportError).not.toHaveBeenCalled();
+    expect(
+      store.values.has(
+        `${workspaceId}:${installationId}:${githubInstallationTokenKey(GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT)}`,
+      ),
+    ).toBe(false);
   });
 
   it('treats an invalid envelope as a miss and overwrites it', async () => {
