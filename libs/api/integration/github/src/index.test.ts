@@ -142,7 +142,7 @@ describe('createGithubIntegrationProvider', () => {
         deleteNamespace?: (installationId: number) => Promise<number>,
       ) => (await deleteNamespace?.(installationId)) ?? 1,
     );
-    createGithubIntegrationProvider({
+    const provider = createGithubIntegrationProvider({
       github: {} as never,
       getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
       connectGithubInstallation: vi.fn() as never,
@@ -177,6 +177,13 @@ describe('createGithubIntegrationProvider', () => {
       workspaceId: 'workspace-1',
       namespace: githubInstallationTokenNamespace(123),
     });
+    expect(
+      (
+        provider.adapters.agent_tools as unknown as {
+          tokenProvider: {deleteInstallation?: unknown};
+        }
+      ).tokenProvider.deleteInstallation,
+    ).toBe(deleteInstallation);
   });
 
   it('uses the exact cache lifecycle for installation cleanup when it is available', async () => {
