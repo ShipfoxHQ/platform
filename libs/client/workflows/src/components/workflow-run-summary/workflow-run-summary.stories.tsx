@@ -1,6 +1,6 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {RerunMode} from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -19,7 +19,7 @@ import {
   runAttemptsResponseDto,
   workflowJobDto,
   workflowRunAttemptDto,
-  workflowRunDetail,
+  workflowRunOverview,
 } from '#test/fixtures/workflow-run.js';
 import {WorkflowRunSummary} from './workflow-run-summary.js';
 
@@ -31,7 +31,7 @@ const ATTEMPT_3_PATTERN = /Attempt 3/;
 const STORYBOOK_NOW = '2026-06-26T12:00:00.000Z';
 const RUN_STARTED_AT = '2026-06-26T11:57:46.000Z';
 const RUN_ATTEMPTS_RESPONSE = runAttemptsResponseDto({
-  attempts: [
+  items: [
     workflowRunAttemptDto({
       id: ROOT_RUN_ID,
       attempt: 1,
@@ -109,7 +109,7 @@ function AttemptApiProvider({children}: {children: ReactNode}) {
     setConfigured(true);
 
     return () => {
-      configureApiClient({baseUrl: '', fetchImpl: undefined});
+      resetApiClient();
     };
   }, []);
 
@@ -130,7 +130,7 @@ const meta = {
     },
   },
   decorators: [withFrame],
-  args: {run: workflowRunDetail({status: 'succeeded'})},
+  args: {run: workflowRunOverview({status: 'succeeded'})},
 } satisfies Meta<typeof WorkflowRunSummary>;
 
 export default meta;
@@ -150,7 +150,7 @@ const noop = () => undefined;
 const noopRerun = (_mode: RerunMode) => undefined;
 
 const ATTEMPT_SUMMARY_ARGS = {
-  run: workflowRunDetail({
+  run: workflowRunOverview({
     id: CURRENT_RUN_ID,
     current_attempt: 2,
     run_attempt: workflowRunAttemptDto({
@@ -182,7 +182,7 @@ export const Durations: Story = {
   render: () => (
     <div className="flex flex-col">
       <WorkflowRunSummary
-        run={workflowRunDetail({
+        run={workflowRunOverview({
           status: 'succeeded',
           name: 'release-finished',
           run_attempt: workflowRunAttemptDto({
@@ -194,7 +194,7 @@ export const Durations: Story = {
         })}
       />
       <WorkflowRunSummary
-        run={workflowRunDetail({
+        run={workflowRunOverview({
           status: 'running',
           name: 'release-running',
           run_attempt: workflowRunAttemptDto({
@@ -211,14 +211,14 @@ export const Durations: Story = {
 
 export const Cancellable: Story = {
   args: {
-    run: workflowRunDetail({status: 'running'}),
+    run: workflowRunOverview({status: 'running'}),
     onCancel: noop,
   },
 };
 
 export const Cancelling: Story = {
   args: {
-    run: workflowRunDetail({status: 'running'}),
+    run: workflowRunOverview({status: 'running'}),
     onCancel: noop,
     cancelling: true,
   },
@@ -238,7 +238,7 @@ export const Statuses: Story = {
       {ALL_STATUSES.map((status, index) => (
         <WorkflowRunSummary
           key={status}
-          run={workflowRunDetail({
+          run={workflowRunOverview({
             id: `11111111-1111-4111-8111-${String(index + 2).padStart(12, '0')}`,
             status,
             name: `${status}-pipeline`,
@@ -252,27 +252,27 @@ export const Statuses: Story = {
 const ACTION_VARIANTS = [
   {
     label: 'Running',
-    run: workflowRunDetail({status: 'running', name: 'running-pipeline'}),
+    run: workflowRunOverview({status: 'running', name: 'running-pipeline'}),
     props: {onCancel: noop},
   },
   {
     label: 'Cancelling',
-    run: workflowRunDetail({status: 'running', name: 'cancelling-pipeline'}),
+    run: workflowRunOverview({status: 'running', name: 'cancelling-pipeline'}),
     props: {cancelling: true, onCancel: noop},
   },
   {
     label: 'Succeeded',
-    run: workflowRunDetail({status: 'succeeded', name: 'succeeded-pipeline'}),
+    run: workflowRunOverview({status: 'succeeded', name: 'succeeded-pipeline'}),
     props: {onRerun: noopRerun},
   },
   {
     label: 'Re-running',
-    run: workflowRunDetail({status: 'succeeded', name: 'rerun-pending-pipeline'}),
+    run: workflowRunOverview({status: 'succeeded', name: 'rerun-pending-pipeline'}),
     props: {rerunPending: true, onRerun: noopRerun},
   },
   {
     label: 'Failed',
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'failed',
       name: 'failed-pipeline',
       jobs: [workflowJobDto({status: 'failed'})],
@@ -281,7 +281,7 @@ const ACTION_VARIANTS = [
   },
   {
     label: 'Cancelled',
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'cancelled',
       name: 'cancelled-pipeline',
       jobs: [workflowJobDto({status: 'cancelled'})],
@@ -290,7 +290,7 @@ const ACTION_VARIANTS = [
   },
   {
     label: 'Failed without failed jobs',
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'failed',
       name: 'failed-without-failed-jobs-pipeline',
       jobs: [workflowJobDto({status: 'succeeded'})],
@@ -299,7 +299,7 @@ const ACTION_VARIANTS = [
   },
 ] satisfies Array<{
   label: string;
-  run: ReturnType<typeof workflowRunDetail>;
+  run: ReturnType<typeof workflowRunOverview>;
   props: Pick<
     Parameters<typeof WorkflowRunSummary>[0],
     'cancelling' | 'onCancel' | 'rerunPending' | 'onRerun'
@@ -357,7 +357,7 @@ export const ActionVariantsWithAttempts: Story = {
 
 export const MissingTriggerMetadata: Story = {
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'succeeded',
       trigger_source: '',
       trigger_event: '',
@@ -376,7 +376,7 @@ const DEV_SOURCE = {
 /** A dev run started from a branch: badge, ref @ commit, and the member who started it. */
 export const DevManualRun: Story = {
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'succeeded',
       name: 'triage-sentry',
       origin: 'dev',
@@ -390,7 +390,7 @@ export const DevManualRun: Story = {
 export const DevReplayRun: Story = {
   decorators: [withAttemptApi],
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'succeeded',
       name: 'triage-sentry',
       origin: 'dev',
@@ -413,15 +413,15 @@ export const DevReplayRun: Story = {
   },
 };
 
-export const EmptyTriggerPayload: Story = {
+export const EmptyTriggerMetadata: Story = {
   args: {
-    run: workflowRunDetail({status: 'succeeded', trigger_payload: {}}),
+    run: workflowRunOverview({status: 'succeeded'}),
   },
 };
 
 export const LongRunName: Story = {
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'succeeded',
       name: 'release-production-multi-region-with-canary-and-smoke-tests-and-progressive-delivery-observability-and-post-deploy-validation-for-enterprise-workspaces',
     }),
@@ -430,7 +430,7 @@ export const LongRunName: Story = {
 
 export const LongTriggerMetadata: Story = {
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'succeeded',
       trigger_provider: 'github',
       trigger_source: 'github-enterprise-cloud-production-organization',
@@ -448,7 +448,7 @@ export const NarrowLongContent: Story = {
     ),
   ],
   args: {
-    run: workflowRunDetail({
+    run: workflowRunOverview({
       status: 'running',
       name: 'release-production-multi-region-with-canary-and-post-deploy-validation',
       trigger_provider: 'github',

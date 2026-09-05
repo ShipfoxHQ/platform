@@ -52,6 +52,7 @@ export async function runSlackToolsWorkflow(params: {
     });
     const trigger = await triggerSlackAppMentionAndAwaitRun({
       projectId: project.id,
+      workspaceId: params.suite.workspaceId,
       token,
       teamId: params.teamId,
       channel: params.channel,

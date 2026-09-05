@@ -1,14 +1,6 @@
 import type {
-  EvaluationTraceDto,
-  JobListeningDto,
   StepAttemptDetailResponseDto,
-  StepAttemptDto,
-  StepGateResultDto,
-  WorkflowExecutionEventDto,
   WorkflowRunAttemptDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
   WorkflowRunJobListSummaryDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunLineageHeadResponseDto,
@@ -18,31 +10,13 @@ import type {
   WorkflowRunResponseDto,
   WorkflowRunSelectionResponseDto,
   WorkflowRunSourceResponseDto,
-  WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {
-  WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT,
-  WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT,
-  WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT,
-} from '@shipfox/api-workflows-dto';
-import {
-  defaultJobExecution,
-  deriveJobExecutionDisplayStatus,
-  type EvaluationTraceEntry,
-  Job,
-  JobExecution,
-  type JobListening,
-  type JobStatus,
-  type Step,
-  StepAttempt,
   type StepAttemptSession,
-  type StepGateResult,
   toWorkflowRunOverviewExecutionDuration,
-  type WorkflowExecutionEvent,
   type WorkflowRun,
   WorkflowRunAttempt,
   WorkflowRunAttemptSummary,
-  type WorkflowRunDetail,
   type WorkflowRunDevSource,
   type WorkflowRunLineageHead,
   type WorkflowRunListItem,
@@ -59,11 +33,41 @@ import {
   workflowRunTriggerLabel,
 } from '#core/workflow-run.js';
 import {toWorkflowDiagnosticUnavailableField} from './workflow-diagnostic-mapper.js';
+import {
+  recordConfigValue,
+  toEvaluationTrace,
+  toStepAttemptInvocation,
+  toStepGateResult,
+} from './workflow-model-mapper.js';
 
-const BASE64_URL_PADDING_RE = /=+$/u;
-const BASE64_URL_VALUE_RE = /^[A-Za-z0-9_-]+$/u;
+export {
+  recordConfigValue,
+  toEvaluationTrace,
+  toStepAttemptInvocation,
+  toStepGateResult,
+  toWorkflowExecutionEvent,
+} from './workflow-model-mapper.js';
 
-export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
+type WorkflowRunBaseDto = Pick<
+  WorkflowRunResponseDto,
+  | 'id'
+  | 'project_id'
+  | 'definition_id'
+  | 'number'
+  | 'name'
+  | 'workflow_name'
+  | 'origin'
+  | 'dev_source'
+  | 'current_attempt'
+  | 'trigger_provider'
+  | 'trigger_source'
+  | 'trigger_event'
+  | 'trigger_reference'
+  | 'created_at'
+  | 'updated_at'
+>;
+
+export function toWorkflowRun(dto: WorkflowRunBaseDto): WorkflowRun {
   return {
     id: dto.id,
     projectId: dto.project_id,
@@ -87,12 +91,7 @@ export function toWorkflowRun(dto: WorkflowRunResponseDto): WorkflowRun {
       triggerSource: dto.trigger_source,
       triggerEvent: dto.trigger_event,
     }),
-    triggerPayload: dto.trigger_payload,
     triggerReference: dto.trigger_reference,
-    inputs: dto.inputs ?? null,
-    sourceSnapshot: dto.source_snapshot
-      ? {content: dto.source_snapshot.content, format: dto.source_snapshot.format}
-      : null,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     isTemporary: dto.id.startsWith('temp-'),
@@ -297,7 +296,9 @@ export function toWorkflowRunSelectionResolution(
   };
 }
 
-export function toWorkflowRunRecord(dto: WorkflowRunResponseDto): WorkflowRunRecord {
+export function toWorkflowRunRecord(
+  dto: WorkflowRunResponseDto | WorkflowRunListItemDto,
+): WorkflowRunRecord {
   return {
     ...toWorkflowRun(dto),
     status: dto.status,
@@ -328,12 +329,12 @@ export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunL
         status: job.status,
         mode: job.mode ?? 'one_shot',
         listenerStatus: job.listener_status ?? 'inactive',
-        // The optional display-count field is the rollout capability signal. Pre-display API
+        // The optional display-count field is the rollout capability signal. Older API
         // responses only carry raw verdict counts, so mirror their non-terminal verdict into
-        // execution evidence to keep each legacy glyph aligned with those fallback counts.
+        // execution evidence to keep each fallback glyph aligned with those counts.
         executionStatus: hasDisplayStatusCounts
           ? (job.execution_status ?? null)
-          : legacyExecutionStatus(job.status),
+          : fallbackExecutionStatus(job.status),
         position: job.position,
       })),
       statusCounts,
@@ -345,7 +346,7 @@ export function toWorkflowRunListItem(dto: WorkflowRunListItemDto): WorkflowRunL
   };
 }
 
-function legacyExecutionStatus(
+function fallbackExecutionStatus(
   status: WorkflowRunListItemDto['jobs'][number]['status'],
 ): 'pending' | 'running' | null {
   return status === 'pending' || status === 'running' ? status : null;
@@ -357,340 +358,6 @@ export function toWorkflowRunListPage(dto: WorkflowRunListResponseDto): Workflow
     nextCursor: dto.next_cursor,
     filteredTotalCount: dto.filtered_total_count,
   };
-}
-
-export function toWorkflowRunDetail(dto: WorkflowRunDetailResponseDto): WorkflowRunDetail {
-  return {
-    ...toWorkflowRun(dto),
-    latestAttempt: dto.latest_attempt,
-    runAttempt: toWorkflowRunAttempt(dto.run_attempt),
-    jobs: dto.jobs.map(toJob),
-    hasStartedJobExecution: dto.has_started_job_execution ?? true,
-  };
-}
-
-/**
- * Converts the retained tree response into the bounded shape while an older API is still in
- * service. The normal workspace path never calls this for a valid overview response; it exists
- * solely so a mixed deployment can keep the shell usable until the overview route is available.
- */
-export function toWorkflowRunOverviewFromDetail(
-  dto: WorkflowRunDetailResponseDto,
-): WorkflowRunOverview {
-  return toWorkflowRunOverviewFromRunDetail(toWorkflowRunDetail(dto));
-}
-
-export function toWorkflowRunOverviewFromRunDetail(detail: WorkflowRunDetail): WorkflowRunOverview {
-  const items = detail.jobs.map(toWorkflowRunOverviewJobFromDetail);
-  const totalDependencyEdges = detail.jobs.reduce(
-    (total, job) => total + job.dependencies.length,
-    0,
-  );
-  const header = {
-    id: detail.id,
-    projectId: detail.projectId,
-    definitionId: detail.definitionId,
-    number: detail.number,
-    name: detail.name,
-    workflowName: detail.workflowName,
-    origin: detail.origin,
-    devSource: detail.devSource,
-    triggerProvider: detail.triggerProvider,
-    triggerSource: detail.triggerSource,
-    triggerEvent: detail.triggerEvent,
-    triggerDisplayLabel: detail.triggerDisplayLabel,
-    triggerLabel: detail.triggerLabel,
-    triggerReference: detail.triggerReference,
-    createdAt: detail.createdAt,
-    currentAttempt: detail.currentAttempt,
-    latestAttempt: detail.latestAttempt,
-    runAttempt: detail.runAttempt,
-    hasStartedJobExecution: detail.hasStartedJobExecution,
-  };
-  if (
-    items.length <= WORKFLOW_RUN_OVERVIEW_COMPLETE_JOB_LIMIT &&
-    totalDependencyEdges <= WORKFLOW_RUN_OVERVIEW_COMPLETE_EDGE_LIMIT
-  ) {
-    return {
-      ...header,
-      jobs: {kind: 'complete', total: items.length, items},
-    };
-  }
-
-  const counts = new Map<JobStatus, number>();
-  for (const job of detail.jobs) {
-    counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
-  }
-
-  const firstPage = toWorkflowRunOverviewJobsPageFromRunDetail(detail);
-  return {
-    ...header,
-    jobs: {
-      kind: 'large',
-      total: items.length,
-      statusCounts: [...counts].map(([status, count]) => ({status, count})),
-      firstPage: {...firstPage, total: items.length},
-    },
-  };
-}
-
-const LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND = 'legacy-workflow-run-overview-jobs';
-
-export function legacyWorkflowRunOverviewJobsCursor(offset: number): string {
-  return encodeBase64UrlJson({
-    kind: LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND,
-    offset,
-  });
-}
-
-export function toWorkflowRunOverviewJobsPageFromRunDetail(
-  detail: WorkflowRunDetail,
-  offset = 0,
-): WorkflowRunOverviewJobPage {
-  const pageItems = detail.jobs
-    .slice(offset, offset + WORKFLOW_RUN_OVERVIEW_LARGE_JOB_PAGE_LIMIT)
-    .map(toWorkflowRunOverviewJobFromDetail)
-    .map((item) => new WorkflowRunOverviewJob({...item, dependencies: []}));
-  const nextOffset = offset + pageItems.length;
-  return {
-    items: pageItems,
-    nextCursor:
-      nextOffset < detail.jobs.length ? legacyWorkflowRunOverviewJobsCursor(nextOffset) : null,
-    total: detail.jobs.length,
-  };
-}
-
-export function legacyWorkflowRunOverviewJobsOffset(cursor: string | null): number | undefined {
-  if (!cursor) return 0;
-  const decoded = decodeBase64UrlJson(cursor);
-  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return undefined;
-  const {kind, offset} = decoded as {kind?: unknown; offset?: unknown};
-  return kind === LEGACY_WORKFLOW_RUN_OVERVIEW_JOBS_CURSOR_KIND &&
-    typeof offset === 'number' &&
-    Number.isSafeInteger(offset) &&
-    offset >= 0
-    ? offset
-    : undefined;
-}
-
-function encodeBase64UrlJson(value: object): string {
-  return btoa(JSON.stringify(value))
-    .replaceAll('+', '-')
-    .replaceAll('/', '_')
-    .replace(BASE64_URL_PADDING_RE, '');
-}
-
-function decodeBase64UrlJson(value: string): unknown {
-  if (!BASE64_URL_VALUE_RE.test(value)) return undefined;
-  try {
-    const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
-    return JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='))) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-function toWorkflowRunOverviewJobFromDetail(job: Job): WorkflowRunOverviewJob {
-  const executionStatusCounts = {
-    pending: 0,
-    running: 0,
-    succeeded: 0,
-    failed: 0,
-    cancelled: 0,
-  } as const;
-  const counts = {...executionStatusCounts};
-  for (const execution of job.jobExecutions) {
-    counts[deriveJobExecutionDisplayStatus(execution)] += 1;
-  }
-
-  const execution = defaultJobExecution(job);
-  return new WorkflowRunOverviewJob({
-    id: job.id,
-    key: job.key,
-    name: job.name,
-    position: job.position,
-    dependencies: job.dependencies,
-    status: job.status,
-    statusReason: job.statusReason,
-    mode: job.mode,
-    listenerStatus: job.listenerStatus,
-    carriedOver: job.carriedOver,
-    executionCount: boundedExecutionCount(job.jobExecutions.length),
-    executionStatusCounts: {
-      pending: boundedExecutionCount(counts.pending),
-      running: boundedExecutionCount(counts.running),
-      succeeded: boundedExecutionCount(counts.succeeded),
-      failed: boundedExecutionCount(counts.failed),
-      cancelled: boundedExecutionCount(counts.cancelled),
-    },
-    defaultExecution: execution
-      ? {
-          id: execution.id,
-          sequence: execution.sequence,
-          name: execution.name,
-          status: execution.status,
-          displayStatus: deriveJobExecutionDisplayStatus(execution),
-          statusReason: toJobStatusReason(execution.statusReason),
-          statusReasonMessage: execution.statusReasonMessage,
-          queuedAt: execution.queuedAt,
-          startedAt: execution.startedAt,
-          finishedAt: execution.finishedAt,
-          timedOutAt: execution.timedOutAt,
-          updatedAt: execution.updatedAt,
-          displayDuration: execution.displayDuration,
-        }
-      : null,
-  });
-}
-
-function boundedExecutionCount(count: number): number | '100+' {
-  return count > 100 ? '100+' : count;
-}
-
-function toJobStatusReason(
-  value: string | null,
-):
-  | 'dependency_not_completed'
-  | 'condition_false'
-  | 'default_gate_rejected'
-  | 'condition_rejected'
-  | 'condition_errored'
-  | 'user_cancelled'
-  | 'run_cancelled'
-  | 'timed_out'
-  | 'runner_lost'
-  | 'output_too_large'
-  | 'step_failed'
-  | 'unknown'
-  | 'output_invalid'
-  | null {
-  switch (value) {
-    case 'dependency_not_completed':
-    case 'condition_false':
-    case 'default_gate_rejected':
-    case 'condition_rejected':
-    case 'condition_errored':
-    case 'user_cancelled':
-    case 'run_cancelled':
-    case 'timed_out':
-    case 'runner_lost':
-    case 'output_too_large':
-    case 'step_failed':
-    case 'unknown':
-    case 'output_invalid':
-      return value;
-    default:
-      return value === null ? null : 'unknown';
-  }
-}
-
-export function toJob(dto: WorkflowRunJobDetailDto): Job {
-  return new Job({
-    id: dto.id,
-    runAttemptId: dto.run_attempt_id,
-    key: dto.key,
-    name: dto.name,
-    mode: dto.mode,
-    status: dto.status,
-    statusReason: dto.status_reason,
-    carriedOver: dto.carried_over,
-    outputs: dto.outputs ?? null,
-    success: dto.success ?? null,
-    runner: dto.runner ?? null,
-    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
-    listening: dto.listening ? toJobListening(dto.listening) : null,
-    listenerStatus: dto.listener_status,
-    resolutionReason: dto.resolution_reason,
-    dependencies: dto.dependencies,
-    position: dto.position,
-    createdAt: dto.created_at,
-    updatedAt: dto.updated_at,
-    jobExecutions: dto.job_executions.map(toJobExecution),
-  });
-}
-
-export function toJobExecution(dto: WorkflowRunJobExecutionDetailDto): JobExecution {
-  return new JobExecution({
-    id: dto.id,
-    jobId: dto.job_id,
-    sequence: dto.sequence,
-    name: dto.name,
-    status: dto.status,
-    statusReason: dto.status_reason,
-    statusReasonMessage: dto.status_reason_message ?? null,
-    runner: dto.runner ?? null,
-    outputs: dto.outputs ?? null,
-    triggerEvents: (dto.trigger_events ?? []).map(toWorkflowExecutionEvent),
-    queuedAt: dto.queued_at ?? null,
-    startedAt: dto.started_at ?? null,
-    finishedAt: dto.finished_at ?? null,
-    timedOutAt: dto.timed_out_at ?? null,
-    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
-    createdAt: dto.created_at,
-    updatedAt: dto.updated_at,
-    steps: dto.steps.map(toStep),
-  });
-}
-
-export function toStep(dto: WorkflowRunStepDetailDto): Step {
-  return {
-    id: dto.id,
-    jobExecutionId: dto.job_execution_id,
-    key: dto.key,
-    name: dto.name,
-    sourceLocation: dto.source_location
-      ? {startLine: dto.source_location.start_line, endLine: dto.source_location.end_line}
-      : null,
-    status: dto.status,
-    statusReason: dto.status_reason,
-    type: dto.type,
-    config: dto.config,
-    evaluationTrace: toEvaluationTrace(dto.evaluation_trace),
-    agentConfig: toAgentStepConfig(dto),
-    toolConfig: toToolStepConfig(dto),
-    error: dto.error
-      ? {
-          message: dto.error.message,
-          ...(dto.error.code === undefined ? {} : {code: dto.error.code}),
-          ...(dto.error.managed_provider_id === undefined
-            ? {}
-            : {managedProviderId: dto.error.managed_provider_id}),
-          ...(dto.error.field === undefined ? {} : {field: dto.error.field}),
-          ...(dto.error.source === undefined ? {} : {source: dto.error.source}),
-          exitCode: dto.error.exit_code ?? null,
-          signal: dto.error.signal,
-          reason: dto.error.reason,
-          agentConfigIssue: dto.error.agent_config_issue,
-          category: dto.error.category,
-        }
-      : null,
-    position: dto.position,
-    currentAttempt: dto.current_attempt,
-    createdAt: dto.created_at,
-    updatedAt: dto.updated_at,
-    attempts: dto.attempts.map((attempt) => toStepAttempt(attempt, dto.job_execution_id)),
-  };
-}
-
-export function toStepAttempt(dto: StepAttemptDto, jobExecutionId: string): StepAttempt {
-  return new StepAttempt({
-    id: dto.id,
-    stepId: dto.step_id,
-    jobExecutionId,
-    attempt: dto.attempt,
-    executionOrder: dto.execution_order,
-    status: dto.status,
-    exitCode: dto.exit_code ?? null,
-    output: dto.output ?? null,
-    outputs: dto.outputs ?? dto.output ?? null,
-    response: dto.response ?? null,
-    error: dto.error ?? null,
-    gateResult: toStepGateResult(dto.gate_result),
-    restartFeedback: dto.restart_feedback ?? null,
-    invocations: dto.invocations.map(toStepAttemptInvocation),
-    startedAt: dto.started_at,
-    finishedAt: dto.finished_at ?? null,
-  });
 }
 
 export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
@@ -718,113 +385,6 @@ export function toStepAttemptDetail(dto: StepAttemptDetailResponseDto) {
   };
 }
 
-function toJobListening(dto: JobListeningDto): JobListening {
-  return {
-    on: dto.on,
-    until: dto.until,
-    timeoutMs: dto.timeout_ms,
-    maxExecutions: dto.max_executions,
-    batch: dto.batch
-      ? {
-          debounceMs: dto.batch.debounce_ms,
-          maxSize: dto.batch.max_size,
-          maxWaitMs: dto.batch.max_wait_ms,
-        }
-      : null,
-    onResolve: dto.on_resolve,
-    executionTimeoutMs: dto.execution_timeout_ms,
-    name: dto.name,
-  };
-}
-
-function toStepAttemptInvocation(invocation: StepAttemptDto['invocations'][number]) {
-  return {
-    callIndex: invocation.call_index,
-    startedAt: invocation.started_at,
-    ...(invocation.finished_at === undefined ? {} : {finishedAt: invocation.finished_at}),
-    ...(invocation.outcome === undefined ? {} : {outcome: invocation.outcome}),
-    ...(invocation.error_code === undefined ? {} : {errorCode: invocation.error_code}),
-    ...(invocation.duration_ms === undefined ? {} : {durationMs: invocation.duration_ms}),
-    ...(invocation.next_due_at === undefined ? {} : {nextDueAt: invocation.next_due_at}),
-  };
-}
-
-export function toWorkflowExecutionEvent(dto: WorkflowExecutionEventDto): WorkflowExecutionEvent {
-  return {
-    source: dto.source,
-    event: dto.event,
-    deliveryId: dto.delivery_id,
-    receivedAt: dto.received_at,
-    project: dto.project,
-    repository: dto.repository,
-    ref: dto.ref,
-    commit: dto.commit,
-    data: dto.data,
-  };
-}
-
-function toStepGateResult(dto: StepGateResultDto): StepGateResult {
-  if (dto === null || dto.kind === 'none' || dto.kind === 'not_evaluated') return dto;
-  if (dto.kind === 'passed' || dto.kind === 'failed') return {...dto, exitCode: dto.exit_code};
-  if (dto.kind === 'uncheckable' || dto.kind === 'evaluation_error')
-    return {...dto, exitCode: dto.exit_code};
-  return dto;
-}
-
-export function toEvaluationTrace(trace: EvaluationTraceDto | null): EvaluationTraceEntry[] | null {
-  return trace?.map(toEvaluationTraceEntry) ?? null;
-}
-
-function toEvaluationTraceEntry(entry: EvaluationTraceDto[number]): EvaluationTraceEntry {
-  if ('dropped' in entry) return entry;
-  return {
-    expression: entry.expression,
-    roots: entry.roots,
-    fillTarget: entry.fill_target,
-    evaluatedAt: entry.evaluated_at,
-    field: entry.field,
-    ...(entry.value === undefined ? {} : {value: entry.value}),
-    ...(entry.truncated === undefined ? {} : {truncated: entry.truncated}),
-    ...(entry.expr_truncated === undefined ? {} : {exprTruncated: entry.expr_truncated}),
-    ...(entry.reference === undefined ? {} : {reference: entry.reference}),
-    ...(entry.degraded === undefined ? {} : {degraded: entry.degraded}),
-    ...(entry.env_key === undefined ? {} : {envKey: entry.env_key}),
-  };
-}
-
-function toAgentStepConfig(dto: WorkflowRunStepDetailDto): Step['agentConfig'] {
-  if (dto.type !== 'agent') return null;
-  return {
-    provider: stringConfigValue(dto.config.provider),
-    model: stringConfigValue(dto.config.model),
-    thinking: stringConfigValue(dto.config.thinking),
-  };
-}
-
-function toToolStepConfig(dto: WorkflowRunStepDetailDto): Step['toolConfig'] {
-  if (dto.type !== 'tool') return null;
-  const tool = toolConfigValue(dto.config);
-  const sensitivity = tool?.sensitivity;
-  const method = stringConfigValue(tool?.method);
-  return {
-    provider: stringConfigValue(tool?.provider),
-    connectionSlug: stringConfigValue(tool?.connection_slug),
-    toolId: stringConfigValue(tool?.id),
-    ...(method === null ? {} : {method}),
-    sensitivity: sensitivity === 'read' || sensitivity === 'write' ? sensitivity : null,
-  };
-}
-
 function toolConfigValue(config: Record<string, unknown> | null): Record<string, unknown> | null {
   return recordConfigValue(config?.tool);
-}
-
-function recordConfigValue(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function stringConfigValue(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }

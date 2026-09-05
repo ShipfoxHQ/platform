@@ -167,7 +167,7 @@ export interface WorkflowRunAccessScope {
   projectId: string;
 }
 
-/** Loads only the fields needed to authorize a read without hydrating legacy run payloads. */
+/** Loads only the fields needed to authorize a read without hydrating persisted run payloads. */
 export async function getWorkflowRunAccessScopeById(
   workflowRunId: string,
 ): Promise<WorkflowRunAccessScope | undefined> {

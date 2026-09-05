@@ -1,5 +1,4 @@
 import type {DefinitionSyncSummaryDto} from '@shipfox/api-definitions-dto';
-import type {WorkflowRunDto} from '@shipfox/api-workflows-dto';
 import {evaluateRejection, parseRejection} from './reject.js';
 
 const timestamp = '2026-07-04T10:00:00.000Z';
@@ -59,7 +58,7 @@ describe('evaluateRejection', () => {
           last_error_code: null,
           last_error_message: 'accepted',
         }),
-        runs: [{id: '33333333-3333-4333-8333-333333333333'} as WorkflowRunDto],
+        runs: [{id: '33333333-3333-4333-8333-333333333333'}],
       },
       parseRejection({message_includes: ['unknown-interpolation-context']}),
     );

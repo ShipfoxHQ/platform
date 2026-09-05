@@ -81,7 +81,6 @@ export type {
   ManualWorkflowLaunch,
   WorkflowDisplayStatus,
   WorkflowRun,
-  WorkflowRunDetail,
   WorkflowRunDevSource,
   WorkflowRunJobStatusCount,
   WorkflowRunJobSummary,

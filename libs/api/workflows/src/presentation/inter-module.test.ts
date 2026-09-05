@@ -56,7 +56,6 @@ const mocks = vi.hoisted(() => ({
   getWorkflowRunAccessScopeById: vi.fn(),
   getWorkflowRunAnnotationOrigins: vi.fn(),
   getWorkflowRunAttemptIdForScope: vi.fn(),
-  getWorkflowRunDetail: vi.fn(),
   getWorkflowRunOverview: vi.fn(),
   getWorkflowRunSource: vi.fn(),
   getWorkflowStepReadScope: vi.fn(),
@@ -149,7 +148,6 @@ describe('Workflows inter-module presentation', () => {
     mocks.getWorkflowRunAccessScopeById.mockReset();
     mocks.getWorkflowRunAnnotationOrigins.mockReset();
     mocks.getWorkflowRunAttemptIdForScope.mockReset();
-    mocks.getWorkflowRunDetail.mockReset();
     mocks.getWorkflowRunOverview.mockReset();
     mocks.getWorkflowRunSource.mockReset();
     mocks.getWorkflowStepReadScope.mockReset();
@@ -655,7 +653,6 @@ describe('Workflows inter-module presentation', () => {
   });
 
   it('returns nullable exact reads for missing or cross-workspace resources', async () => {
-    mocks.getWorkflowRunDetail.mockResolvedValue(undefined);
     mocks.getStepAttemptDetail.mockResolvedValue(undefined);
     const presentation = createWorkflowsInterModulePresentation({
       agent: {} as never,
@@ -667,15 +664,8 @@ describe('Workflows inter-module presentation', () => {
       workspaces: {getWorkspaceOperatingState: vi.fn()} as never,
     });
     const workspaceId = '00000000-0000-4000-8000-000000000001';
-    const workflowRunId = '00000000-0000-4000-8000-000000000002';
     const stepId = '00000000-0000-4000-8000-000000000003';
 
-    await expect(
-      presentation.handlers.getWorkflowRunDetail(
-        {workspaceId, workflowRunId, attempt: 2},
-        {signal: new AbortController().signal},
-      ),
-    ).resolves.toEqual({run: null});
     await expect(
       presentation.handlers.getStepAttemptDetail(
         {workspaceId, stepId, attempt: 2},
@@ -683,7 +673,6 @@ describe('Workflows inter-module presentation', () => {
       ),
     ).resolves.toEqual({detail: null});
 
-    expect(mocks.getWorkflowRunDetail).toHaveBeenCalledWith(workflowRunId, 2, workspaceId);
     expect(mocks.getStepAttemptDetail).toHaveBeenCalledWith({
       stepId,
       attempt: 2,

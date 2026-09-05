@@ -14,22 +14,19 @@ import type {JobMode, JobStatus, ListenerStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus} from '#core/entities/job-execution.js';
 import type {StepSourceLocation} from '#core/entities/step.js';
 import type {
-  JobExecutionDetail,
-  StepDetail,
-  WorkflowJobDetail,
   WorkflowRun,
-  WorkflowRunDetail,
+  WorkflowRunList,
   WorkflowRunOrigin,
   WorkflowRunStatus,
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
 import {db} from '../db.js';
-import {jobExecutions, toJobExecution} from '../schema/job-executions.js';
-import {jobs, toJob} from '../schema/jobs.js';
-import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
-import {steps, toStep} from '../schema/steps.js';
+import {jobExecutions} from '../schema/job-executions.js';
+import {jobs} from '../schema/jobs.js';
+import {stepAttempts} from '../schema/step-attempts.js';
+import {steps} from '../schema/steps.js';
 import {toWorkflowRunAttempt, workflowRunAttempts} from '../schema/workflow-run-attempts.js';
-import {toWorkflowRun, workflowRuns} from '../schema/workflow-runs.js';
+import {toWorkflowRun, toWorkflowRunList, workflowRuns} from '../schema/workflow-runs.js';
 
 export type WorkflowRunCursor = TimestampIdCursor;
 
@@ -52,7 +49,7 @@ export interface ListWorkflowRunsParams {
 }
 
 export interface ListWorkflowRunsResult {
-  runs: WorkflowRun[];
+  runs: WorkflowRunList[];
   nextCursor: WorkflowRunCursor | null;
   filteredTotalCount: number | null;
 }
@@ -124,15 +121,6 @@ export interface WorkflowJobExecutionDepthParams {
   workspaceId?: string;
 }
 
-export interface WorkflowRunDetailReadMeasurement {
-  databaseDurationMilliseconds: number;
-  returnedRows: number;
-}
-
-export interface WorkflowRunDetailReadOptions {
-  onRead?: ((measurement: WorkflowRunDetailReadMeasurement) => void) | undefined;
-}
-
 export async function getWorkflowRunById(
   id: string,
   workspaceId?: string | undefined,
@@ -170,24 +158,6 @@ export async function getWorkflowRunAttemptById(workflowRunAttemptId: string) {
     .limit(1);
   const row = rows[0];
   return row ? toWorkflowRunAttempt(row) : undefined;
-}
-
-export async function listRunAttempts(params: {workflowRunId: string; projectId: string}) {
-  return (
-    await db()
-      .select({
-        attempt: workflowRunAttempts,
-      })
-      .from(workflowRunAttempts)
-      .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-      .where(
-        and(
-          eq(workflowRunAttempts.workflowRunId, params.workflowRunId),
-          eq(workflowRuns.projectId, params.projectId),
-        ),
-      )
-      .orderBy(asc(workflowRunAttempts.attempt))
-  ).map((row) => toWorkflowRunAttempt(row.attempt));
 }
 
 export async function listRunAttemptsPage(
@@ -589,7 +559,27 @@ export async function listWorkflowRuns(
 ): Promise<ListWorkflowRunsResult> {
   const conditions = buildWorkflowRunListConditions(params);
   const rows = await db()
-    .select()
+    .select({
+      id: workflowRuns.id,
+      workspaceId: workflowRuns.workspaceId,
+      projectId: workflowRuns.projectId,
+      definitionId: workflowRuns.definitionId,
+      number: workflowRuns.number,
+      name: workflowRuns.name,
+      workflowName: workflowRuns.workflowName,
+      status: workflowRuns.status,
+      origin: workflowRuns.origin,
+      devSource: workflowRuns.devSource,
+      currentAttempt: workflowRuns.currentAttempt,
+      triggerProvider: workflowRuns.triggerProvider,
+      triggerSource: workflowRuns.triggerSource,
+      triggerEvent: workflowRuns.triggerEvent,
+      triggerReference: workflowRuns.triggerReference,
+      createdAt: workflowRuns.createdAt,
+      updatedAt: workflowRuns.updatedAt,
+      startedAt: workflowRuns.startedAt,
+      finishedAt: workflowRuns.finishedAt,
+    })
     .from(workflowRuns)
     .where(and(...conditions))
     .orderBy(desc(workflowRuns.createdAt), desc(workflowRuns.id))
@@ -615,7 +605,7 @@ export async function listWorkflowRuns(
   const page = paginateTimestampIdRows({rows, limit: params.limit, timestampKey: 'createdAt'});
 
   return {
-    runs: page.pageRows.map(toWorkflowRun),
+    runs: page.pageRows.map(toWorkflowRunList),
     nextCursor: page.nextCursor,
     filteredTotalCount: totalCount,
   };
@@ -842,11 +832,6 @@ function appendStatusCount<T extends string>(
   }
 }
 
-export async function listWorkflowRunsByProject(projectId: string): Promise<WorkflowRun[]> {
-  const result = await listWorkflowRuns({projectId, limit: 100});
-  return result.runs;
-}
-
 export async function getWorkflowRunAggregates(params: {
   projectId: string;
   filters?: WorkflowRunFilters | undefined;
@@ -928,191 +913,4 @@ export async function getWorkflowJobExecutionDepth(
     runningRuns: runRows[0]?.value ?? 0,
     runningJobExecutions: jobRows[0]?.value ?? 0,
   };
-}
-
-export async function getWorkflowRunDetail(
-  workflowRunId: string,
-  attempt?: number | undefined,
-  workspaceId?: string | undefined,
-  options: WorkflowRunDetailReadOptions = {},
-): Promise<WorkflowRunDetail | undefined> {
-  const startedAt = performance.now();
-  let returnedRows = 0;
-  let databaseDurationMilliseconds: number | undefined;
-
-  try {
-    const targetConditions = [eq(workflowRuns.id, workflowRunId)];
-    if (workspaceId) targetConditions.push(eq(workflowRuns.workspaceId, workspaceId));
-    const [target] = await db()
-      .select({run: workflowRuns, attempt: workflowRunAttempts})
-      .from(workflowRuns)
-      .innerJoin(
-        workflowRunAttempts,
-        and(
-          eq(workflowRunAttempts.workflowRunId, workflowRuns.id),
-          eq(workflowRunAttempts.attempt, attempt ?? workflowRuns.currentAttempt),
-        ),
-      )
-      .where(and(...targetConditions))
-      .limit(1);
-    if (!target) return undefined;
-
-    const latestAttempt = await getLatestAttempt({
-      workflowRunId: target.run.id,
-      projectId: target.run.projectId,
-    });
-
-    const rows = await db()
-      .select({
-        run: workflowRuns,
-        job: jobs,
-        jobExecution: jobExecutions,
-        step: steps,
-        stepAttempt: stepAttempts,
-      })
-      .from(workflowRuns)
-      .innerJoin(workflowRunAttempts, eq(workflowRunAttempts.id, target.attempt.id))
-      .leftJoin(jobs, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-      .leftJoin(jobExecutions, eq(jobExecutions.jobId, jobs.id))
-      .leftJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
-      .leftJoin(stepAttempts, eq(stepAttempts.stepId, steps.id))
-      .where(and(...targetConditions))
-      .orderBy(
-        asc(jobs.position),
-        asc(jobs.id),
-        asc(jobExecutions.sequence),
-        asc(jobExecutions.id),
-        asc(steps.position),
-        asc(steps.id),
-        asc(stepAttempts.executionOrder),
-        asc(stepAttempts.id),
-      );
-    returnedRows = rows.length;
-    databaseDurationMilliseconds = performance.now() - startedAt;
-
-    return hydrateWorkflowRunDetail(rows, target.attempt, latestAttempt);
-  } finally {
-    try {
-      options.onRead?.({
-        databaseDurationMilliseconds: databaseDurationMilliseconds ?? performance.now() - startedAt,
-        returnedRows,
-      });
-    } catch {
-      // Measurement observers must not change the legacy read outcome.
-    }
-  }
-}
-
-export async function getJobExecutionDetail(
-  jobExecutionId: string,
-): Promise<JobExecutionDetail | undefined> {
-  const rows = await db()
-    .select({
-      job: jobs,
-      jobExecution: jobExecutions,
-      step: steps,
-      stepAttempt: stepAttempts,
-    })
-    .from(jobExecutions)
-    .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
-    .innerJoin(workflowRunAttempts, eq(jobs.workflowRunAttemptId, workflowRunAttempts.id))
-    .innerJoin(workflowRuns, eq(workflowRunAttempts.workflowRunId, workflowRuns.id))
-    .leftJoin(steps, eq(steps.jobExecutionId, jobExecutions.id))
-    .leftJoin(stepAttempts, eq(stepAttempts.stepId, steps.id))
-    .where(eq(jobExecutions.id, jobExecutionId))
-    .orderBy(
-      asc(steps.position),
-      asc(steps.id),
-      asc(stepAttempts.executionOrder),
-      asc(stepAttempts.id),
-    );
-
-  const first = rows[0];
-  if (!first) return undefined;
-
-  const detail: JobExecutionDetail = {
-    ...toJobExecution(first.jobExecution, first.job.name ?? first.job.key),
-    steps: [],
-  };
-  const stepById = new Map<string, StepDetail>();
-  for (const row of rows) {
-    if (row.step) {
-      const step = getOrCreateStepDetail(stepById, detail.steps, row.step);
-      if (row.stepAttempt) {
-        step.attempts.push(toStepAttempt(row.stepAttempt));
-      }
-    }
-  }
-
-  return detail;
-}
-
-function hydrateWorkflowRunDetail(
-  rows: {
-    run: typeof workflowRuns.$inferSelect;
-    job: typeof jobs.$inferSelect | null;
-    jobExecution: typeof jobExecutions.$inferSelect | null;
-    step: typeof steps.$inferSelect | null;
-    stepAttempt: typeof stepAttempts.$inferSelect | null;
-  }[],
-  attempt: typeof workflowRunAttempts.$inferSelect,
-  latestAttempt: number,
-): WorkflowRunDetail | undefined {
-  const first = rows[0];
-  if (!first) return undefined;
-
-  const detail: WorkflowRunDetail = {
-    ...toWorkflowRun(first.run),
-    runAttempt: toWorkflowRunAttempt(attempt),
-    latestAttempt,
-    jobs: [],
-    // Read off the same rows the executions come from, so the flag cannot contradict them.
-    hasStartedJobExecution: rows.some((row) => row.jobExecution?.startedAt != null),
-  };
-  const jobById = new Map<string, WorkflowJobDetail>();
-  const jobExecutionById = new Map<string, JobExecutionDetail>();
-  const stepById = new Map<string, StepDetail>();
-
-  for (const row of rows) {
-    if (!row.job) continue;
-    let job = jobById.get(row.job.id);
-    if (!job) {
-      job = {...toJob(row.job), jobExecutions: []};
-      jobById.set(row.job.id, job);
-      detail.jobs.push(job);
-    }
-
-    if (!row.jobExecution) continue;
-    let jobExecution = jobExecutionById.get(row.jobExecution.id);
-    if (!jobExecution) {
-      jobExecution = {
-        ...toJobExecution(row.jobExecution, row.job.name ?? row.job.key),
-        steps: [],
-      };
-      jobExecutionById.set(row.jobExecution.id, jobExecution);
-      job.jobExecutions.push(jobExecution);
-    }
-
-    if (!row.step) continue;
-    const step = getOrCreateStepDetail(stepById, jobExecution.steps, row.step);
-    if (row.stepAttempt) {
-      step.attempts.push(toStepAttempt(row.stepAttempt));
-    }
-  }
-
-  return detail;
-}
-
-function getOrCreateStepDetail(
-  stepById: Map<string, StepDetail>,
-  target: StepDetail[],
-  row: typeof steps.$inferSelect,
-): StepDetail {
-  let step = stepById.get(row.id);
-  if (!step) {
-    step = {...toStep(row), attempts: []};
-    stepById.set(row.id, step);
-    target.push(step);
-  }
-  return step;
 }

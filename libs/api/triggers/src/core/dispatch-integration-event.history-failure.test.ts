@@ -57,7 +57,6 @@ const workflows = {
   listWorkflowRunAnnotations: async () => null,
   listWorkflowRunJobExplanations: async () => null,
   listFailedStepAttempts: async () => null,
-  getWorkflowRunDetail: async () => ({run: null}),
   getStepAttemptDetail: async () => ({detail: null}),
   getLatestRunAttempt: async () => ({attempt: null}),
   getLatestStepAttempt: async () => ({attempt: null}),

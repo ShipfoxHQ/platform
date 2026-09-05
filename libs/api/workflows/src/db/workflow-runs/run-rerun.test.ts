@@ -5,6 +5,7 @@ import {NoFailedJobsError, RunNotTerminalError, SourceRunNotFoundError} from '#c
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
 import {assembleWorkflowRunContext} from '#core/step-config/assemble-run-context.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {
   buildModel,
   runAttemptCreatedEvents,
@@ -25,7 +26,6 @@ import {
   getStepsByJobId,
   getWorkflowRunAttemptById,
   getWorkflowRunById,
-  listRunAttempts,
   updateWorkflowRunStatus,
 } from '../workflow-runs.js';
 
@@ -126,7 +126,7 @@ describe('workflow run queries', () => {
       });
       const sourceAfter = await getWorkflowRunById(source.id);
       expect(sourceAfter?.currentAttempt).toBe(2);
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       expect(attempts.map((attempt) => attempt.attempt).sort()).toEqual([1, 2]);
 
       const rerunJobs = await getJobsByWorkflowRunId(rerun.id);
@@ -147,7 +147,7 @@ describe('workflow run queries', () => {
         actorUserId: crypto.randomUUID(),
       });
 
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const sourceAttempt = attempts.find((attempt) => attempt.attempt === 1);
       const rerunAttempt = attempts.find((attempt) => attempt.attempt === 2);
       const reloadedRerunAttempt = await getWorkflowRunAttemptById(rerunAttempt?.id as string);
@@ -156,7 +156,7 @@ describe('workflow run queries', () => {
 
     test('reruns clone the frozen agent tool materialization snapshot', async () => {
       const source = await createTerminalSourceRun();
-      const [sourceAttempt] = await listRunAttempts({workflowRunId: source.id, projectId});
+      const [sourceAttempt] = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const snapshot: AgentToolMaterializationSnapshot = {
         steps: [
           {
@@ -202,7 +202,7 @@ describe('workflow run queries', () => {
         actorUserId: crypto.randomUUID(),
       });
 
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const rerunAttempt = attempts.find((attempt) => attempt.attempt === 2);
       expect(rerunAttempt?.agentToolMaterialization).toEqual(snapshot);
     });
@@ -553,7 +553,7 @@ describe('workflow run queries', () => {
         mode: 'failed',
         actorUserId: crypto.randomUUID(),
       });
-      const sourceAttempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const sourceAttempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const sourceAttempt = sourceAttempts.find((attempt) => attempt.attempt === 1);
       if (!sourceAttempt) throw new Error('Expected source attempt');
       const events = await runAttemptCreatedEvents(rerun.id);
@@ -657,7 +657,7 @@ describe('workflow run queries', () => {
         mode: 'failed',
         actorUserId: crypto.randomUUID(),
       });
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const firstAttempt = attempts.find((attempt) => attempt.attempt === 1);
       const secondAttempt = attempts.find((attempt) => attempt.attempt === 2);
       if (!firstAttempt || !secondAttempt) throw new Error('Expected source attempts');

@@ -1,10 +1,10 @@
-import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import {TimeTickerProvider} from '@shipfox/react-ui/time-ticker';
 import {act, render, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type {JobMode, JobStatus, ListenerStatus} from '#core/workflow-run.js';
 import {
-  workflowJob,
   workflowJobExecutionDto,
+  workflowRunOverviewJob,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
 import type {JobGraphNode} from './graph-model.js';
@@ -12,9 +12,17 @@ import {JobNode} from './job-node.js';
 
 const NOW = Date.parse('2026-06-26T12:00:00.000Z');
 
-type NodeOverrides = Omit<Partial<WorkflowRunJobDetailDto>, 'job_executions'> & {
+type NodeOverrides = {
+  id?: string;
+  key?: string;
   name?: string | null;
-  job_executions?: WorkflowRunJobDetailDto['job_executions'];
+  status?: JobStatus;
+  mode?: JobMode;
+  listener_status?: ListenerStatus;
+  position?: number;
+  dependencies?: string[];
+  carried_over?: boolean;
+  job_executions?: ReturnType<typeof workflowJobExecutionDto>[];
   queued_at?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
@@ -39,15 +47,14 @@ function makeNode(overrides: NodeOverrides): JobGraphNode {
         queued_at: queued_at ?? null,
         started_at: started_at ?? null,
         finished_at: finished_at ?? null,
-        ...(jobOverrides.status === 'running'
-          ? {steps: [workflowStepDto({status: 'running'})]}
-          : {}),
       }),
     ];
   } else if (job_executions !== undefined) {
     jobOverrideWithExecutions.job_executions = job_executions;
   }
-  const job = workflowJob(jobOverrideWithExecutions);
+  const job = workflowRunOverviewJob({
+    ...jobOverrideWithExecutions,
+  });
   return Object.assign(Object.create(Object.getPrototypeOf(job)), job, {
     column: 0,
     row: 0,
@@ -61,7 +68,7 @@ function needsSyntheticExecution({
   startedAt,
   finishedAt,
 }: {
-  jobExecutions: WorkflowRunJobDetailDto['job_executions'] | undefined;
+  jobExecutions: ReturnType<typeof workflowJobExecutionDto>[] | undefined;
   queuedAt: string | null | undefined;
   startedAt: string | null | undefined;
   finishedAt: string | null | undefined;
@@ -355,23 +362,6 @@ describe('JobNode status indicator', () => {
       name: 'deploy',
       status: 'pending',
       job_executions: [workflowJobExecutionDto({status: 'running'})],
-    });
-
-    renderNode(node);
-
-    expect(screen.getByRole('button', {name: 'deploy, Running'})).toBeInTheDocument();
-  });
-
-  test('shows a pending lifecycle as running while a step is active', () => {
-    const node = makeNode({
-      name: 'deploy',
-      status: 'pending',
-      job_executions: [
-        workflowJobExecutionDto({
-          status: 'pending',
-          steps: [workflowStepDto({status: 'running'})],
-        }),
-      ],
     });
 
     renderNode(node);

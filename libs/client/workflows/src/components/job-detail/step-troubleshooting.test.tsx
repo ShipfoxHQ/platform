@@ -1,8 +1,4 @@
-import type {
-  StepAttemptDetailResponseDto,
-  StepAttemptDto,
-  WorkflowRunStepDetailDto,
-} from '@shipfox/api-workflows-dto';
+import type {StepAttemptDetailResponseDto, StepAttemptDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -18,6 +14,7 @@ import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import type {StepErrorReason} from '#core/workflow-run.js';
 import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
+import type {WorkflowStepFixtureDto} from '#test/fixtures/workflow-run.js';
 import {
   workflowJob,
   workflowJobExecutionDto,
@@ -918,7 +915,7 @@ function toolTestError(
   reason: StepErrorReason | undefined,
   code: string | undefined,
   field: string | undefined,
-): WorkflowRunStepDetailDto['error'] {
+): WorkflowStepFixtureDto['error'] {
   if (!reason) return null;
   const message =
     code === 'access-denied' ? 'Slack rejected the token.' : 'Tool output was invalid.';

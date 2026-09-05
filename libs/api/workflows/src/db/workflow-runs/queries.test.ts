@@ -1,5 +1,6 @@
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {buildModel, createTestRun} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
 import {jobs} from '../schema/jobs.js';
@@ -12,14 +13,11 @@ import {
   getLatestRunAttempt,
   getWorkflowJobExecutionDepth,
   getWorkflowRunById,
-  getWorkflowRunDetail,
   getWorkflowRunLineageHead,
   getWorkflowRunSelection,
-  listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
-  listWorkflowRunsByProject,
   recordJobExecutionStartedAt,
   updateJobExecutionStatus,
   updateJobStatus,
@@ -80,52 +78,6 @@ describe('workflow run queries', () => {
       });
 
       await expect(getWorkflowRunById(created.id, crypto.randomUUID())).resolves.toBeUndefined();
-      await expect(
-        getWorkflowRunDetail(created.id, 1, crypto.randomUUID()),
-      ).resolves.toBeUndefined();
-    });
-  });
-
-  describe('getWorkflowRunDetail measurement observer', () => {
-    test('does not let a throwing observer change a successful read', async () => {
-      const created = await createWorkflowRun({
-        workspaceId,
-        projectId,
-        definitionId,
-        model: buildModel(),
-        triggerPayload: {
-          source: 'manual',
-          event: 'fire',
-          subscriptionId: crypto.randomUUID(),
-          userId: crypto.randomUUID(),
-        },
-      });
-      const onRead = vi.fn(() => {
-        throw new Error('observer unavailable');
-      });
-
-      await expect(getWorkflowRunDetail(created.id, 1, undefined, {onRead})).resolves.toBeDefined();
-      expect(onRead).toHaveBeenCalledWith(
-        expect.objectContaining({
-          databaseDurationMilliseconds: expect.any(Number),
-          returnedRows: expect.any(Number),
-        }),
-      );
-    });
-
-    test('notifies the observer for a missing run with zero returned rows', async () => {
-      const onRead = vi.fn();
-
-      await expect(
-        getWorkflowRunDetail(crypto.randomUUID(), 1, undefined, {onRead}),
-      ).resolves.toBeUndefined();
-      expect(onRead).toHaveBeenCalledTimes(1);
-      expect(onRead).toHaveBeenCalledWith(
-        expect.objectContaining({
-          databaseDurationMilliseconds: expect.any(Number),
-          returnedRows: 0,
-        }),
-      );
     });
   });
 
@@ -215,7 +167,7 @@ describe('workflow run queries', () => {
         actorUserId: crypto.randomUUID(),
       });
 
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const latestAttempt = await getLatestAttempt({workflowRunId: source.id, projectId});
       const workspaceLatestAttempt = await getLatestRunAttempt({
         workflowRunId: source.id,
@@ -270,7 +222,7 @@ describe('workflow run queries', () => {
       });
       expect(otherProjectRun.projectId).not.toBe(projectId);
 
-      const attempts = await listRunAttempts({workflowRunId: run.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: run.id, projectId});
 
       expect(attempts.map((attempt) => attempt.workflowRunId)).toEqual([run.id]);
     });
@@ -718,7 +670,7 @@ describe('workflow run queries', () => {
     });
   });
 
-  describe('listWorkflowRunsByProject', () => {
+  describe('listWorkflowRuns', () => {
     test('returns runs ordered by creation descending', async () => {
       await createWorkflowRun({
         workspaceId,
@@ -745,7 +697,8 @@ describe('workflow run queries', () => {
         },
       });
 
-      const runs = await listWorkflowRunsByProject(projectId);
+      const result = await listWorkflowRuns({projectId, limit: 100});
+      const runs = result.runs;
 
       expect(runs).toHaveLength(2);
       expect(runs[0]?.createdAt.getTime()).toBeGreaterThanOrEqual(
@@ -754,13 +707,11 @@ describe('workflow run queries', () => {
     });
 
     test('returns empty array for unknown project', async () => {
-      const runs = await listWorkflowRunsByProject(crypto.randomUUID());
+      const result = await listWorkflowRuns({projectId: crypto.randomUUID(), limit: 100});
 
-      expect(runs).toEqual([]);
+      expect(result.runs).toEqual([]);
     });
-  });
 
-  describe('listWorkflowRuns', () => {
     test('scopes a listing to the requested workspace', async () => {
       await createWorkflowRun({
         workspaceId,

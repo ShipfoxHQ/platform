@@ -16,6 +16,8 @@ import {
 import type {
   TriggerPayload,
   WorkflowRun,
+  WorkflowRunList,
+  WorkflowRunListOmittedField,
   WorkflowRunOriginState,
   WorkflowRunTriggerReference,
   WorkflowSourceSnapshot,
@@ -119,6 +121,7 @@ export const workflowRuns = pgTable(
 
 export type WorkflowRunDb = typeof workflowRuns.$inferSelect;
 export type WorkflowRunCreateDb = typeof workflowRuns.$inferInsert;
+export type WorkflowRunListDb = Omit<WorkflowRunDb, WorkflowRunListOmittedField>;
 
 export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
   const originState = toWorkflowRunOriginState(row);
@@ -144,6 +147,31 @@ export function toWorkflowRun(row: WorkflowRunDb): WorkflowRun {
     triggerIdempotencyKey: row.triggerIdempotencyKey,
     timeoutMs: row.timeoutMs,
     version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+  };
+}
+
+export function toWorkflowRunList(row: WorkflowRunListDb): WorkflowRunList {
+  const originState = toWorkflowRunOriginState(row);
+  return {
+    id: row.id,
+    workspaceId: row.workspaceId,
+    projectId: row.projectId,
+    definitionId: row.definitionId,
+    number: row.number,
+    name: row.name ?? row.workflowName,
+    workflowName: row.workflowName,
+    nameOverride: row.name,
+    status: row.status,
+    ...originState,
+    currentAttempt: row.currentAttempt,
+    triggerProvider: row.triggerProvider,
+    triggerSource: row.triggerSource,
+    triggerEvent: row.triggerEvent,
+    triggerReference: row.triggerReference ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     startedAt: row.startedAt,

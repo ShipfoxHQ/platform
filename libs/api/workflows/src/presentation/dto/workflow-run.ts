@@ -1,7 +1,6 @@
 import type {
   JobExecutionSummaryDto,
   WorkflowRunAttemptDto,
-  WorkflowRunDetailResponseDto,
   WorkflowRunDevSourceDto,
   WorkflowRunDto,
   WorkflowRunLineageHeadDto,
@@ -14,8 +13,8 @@ import type {
 import {encodeStringIdCursor} from '@shipfox/node-drizzle';
 import type {
   WorkflowRun,
-  WorkflowRunDetail,
   WorkflowRunDevSource,
+  WorkflowRunList,
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
@@ -28,8 +27,6 @@ import type {
   WorkflowRunOverviewRead,
   WorkflowRunSelection,
 } from '#db/index.js';
-import {toJobDto, toJobExecutionDto} from './job.js';
-import {toStepAttemptDto, toStepDto} from './step.js';
 
 export function toRunDto(run: WorkflowRun, latestAttempt = run.currentAttempt): WorkflowRunDto {
   return {
@@ -66,11 +63,11 @@ const EMPTY_JOBS: WorkflowRunJobsSummary = {
 };
 
 export function toRunListItemDto(
-  run: WorkflowRun,
+  run: WorkflowRunList,
   jobs: WorkflowRunJobsSummary = EMPTY_JOBS,
 ): WorkflowRunListItemDto {
   return {
-    ...toRunDto(run),
+    ...toRunListDto(run),
     jobs: jobs.preview.map((job) => ({
       id: job.id,
       key: job.key,
@@ -87,31 +84,27 @@ export function toRunListItemDto(
   };
 }
 
-export function toRunDetailDto(run: WorkflowRunDetail): WorkflowRunDetailResponseDto {
+function toRunListDto(run: WorkflowRunList) {
   return {
-    ...toRunDto(run, run.latestAttempt),
-    run_attempt: toRunAttemptDto(run.runAttempt),
-    jobs: run.jobs.map((job) => ({
-      ...toJobDto(job),
-      job_executions: job.jobExecutions.map((jobExecution) => ({
-        ...toJobExecutionDto(jobExecution),
-        steps: jobExecution.steps.map((step) => {
-          const attempts = step.attempts.map(toStepAttemptDto);
-          const latestTerminalAttempt = attempts
-            .filter((attempt) => attempt.status !== 'running')
-            .at(-1);
-          return {
-            ...toStepDto(step),
-            exit_code: latestTerminalAttempt?.exit_code ?? null,
-            outputs: latestTerminalAttempt?.outputs ?? null,
-            response: latestTerminalAttempt?.response ?? null,
-            gate_result: latestTerminalAttempt?.gate_result ?? null,
-            attempts,
-          };
-        }),
-      })),
-    })),
-    has_started_job_execution: run.hasStartedJobExecution,
+    id: run.id,
+    project_id: run.projectId,
+    definition_id: run.definitionId,
+    number: run.number,
+    name: run.name,
+    workflow_name: run.workflowName,
+    status: run.status,
+    origin: run.origin,
+    dev_source: toDevSourceDto(run.devSource),
+    current_attempt: run.currentAttempt,
+    latest_attempt: run.currentAttempt,
+    trigger_provider: run.triggerProvider,
+    trigger_source: run.triggerSource,
+    trigger_event: run.triggerEvent,
+    trigger_reference: toTriggerReferenceDto(run.triggerReference),
+    created_at: run.createdAt.toISOString(),
+    updated_at: run.updatedAt.toISOString(),
+    started_at: run.startedAt?.toISOString() ?? null,
+    finished_at: run.finishedAt?.toISOString() ?? null,
   };
 }
 

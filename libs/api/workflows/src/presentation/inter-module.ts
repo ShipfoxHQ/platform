@@ -74,7 +74,6 @@ import {
   getWorkflowRunAccessScopeById,
   getWorkflowRunAnnotationOrigins,
   getWorkflowRunAttemptIdForScope,
-  getWorkflowRunDetail,
   getWorkflowRunOverview,
   getWorkflowRunSource,
   getWorkflowStepReadScope,
@@ -94,7 +93,6 @@ import {
 import {deliverEventToListener} from '#db/job-listener-events.js';
 import {
   toRunAttemptDto,
-  toRunDetailDto,
   toRunListItemDto,
   toRunOverviewDto,
   toRunOverviewJobsPageDto,
@@ -642,14 +640,6 @@ export function createWorkflowsInterModulePresentation(params: {
       });
       if (!page) return null;
       return {workflow_run_attempt: attempt, items: page.map(toFailedStepAttemptCoordinate)};
-    },
-    getWorkflowRunDetail: async (input) => {
-      const detail = await getWorkflowRunDetail(
-        input.workflowRunId,
-        input.attempt,
-        input.workspaceId,
-      );
-      return {run: detail ? toRunDetailDto(detail) : null};
     },
     getStepAttemptDetail: async (input) => {
       const detail = await getStepAttemptDetail({

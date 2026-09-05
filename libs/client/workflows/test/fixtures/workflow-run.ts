@@ -7,16 +7,13 @@ import type {
   WorkflowJobDetailDto,
   WorkflowRunAttemptDto,
   WorkflowRunAttemptsResponseDto,
-  WorkflowRunDetailResponseDto,
-  WorkflowRunJobDetailDto,
-  WorkflowRunJobExecutionDetailDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunJobSummaryDto,
   WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunOverviewResponseDto,
+  WorkflowRunResponseDto,
   WorkflowRunStatusDto,
-  WorkflowRunStepDetailDto,
 } from '@shipfox/api-workflows-dto';
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import type {
@@ -28,18 +25,27 @@ import type {
   Job,
   Step,
   StepAttempt,
-  WorkflowRunDetail,
+  WorkflowRun,
+  WorkflowRunAttempt,
   WorkflowRunListItem,
   WorkflowRunListPage,
+  WorkflowRunOverviewJob,
 } from '#core/workflow-run.js';
 import {
-  toJob,
-  toStep,
-  toStepAttempt,
-  toWorkflowRunDetail,
+  toWorkflowRunAttempt,
   toWorkflowRunListItem,
   toWorkflowRunListPage,
+  toWorkflowRunOverview,
+  toWorkflowRunOverviewJob,
 } from '#hooks/api/workflow-run-mapper.js';
+import {
+  toWorkflowJobModel,
+  toWorkflowStepAttemptModel,
+  toWorkflowStepModel,
+  type WorkflowJobExecutionModelDto,
+  type WorkflowJobModelDto,
+  type WorkflowStepModelDto,
+} from './workflow-model-mapper.js';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ATTEMPT_ID = '11111111-1111-4111-8111-111111111112';
@@ -89,15 +95,34 @@ export function runAnnotationEntryFixture(
   };
 }
 
-export type JobDtoOverrides = Partial<Omit<WorkflowRunJobDetailDto, 'job_executions'>> & {
-  job_executions?: WorkflowRunJobDetailDto['job_executions'];
-  steps?: WorkflowRunStepDetailDto[];
+export type WorkflowStepFixtureDto = WorkflowStepModelDto;
+export type WorkflowJobExecutionFixtureDto = WorkflowJobExecutionModelDto;
+export type WorkflowJobFixtureDto = WorkflowJobModelDto;
+
+type WorkflowRunFixtureDto = Omit<
+  WorkflowRunResponseDto,
+  'trigger_payload' | 'inputs' | 'source_snapshot'
+> & {
+  run_attempt: WorkflowRunAttemptDto;
+  jobs: WorkflowJobFixtureDto[];
+  has_started_job_execution: boolean;
 };
 
-type JobDtoBase = Omit<WorkflowRunJobDetailDto, 'job_executions'>;
+type WorkflowRunTreeFixture = WorkflowRun & {
+  latestAttempt: number;
+  runAttempt: WorkflowRunAttempt;
+  jobs: Job[];
+  hasStartedJobExecution: boolean;
+};
 
-// Built as a list item, the widest run shape, so one factory serves both the list endpoint
-// and the single-run endpoints; the narrower response schemas drop the extra key.
+export type JobDtoOverrides = Partial<Omit<WorkflowJobFixtureDto, 'job_executions'>> & {
+  job_executions?: WorkflowJobExecutionFixtureDto[];
+  steps?: WorkflowStepFixtureDto[];
+};
+
+type JobDtoBase = Omit<WorkflowJobFixtureDto, 'job_executions'>;
+
+// Built as the bounded run-list shape shared by list and overview fixture builders.
 export function workflowRunDto(
   overrides: Partial<WorkflowRunListItemDto> = {},
 ): WorkflowRunListItemDto {
@@ -116,10 +141,7 @@ export function workflowRunDto(
     trigger_provider: null,
     trigger_source: 'manual',
     trigger_event: 'fire',
-    trigger_payload: {},
     trigger_reference: null,
-    inputs: null,
-    source_snapshot: null,
     created_at: '2026-06-21T12:00:00.000Z',
     updated_at: '2026-06-21T12:01:00.000Z',
     started_at: null,
@@ -129,6 +151,24 @@ export function workflowRunDto(
     job_display_status_counts: [],
     has_started_job_execution: false,
     ...overrides,
+  };
+}
+
+/** A mutation response retains write-owned fields that run-list rows omit. */
+export function workflowRunResponseDto(
+  overrides: Partial<WorkflowRunResponseDto> = {},
+): WorkflowRunResponseDto {
+  const {
+    trigger_payload: triggerPayload = {},
+    inputs = null,
+    source_snapshot: sourceSnapshot = null,
+    ...runOverrides
+  } = overrides;
+  return {
+    ...workflowRunDto(runOverrides as Partial<WorkflowRunListItemDto>),
+    trigger_payload: triggerPayload,
+    inputs,
+    source_snapshot: sourceSnapshot,
   };
 }
 
@@ -246,9 +286,9 @@ export function workflowRunListPage(
   return toWorkflowRunListPage(workflowRunListResponseDto(overrides));
 }
 
-export function workflowRunDetailDto(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
+export function workflowRunFixtureDto(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): WorkflowRunFixtureDto {
   const {
     jobs,
     run_attempt: runAttemptOverride,
@@ -281,7 +321,7 @@ export function workflowRunDetailDto(
 }
 
 export function workflowRunOverviewResponseDto(
-  detail: WorkflowRunDetailResponseDto,
+  detail: WorkflowRunFixtureDto,
 ): WorkflowRunOverviewResponseDto {
   return {
     run: {
@@ -309,19 +349,64 @@ export function workflowRunOverviewResponseDto(
   };
 }
 
-export function workflowRunDetail(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetail {
-  return toWorkflowRunDetail(workflowRunDetailDto(overrides));
+export function workflowRunOverview(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): ReturnType<typeof toWorkflowRunOverview> {
+  const detail = workflowRunFixtureDto(overrides);
+  const overview = toWorkflowRunOverview(workflowRunOverviewResponseDto(detail));
+  return {
+    ...overview,
+    currentAttempt: detail.current_attempt,
+    latestAttempt: detail.latest_attempt,
+  };
 }
 
-/** Convert a complete-tree fixture into the selected-job response used by the migrated client. */
+export function workflowRunTreeFixture(
+  overrides: Partial<WorkflowRunFixtureDto> = {},
+): WorkflowRunTreeFixture {
+  const detail = workflowRunFixtureDto(overrides);
+  const jobs = detail.jobs.map(toWorkflowJobModel);
+  return {
+    id: detail.id,
+    projectId: detail.project_id,
+    definitionId: detail.definition_id,
+    origin: detail.origin,
+    devSource: detail.dev_source
+      ? {
+          ref: detail.dev_source.ref,
+          commit: detail.dev_source.commit,
+          configPath: detail.dev_source.config_path,
+          initiatedByUserId: detail.dev_source.initiated_by_user_id,
+          replayOfEventId: detail.dev_source.replay_of_event_id,
+        }
+      : null,
+    number: detail.number,
+    name: detail.name,
+    workflowName: detail.workflow_name,
+    currentAttempt: detail.current_attempt,
+    triggerProvider: detail.trigger_provider,
+    triggerSource: detail.trigger_source,
+    triggerEvent: detail.trigger_event,
+    triggerDisplayLabel: detail.trigger_event || detail.trigger_source,
+    triggerLabel: [detail.trigger_source, detail.trigger_event].filter(Boolean).join(' · '),
+    triggerReference: detail.trigger_reference,
+    createdAt: detail.created_at,
+    updatedAt: detail.updated_at,
+    isTemporary: detail.id.startsWith('temp-'),
+    latestAttempt: detail.latest_attempt,
+    runAttempt: toWorkflowRunAttempt(detail.run_attempt),
+    jobs,
+    hasStartedJobExecution: detail.has_started_job_execution,
+  };
+}
+
+/** Convert a run fixture into the selected-job response used by the migrated client. */
 export function workflowJobDetailResponseDto({
   detail,
   jobId,
   executionId,
 }: {
-  detail: WorkflowRunDetailResponseDto;
+  detail: WorkflowRunFixtureDto;
   jobId: string;
   executionId?: string | null | undefined;
 }): WorkflowJobDetailDto {
@@ -343,10 +428,10 @@ export function workflowJobDetailResponseDto({
 }
 
 function workflowJobOverviewDto(
-  job: WorkflowRunJobDetailDto,
-  defaultExecution: WorkflowRunJobExecutionDetailDto | undefined,
+  job: WorkflowJobFixtureDto,
+  defaultExecution: WorkflowJobExecutionFixtureDto | undefined,
 ): WorkflowRunJobOverviewDto {
-  const executionStatusCounts = {
+  const executionStatusCounts: Record<WorkflowJobExecutionFixtureDto['status'], number> = {
     pending: 0,
     running: 0,
     succeeded: 0,
@@ -372,21 +457,31 @@ function workflowJobOverviewDto(
   };
 }
 
+export function workflowRunOverviewJob(overrides: JobDtoOverrides = {}): WorkflowRunOverviewJob {
+  const job = workflowJobDto(
+    overrides.status === 'running' &&
+      overrides.mode !== 'listening' &&
+      !overrides.job_executions &&
+      !overrides.steps
+      ? {...overrides, job_executions: [workflowJobExecutionDto({status: 'running'})]}
+      : overrides,
+  );
+  return toWorkflowRunOverviewJob(workflowJobOverviewDto(job, defaultJobExecutionDto(job)));
+}
+
 function defaultJobExecutionDto(
-  job: WorkflowRunJobDetailDto,
-): WorkflowRunJobExecutionDetailDto | undefined {
+  job: WorkflowJobFixtureDto,
+): WorkflowJobExecutionFixtureDto | undefined {
   return (
     job.job_executions.find((execution) => execution.status === 'running') ??
-    job.job_executions.reduce<WorkflowRunJobExecutionDetailDto | undefined>(
+    job.job_executions.reduce<WorkflowJobExecutionFixtureDto | undefined>(
       (latest, execution) => (!latest || execution.sequence > latest.sequence ? execution : latest),
       undefined,
     )
   );
 }
 
-function jobExecutionSummaryDto(
-  execution: WorkflowRunJobExecutionDetailDto,
-): JobExecutionSummaryDto {
+function jobExecutionSummaryDto(execution: WorkflowJobExecutionFixtureDto): JobExecutionSummaryDto {
   return {
     id: execution.id,
     sequence: execution.sequence,
@@ -404,8 +499,8 @@ function jobExecutionSummaryDto(
 }
 
 function compactJobExecutionDto(
-  job: WorkflowRunJobDetailDto,
-  execution: WorkflowRunJobExecutionDetailDto,
+  job: WorkflowJobFixtureDto,
+  execution: WorkflowJobExecutionFixtureDto,
 ): NonNullable<WorkflowJobDetailDto['selected_execution']> {
   return {
     ...jobExecutionSummaryDto(execution),
@@ -488,7 +583,7 @@ function compactAttemptError(error: Record<string, unknown> | null): StepErrorDt
 }
 
 function compactGateResult(
-  gateResult: WorkflowRunJobExecutionDetailDto['steps'][number]['attempts'][number]['gate_result'],
+  gateResult: WorkflowJobExecutionFixtureDto['steps'][number]['attempts'][number]['gate_result'],
 ): StepGateResultSummaryDto {
   if (!gateResult || typeof gateResult.kind !== 'string') return {kind: 'unknown'};
   if (gateResult.kind === 'none' || gateResult.kind === 'not_evaluated') {
@@ -517,12 +612,13 @@ export function runAttemptsResponseDto(
   overrides: Partial<WorkflowRunAttemptsResponseDto> = {},
 ): WorkflowRunAttemptsResponseDto {
   return {
-    attempts: [workflowRunAttemptDto()],
+    items: [workflowRunAttemptDto()],
+    next_cursor: null,
     ...overrides,
   };
 }
 
-export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowRunJobDetailDto {
+export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowJobFixtureDto {
   jobSequence += 1;
   const {job_executions, steps, ...jobOverrides} = overrides;
   const key =
@@ -558,16 +654,20 @@ export function workflowJobDto(overrides: JobDtoOverrides = {}): WorkflowRunJobD
 }
 
 export function workflowJob(overrides: JobDtoOverrides = {}): Job {
-  return toJob(workflowJobDto(overrides));
+  return toWorkflowJobModel(workflowJobDto(overrides));
 }
 
 export function workflowJobExecutionDto(
-  overrides: Partial<WorkflowRunJobExecutionDetailDto> = {},
-): WorkflowRunJobExecutionDetailDto {
+  overrides: Partial<WorkflowJobExecutionFixtureDto> = {},
+): WorkflowJobExecutionFixtureDto {
   jobExecutionSequence += 1;
   const id =
     overrides.id ?? `77777777-7777-4777-8777-${String(jobExecutionSequence).padStart(12, '0')}`;
-  const {steps: overrideSteps, ...restOverrides} = overrides;
+  const {
+    steps: overrideSteps,
+    status_reason_message: statusReasonMessage,
+    ...restOverrides
+  } = overrides;
   const steps = overrideSteps?.map((step) => ({...step, job_execution_id: id})) ?? [];
 
   return {
@@ -589,12 +689,13 @@ export function workflowJobExecutionDto(
     updated_at: '2026-06-21T12:01:00.000Z',
     steps,
     ...restOverrides,
+    status_reason_message: statusReasonMessage ?? null,
   };
 }
 
 export function workflowStepDto(
-  overrides: Partial<WorkflowRunStepDetailDto> = {},
-): WorkflowRunStepDetailDto {
+  overrides: Partial<WorkflowStepFixtureDto> = {},
+): WorkflowStepFixtureDto {
   stepSequence += 1;
 
   return {
@@ -623,8 +724,8 @@ export function workflowStepDto(
   };
 }
 
-export function workflowStep(overrides: Partial<WorkflowRunStepDetailDto> = {}): Step {
-  return toStep(workflowStepDto(overrides));
+export function workflowStep(overrides: Partial<WorkflowStepFixtureDto> = {}): Step {
+  return toWorkflowStepModel(workflowStepDto(overrides));
 }
 
 export function workflowStepAttemptDto(overrides: Partial<StepAttemptDto> = {}): StepAttemptDto {
@@ -650,7 +751,7 @@ export function workflowStepAttemptDto(overrides: Partial<StepAttemptDto> = {}):
 }
 
 export function workflowStepAttempt(overrides: Partial<StepAttemptDto> = {}): StepAttempt {
-  return toStepAttempt(workflowStepAttemptDto(overrides), JOB_EXECUTION_ID);
+  return toWorkflowStepAttemptModel(workflowStepAttemptDto(overrides), JOB_EXECUTION_ID);
 }
 
 export function sequencedWorkflowRunDto(
@@ -687,7 +788,7 @@ export function sequencedWorkflowRunListItem(
 export function workflowJobWithName(
   name: string,
   overrides: JobDtoOverrides = {},
-): WorkflowRunJobDetailDto {
+): WorkflowJobFixtureDto {
   return workflowJobDto({name, ...overrides});
 }
 

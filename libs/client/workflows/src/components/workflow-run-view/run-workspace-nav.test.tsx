@@ -2,10 +2,10 @@ import {act, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import {
-  workflowJob,
   workflowJobDto,
   workflowJobExecutionDto,
-  workflowRunDetail,
+  workflowRunOverview,
+  workflowRunOverviewJob,
 } from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
@@ -30,7 +30,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('announces the annotation count with its unit and marks a truncated read', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
     });
@@ -56,7 +56,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('omits the annotation count until the read resolves', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
     });
@@ -74,7 +74,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('shows the complete run hierarchy and marks the current job', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [
         workflowJobDto({id: 'job-deploy', name: 'deploy', position: 2, status: 'failed'}),
@@ -131,7 +131,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('keeps the job index visible for a single-job run', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'succeeded'})],
     });
@@ -153,7 +153,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('falls back to the first job when the current job id is stale', async () => {
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [
         workflowJobDto({id: 'job-deploy', name: 'deploy', position: 1}),
@@ -180,9 +180,9 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('keeps the route job identity when it is outside the large-workflow preview', async () => {
-    const activeJob = workflowJob({id: CURRENT_JOB_ID, name: 'build', position: 101});
+    const activeJob = workflowRunOverviewJob({id: CURRENT_JOB_ID, name: 'build', position: 101});
     const run = {
-      ...workflowRunDetail({
+      ...workflowRunOverview({
         id: RUN_ID,
         jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', position: 0})],
       }),
@@ -221,7 +221,7 @@ describe('RunWorkspaceNav', () => {
       configurable: true,
       value: scrollIntoView,
     });
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'running'})],
     });
@@ -244,7 +244,7 @@ describe('RunWorkspaceNav', () => {
 
   test('closes the mobile rail after navigating to a job', async () => {
     const user = userEvent.setup();
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [
         workflowJobDto({id: CURRENT_JOB_ID, name: 'build', status: 'running'}),
@@ -285,7 +285,7 @@ describe('RunWorkspaceNav', () => {
       position: 1,
       status: 'running',
     });
-    const initialRun = workflowRunDetail({id: RUN_ID, jobs: [firstJob, secondJob]});
+    const initialRun = workflowRunOverview({id: RUN_ID, jobs: [firstJob, secondJob]});
     renderWithRouter(<ActiveJobHarness run={initialRun} />);
 
     await screen.findByRole('link', {name: BUILD_LINK_PATTERN});
@@ -300,7 +300,7 @@ describe('RunWorkspaceNav', () => {
   test('updates live job durations on the ticker cadence', async () => {
     vi.useFakeTimers({shouldAdvanceTime: true});
     vi.setSystemTime(NOW);
-    const run = workflowRunDetail({
+    const run = workflowRunOverview({
       id: RUN_ID,
       jobs: [
         workflowJobDto({
@@ -340,7 +340,7 @@ describe('RunWorkspaceNav', () => {
   });
 });
 
-function ActiveJobHarness({run}: {run: ReturnType<typeof workflowRunDetail>}) {
+function ActiveJobHarness({run}: {run: ReturnType<typeof workflowRunOverview>}) {
   const [currentJobId, setCurrentJobId] = useState(CURRENT_JOB_ID);
 
   return (

@@ -1,4 +1,4 @@
-import {stepAttemptDetailResponseSchema} from './workflow-run-detail.js';
+import {stepAttemptDetailResponseSchema} from './step-attempt-detail.js';
 
 describe('stepAttemptDetailResponseSchema', () => {
   test('accepts the pre-diagnostic response during a rolling deployment', () => {

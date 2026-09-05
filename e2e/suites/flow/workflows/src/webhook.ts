@@ -225,6 +225,7 @@ export async function triggerWebhookAndAwaitRun(params: {
         deliveryId,
         token: params.token,
         timeoutMs: 15_000,
+        workspaceId: params.workspaceId,
       });
       return {deliveryIds, runId: run.id};
     } catch (error) {

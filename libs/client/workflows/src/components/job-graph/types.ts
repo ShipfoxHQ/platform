@@ -1,6 +1,6 @@
-import type {WorkflowRun, WorkflowRunDetail, WorkflowRunOverview} from '#core/workflow-run.js';
+import type {WorkflowRun, WorkflowRunOverview} from '#core/workflow-run.js';
 
-export type JobGraphRun = WorkflowRunDetail | WorkflowRunOverview;
+export type JobGraphRun = WorkflowRunOverview;
 export type JobGraphTrigger = Pick<
   WorkflowRun,
   'triggerDisplayLabel' | 'triggerLabel' | 'triggerProvider' | 'triggerSource'

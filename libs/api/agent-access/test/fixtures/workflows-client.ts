@@ -78,7 +78,6 @@ export function createTestWorkflowsClient(): TestWorkflowsClient {
       listWorkflowRunAnnotations: (input) => handlers.listWorkflowRunAnnotations(input),
       listWorkflowRunJobExplanations: (input) => handlers.listWorkflowRunJobExplanations(input),
       listFailedStepAttempts: (input) => handlers.listFailedStepAttempts(input),
-      getWorkflowRunDetail: vi.fn(),
       getStepAttemptDetail: vi.fn(),
       getLatestRunAttempt: (input) => handlers.getLatestRunAttempt(input),
       getLatestStepAttempt: (input) => handlers.getLatestStepAttempt(input),

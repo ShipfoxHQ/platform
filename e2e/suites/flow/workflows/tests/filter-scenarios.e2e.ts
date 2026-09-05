@@ -4,6 +4,7 @@ import type {
   TriggerEventListResponseDto,
   TriggerEventOutcomeDto,
 } from '@shipfox/api-triggers-dto';
+import type {WorkflowRunListResponseDto} from '@shipfox/api-workflows-dto';
 import {createApiClient, pollUntil} from '@shipfox/e2e-core';
 import {
   type CommitFile,
@@ -177,12 +178,12 @@ async function assertNoRunsForProject(params: {
 
   while (Date.now() <= deadline) {
     const search = new URLSearchParams({project_id: params.projectId, limit: '100'});
-    const response = await client.requestJson<{runs: Array<{trigger_payload: unknown}>}>(
+    const response = await client.requestJson<WorkflowRunListResponseDto>(
       'get',
       `/workflows/runs?${search}`,
     );
     const matchingRun = response.runs.find(
-      (run) => nestedString(run.trigger_payload, ['data', 'after']) === params.headCommitSha,
+      (run) => run.trigger_reference?.commit === params.headCommitSha,
     );
     expect(matchingRun).toBeUndefined();
     await delay(250);

@@ -1,5 +1,4 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
-import type {WorkflowRunDetailResponseDto} from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
 import {act, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,7 +10,7 @@ import {
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
-  workflowRunDetailDto,
+  workflowRunFixtureDto,
   workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
@@ -217,13 +216,13 @@ describe('WorkflowJobDetailPage', () => {
   test('loads execution history only when the switcher opens', async () => {
     const user = userEvent.setup();
     const historyRequests: URL[] = [];
-    const legacyDetailRequests: URL[] = [];
+    const runDetailRequests: URL[] = [];
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const url = new URL((input as Request).url);
       if (url.pathname === `/workflows/runs/jobs/${JOB_ID}/executions`) {
         historyRequests.push(url);
       }
-      if (url.pathname === `/workflows/runs/${RUN_ID}`) legacyDetailRequests.push(url);
+      if (url.pathname === `/workflows/runs/${RUN_ID}`) runDetailRequests.push(url);
       return jobDetailFetch(input);
     });
     configureApiClient({fetchImpl});
@@ -231,7 +230,7 @@ describe('WorkflowJobDetailPage', () => {
     renderJobPath();
     await screen.findByRole('heading', {name: 'release'});
     expect(historyRequests).toHaveLength(0);
-    expect(legacyDetailRequests).toHaveLength(0);
+    expect(runDetailRequests).toHaveLength(0);
 
     await user.click(
       screen.getByRole('button', {
@@ -241,7 +240,7 @@ describe('WorkflowJobDetailPage', () => {
 
     await waitFor(() => expect(historyRequests).toHaveLength(1));
     expect(historyRequests[0]?.searchParams.get('limit')).toBe('25');
-    expect(legacyDetailRequests).toHaveLength(0);
+    expect(runDetailRequests).toHaveLength(0);
   });
 
   test('shows an execution history retry row when the history request fails', async () => {
@@ -578,7 +577,7 @@ function jobDetailFetch(input: RequestInfo | URL) {
     return Promise.resolve(
       jsonResponse(
         runAttemptsResponseDto({
-          attempts: [
+          items: [
             workflowRunAttemptDto({
               workflow_run_id: RUN_ID,
               id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -774,7 +773,7 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
     return Promise.resolve(
       jsonResponse(
         runAttemptsResponseDto({
-          attempts: [
+          items: [
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 1, status: 'succeeded'}),
             workflowRunAttemptDto({workflow_run_id: RUN_ID, attempt: 2, status: 'succeeded'}),
           ],
@@ -794,6 +793,32 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
     );
   }
 
+  if (url.pathname.endsWith('/overview')) {
+    const detail =
+      url.searchParams.get('attempt') === '2'
+        ? workflowRunFixtureDto({
+            id: RUN_ID,
+            status: 'succeeded',
+            latest_attempt: 2,
+            current_attempt: 2,
+            run_attempt: workflowRunAttemptDto({
+              workflow_run_id: RUN_ID,
+              attempt: 2,
+              status: 'succeeded',
+            }),
+            jobs: [
+              workflowJobDto({
+                id: NEWER_JOB_ID,
+                key: 'release',
+                name: 'release',
+                status: 'succeeded',
+              }),
+            ],
+          })
+        : workflowRunFixtureDto({id: RUN_ID});
+    return Promise.resolve(jsonResponse(workflowRunOverviewResponseDto(detail)));
+  }
+
   const jobMatch = url.pathname.match(JOB_DETAIL_PATH_RE);
   if (jobMatch?.[1]) {
     return Promise.resolve(
@@ -804,32 +829,6 @@ function newerAttemptJobDetailFetch(input: RequestInfo | URL) {
           executionId: url.searchParams.has('execution_id')
             ? url.searchParams.get('execution_id')
             : undefined,
-        }),
-      ),
-    );
-  }
-
-  if (url.searchParams.get('attempt') === '2') {
-    return Promise.resolve(
-      jsonResponse(
-        workflowRunDetailDto({
-          id: RUN_ID,
-          status: 'succeeded',
-          latest_attempt: 2,
-          current_attempt: 2,
-          run_attempt: workflowRunAttemptDto({
-            workflow_run_id: RUN_ID,
-            attempt: 2,
-            status: 'succeeded',
-          }),
-          jobs: [
-            workflowJobDto({
-              id: NEWER_JOB_ID,
-              key: 'release',
-              name: 'release',
-              status: 'succeeded',
-            }),
-          ],
         }),
       ),
     );
@@ -860,8 +859,8 @@ function liveJobDetailFetch({
   advanced,
 }: {
   jobId: string;
-  initial: WorkflowRunDetailResponseDto;
-  advanced: WorkflowRunDetailResponseDto;
+  initial: ReturnType<typeof liveJobDetailDto>;
+  advanced: ReturnType<typeof liveJobDetailDto>;
 }) {
   let jobDetailRequestCount = 0;
   let runDetailRequestCount = 0;
@@ -874,9 +873,9 @@ function liveJobDetailFetch({
       const detail = jobDetailRequestCount++ === 0 ? initial : advanced;
       return Promise.resolve(jsonResponse(workflowJobDetailResponseDto({detail, jobId})));
     }
-    if (url.pathname === `/workflows/runs/${RUN_ID}`) {
+    if (url.pathname.endsWith('/overview')) {
       const detail = runDetailRequestCount++ === 0 ? initial : advanced;
-      return Promise.resolve(jsonResponse(detail));
+      return Promise.resolve(jsonResponse(workflowRunOverviewResponseDto(detail)));
     }
     return Promise.resolve(jsonResponse({code: 'not-found'}, {status: 404}));
   });
@@ -891,9 +890,6 @@ function liveJobStaticResponse(url: URL): Response | undefined {
       current_status: 'running',
       updated_at: '2026-06-21T12:01:00.000Z',
     });
-  }
-  if (url.pathname.endsWith('/overview')) {
-    return jsonResponse({code: 'not-found'}, {status: 404});
   }
   return undefined;
 }
@@ -970,7 +966,7 @@ function liveJobDetailDto({
         : [],
   });
 
-  return workflowRunDetailDto({
+  return workflowRunFixtureDto({
     id: RUN_ID,
     status: 'running',
     current_attempt: 1,
@@ -1027,7 +1023,7 @@ function jobDetailDto() {
     steps: [step],
   });
 
-  return workflowRunDetailDto({
+  return workflowRunFixtureDto({
     id: RUN_ID,
     status: 'succeeded',
     current_attempt: 1,
@@ -1060,7 +1056,7 @@ function jobDetailDto() {
 }
 
 function failedBeforeStepsDetailDto() {
-  return workflowRunDetailDto({
+  return workflowRunFixtureDto({
     id: RUN_ID,
     status: 'failed',
     run_attempt: workflowRunAttemptDto({

@@ -257,8 +257,8 @@ describe('workflow run list query schema', () => {
 });
 
 describe('workflow run lineage contracts', () => {
-  test('accepts the legacy attempt request without a limit', () => {
-    expect(workflowRunAttemptsQuerySchema.parse({})).toEqual({});
+  test('defaults attempt requests to the bounded page size', () => {
+    expect(workflowRunAttemptsQuerySchema.parse({})).toEqual({limit: 25});
   });
 
   test('accepts a bounded attempt request and coerces its limit', () => {
@@ -268,11 +268,7 @@ describe('workflow run lineage contracts', () => {
     });
   });
 
-  test.each([
-    {limit: 0},
-    {limit: 101},
-    {cursor: 'opaque-cursor'},
-  ])('rejects an incomplete or out-of-range bounded request %#', (query) => {
+  test.each([{limit: 0}, {limit: 101}])('rejects out-of-range bounded requests %#', (query) => {
     expect(workflowRunAttemptsQuerySchema.safeParse(query).success).toBe(false);
   });
 
@@ -348,7 +344,7 @@ describe('workflow run list item schema', () => {
     expect(result.jobs[0]?.execution_status).toBeNull();
   });
 
-  test('normalizes omitted heavy fields while keeping parsed output populated', () => {
+  test('omits heavy fields from the parsed list item', () => {
     const {
       trigger_payload: _triggerPayload,
       inputs: _inputs,
@@ -362,9 +358,9 @@ describe('workflow run list item schema', () => {
       job_status_counts: [],
     });
 
-    expect(result.trigger_payload).toEqual({});
-    expect(result.inputs).toBeNull();
-    expect(result.source_snapshot).toBeNull();
+    expect(result).not.toHaveProperty('trigger_payload');
+    expect(result).not.toHaveProperty('inputs');
+    expect(result).not.toHaveProperty('source_snapshot');
   });
 
   test('carries execution evidence and listening state for display derivation', () => {

@@ -6,6 +6,7 @@ import {
 import {workflowModelSnapshotSchema} from '@shipfox/api-definitions-dto';
 import {defineInterModuleContract, type InterModuleClient} from '@shipfox/inter-module';
 import {z} from 'zod';
+import {stepAttemptDetailResponseSchema} from './schemas/step-attempt-detail.js';
 import {
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   WORKFLOW_EXECUTION_TRIGGER_EVENT_PAGE_MAX,
@@ -28,6 +29,7 @@ import {
 import {
   validateDateWindow,
   WORKFLOW_RUN_ATTEMPT_MAX,
+  WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT,
   workflowRunAttemptDtoSchema,
   workflowRunListItemSchema,
   workflowRunOriginSchema,
@@ -39,10 +41,6 @@ import {
   workflowRunAnnotationItemSchema,
   workflowRunJobExplanationDtoSchema,
 } from './schemas/workflow-run-annotations.js';
-import {
-  stepAttemptDetailResponseSchema,
-  workflowRunDetailResponseSchema,
-} from './schemas/workflow-run-detail.js';
 import {
   WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT,
   workflowDiagnosticFieldSchema,
@@ -126,8 +124,6 @@ const interpolationFieldSchema = z.enum([
 ]);
 
 const attemptSchema = z.number().int().min(1).max(WORKFLOW_RUN_ATTEMPT_MAX);
-const WORKFLOW_RUN_ATTEMPT_PAGE_LIMIT = 25;
-
 const workflowRunAttemptsInterModulePageSchema = z.object({
   items: z.array(workflowRunAttemptDtoSchema).max(100),
   nextCursor: z.string().nullable(),
@@ -430,10 +426,9 @@ export const workflowsInterModuleContract = defineInterModuleContract({
       }),
     },
     /**
-     * Bounded read models for synchronous consumers. These operations are
-     * intentionally separate from the legacy complete-tree read above: the
-     * producer owns resource ancestry, page limits, cursor encoding, and
-     * diagnostic truncation before a result crosses this boundary.
+     * Bounded read models for synchronous consumers. The producer owns resource
+     * ancestry, page limits, cursor encoding, and diagnostic truncation before a
+     * result crosses this boundary.
      */
     getWorkflowRunOverview: {
       input: z.object({
@@ -611,14 +606,6 @@ export const workflowsInterModuleContract = defineInterModuleContract({
             .max(WORKFLOW_RUN_FAILED_STEP_ATTEMPT_LIMIT),
         })
         .nullable(),
-    },
-    getWorkflowRunDetail: {
-      input: z.object({
-        workspaceId: idSchema,
-        workflowRunId: idSchema,
-        attempt: attemptSchema,
-      }),
-      output: z.object({run: workflowRunDetailResponseSchema.nullable()}),
     },
     getStepAttemptDetail: {
       input: z.object({

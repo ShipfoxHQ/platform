@@ -11,7 +11,7 @@ import {
 import {ClientError, defineRoute} from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import {z} from 'zod';
-import {listRunAttempts, listRunAttemptsPage} from '#db/index.js';
+import {listRunAttemptsPage} from '#db/index.js';
 import {toRunAttemptDto} from '#presentation/dto/index.js';
 import {requireAccessibleRun} from './require-accessible-run.js';
 import {serializedResponseByteLength} from './serialized-response-byte-length.js';
@@ -91,24 +91,10 @@ export function listRunAttemptsRoute(projects: ProjectsModuleClient) {
 async function readRunAttempts(params: {
   workflowRunId: string;
   projectId: string;
-  limit: number | undefined;
+  limit: number;
   cursor: NumberIdCursor | undefined;
 }) {
   const {limit} = params;
-  if (limit === undefined) {
-    const dbStartedAt = performance.now();
-    const attempts = await listRunAttempts({
-      workflowRunId: params.workflowRunId,
-      projectId: params.projectId,
-    });
-    return {
-      response: {attempts: attempts.map(toRunAttemptDto)},
-      resultCount: attempts.length,
-      cursorRemaining: false,
-      dbDurationMilliseconds: performance.now() - dbStartedAt,
-    };
-  }
-
   let dbDurationMilliseconds = 0;
   const page = await listRunAttemptsPage(
     {

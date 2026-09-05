@@ -44,6 +44,7 @@ export function buildAppMentionEnvelope(params: {
 
 export async function triggerSlackAppMentionAndAwaitRun(params: {
   projectId: string;
+  workspaceId: string;
   token: string;
   teamId: string;
   channel: string;
@@ -66,6 +67,7 @@ export async function triggerSlackAppMentionAndAwaitRun(params: {
         deliveryId: eventId,
         token: params.token,
         timeoutMs: RUN_LOOKUP_TIMEOUT_MS,
+        workspaceId: params.workspaceId,
       });
       return {runId: run.id, eventId, channel: params.channel, ts: params.ts};
     } catch (error) {

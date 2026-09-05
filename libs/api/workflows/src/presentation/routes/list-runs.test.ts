@@ -71,6 +71,8 @@ describe('GET /api/workflows/runs', () => {
         subscriptionId: crypto.randomUUID(),
         userId: crypto.randomUUID(),
       },
+      inputs: {environment: 'production'},
+      sourceSnapshot: {content: 'name: Test\n', format: 'yaml'},
     });
     await createWorkflowRun({
       workspaceId,
@@ -94,12 +96,17 @@ describe('GET /api/workflows/runs', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.runs).toHaveLength(2);
-    expect(body.runs[0].project_id).toBe(projectId);
-    expect(body.runs[0].name).toBeDefined();
-    expect(body.runs[0].workflow_name).toBeDefined();
-    expect(body.runs[0].trigger_source).toBe('manual');
+    const runWithHeavyFields = body.runs.find((run: {name: string}) => run.name === 'Test');
+    expect(runWithHeavyFields).toBeDefined();
+    expect(runWithHeavyFields.project_id).toBe(projectId);
+    expect(runWithHeavyFields.name).toBeDefined();
+    expect(runWithHeavyFields.workflow_name).toBeDefined();
+    expect(runWithHeavyFields.trigger_source).toBe('manual');
+    expect(runWithHeavyFields).not.toHaveProperty('trigger_payload');
+    expect(runWithHeavyFields).not.toHaveProperty('inputs');
+    expect(runWithHeavyFields).not.toHaveProperty('source_snapshot');
     // The runs list carries run-level timing (null until the run starts).
-    expect(body.runs[0]).toMatchObject({
+    expect(runWithHeavyFields).toMatchObject({
       started_at: null,
       finished_at: null,
       has_started_job_execution: false,

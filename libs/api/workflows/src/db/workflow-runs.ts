@@ -81,20 +81,6 @@ export {
   updateJobStatus,
   updateJobStatusAtVersion,
 } from './workflow-runs/jobs.js';
-export type {
-  MeasurementValueCount,
-  WorkflowRunDetailCardinality,
-  WorkflowRunDetailMeasurementReport,
-  WorkflowRunReadPlanEvidence,
-  WorkflowRunStorageAudit,
-  WorkflowRunStorageAuditOptions,
-} from './workflow-runs/measurements.js';
-export {
-  auditWorkflowRunStorage,
-  captureWorkflowRunReadPlanEvidence,
-  measureWorkflowRunDetail,
-  measureWorkflowRunDetailCardinality,
-} from './workflow-runs/measurements.js';
 export {
   writeJobExecutionQueuedOutbox,
   writeJobExecutionTerminatedOutbox,
@@ -136,8 +122,6 @@ export type {
   WorkflowRunBoundedReadMeasurement,
   WorkflowRunBoundedReadOptions,
   WorkflowRunCursor,
-  WorkflowRunDetailReadMeasurement,
-  WorkflowRunDetailReadOptions,
   WorkflowRunFilters,
   WorkflowRunJobRawStatusCount,
   WorkflowRunJobStatusCount,
@@ -150,7 +134,6 @@ export type {
 } from './workflow-runs/queries.js';
 export {
   buildWorkflowRunListConditions,
-  getJobExecutionDetail,
   getLatestAttempt,
   getLatestRunAttempt,
   getWorkflowJobExecutionDepth,
@@ -158,14 +141,11 @@ export {
   getWorkflowRunAttemptById,
   getWorkflowRunByAttemptId,
   getWorkflowRunById,
-  getWorkflowRunDetail,
   getWorkflowRunLineageHead,
   getWorkflowRunSelection,
-  listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
-  listWorkflowRunsByProject,
 } from './workflow-runs/queries.js';
 export type {
   CancelWorkflowRunParams,

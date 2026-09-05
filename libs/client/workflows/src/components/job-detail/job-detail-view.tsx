@@ -54,10 +54,9 @@ import {
 import {
   mergeWorkflowJobStepAttempts,
   mergeWorkflowJobStepSummaries,
-  toLegacyJobForJobDetail,
+  toJobForJobDetail,
   type WorkflowJobDetailPresentationOptions,
 } from '#hooks/api/workflow-job-detail-mapper.js';
-import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
 import {
   type WorkflowJobSearch,
   workflowJobSearchParams,
@@ -92,9 +91,7 @@ import {StepAttemptLogPanel} from './step-attempt-log-panel.js';
 import {StepInspectorSheet} from './step-troubleshooting.js';
 
 type InspectorState = {key: string; attemptId: string | null};
-type JobDetailQuery =
-  | ReturnType<typeof useWorkflowRunAttemptQuery>
-  | ReturnType<typeof useWorkflowJobDetailQuery>;
+type JobDetailQuery = ReturnType<typeof useWorkflowJobDetailQuery>;
 interface JobDetailData {
   id: string;
   runAttempt: {
@@ -144,7 +141,6 @@ export function JobDetailView({
   const selectedJobResources = useSelectedJobDetailPresentation({
     data: query.data,
     selectedDetailUpdatedAt: query.dataUpdatedAt,
-    selectedJobQuery,
     jobId,
   });
   const detailData = normalizeJobDetailData(
@@ -490,54 +486,35 @@ function normalizeJobDetailData(
   presentation?: WorkflowJobDetailPresentationOptions,
 ): JobDetailData | undefined {
   if (!data) return undefined;
-  if (isWorkflowJobDetail(data)) {
-    if (data.job.id !== jobId) return undefined;
-    return {
-      id: data.workflowRunId,
-      runAttempt: {
-        attempt: data.workflowRunAttempt,
-        status: jobDetailRunStatus(data),
-      },
-      job: toLegacyJobForJobDetail(data, presentation),
-      executionCount: data.job.executionCount,
-      executionCountVisible: data.job.executionCountVisible,
-      executionDisplayStatus: data.selectedExecution?.displayStatus,
-    };
-  }
-
-  const job = data.jobs.find((candidate) => candidate.id === jobId);
-  return job
-    ? {
-        id: data.id || workflowRunId,
-        runAttempt: data.runAttempt,
-        job,
-        executionCount: job.jobExecutions.length,
-        executionCountVisible: job.executionCountVisible,
-        executionDisplayStatus: undefined,
-      }
-    : undefined;
+  if (data.job.id !== jobId) return undefined;
+  return {
+    id: data.workflowRunId || workflowRunId,
+    runAttempt: {
+      attempt: data.workflowRunAttempt,
+      status: jobDetailRunStatus(data),
+    },
+    job: toJobForJobDetail(data, presentation),
+    executionCount: data.job.executionCount,
+    executionCountVisible: data.job.executionCountVisible,
+    executionDisplayStatus: data.selectedExecution?.displayStatus,
+  };
 }
 
 function useSelectedJobDetailPresentation({
   data,
   selectedDetailUpdatedAt,
-  selectedJobQuery,
   jobId,
 }: {
   data: JobDetailQuery['data'];
   selectedDetailUpdatedAt: number;
-  selectedJobQuery: boolean;
   jobId: string;
 }) {
-  const selectedJobDetail =
-    selectedJobQuery && data && isWorkflowJobDetail(data) && data.job.id === jobId
-      ? data
-      : undefined;
+  const selectedJobDetail = data && data.job.id === jobId ? data : undefined;
   const selectedDetailExecution = selectedJobDetail?.selectedExecution ?? undefined;
   const [attemptsStepId, setAttemptsStepId] = useState<string | undefined>(undefined);
   const pendingAttemptsStepIdRef = useRef<string | undefined>(undefined);
   const previousSelectedResourceKeyRef = useRef<string | undefined>(undefined);
-  const selectedResourceKey = `${selectedJobQuery ? 'selected' : 'legacy'}:${jobId}:${selectedDetailExecution?.id ?? ''}`;
+  const selectedResourceKey = `selected:${jobId}:${selectedDetailExecution?.id ?? ''}`;
 
   useEffect(() => {
     if (previousSelectedResourceKeyRef.current === selectedResourceKey) return;
@@ -553,7 +530,7 @@ function useSelectedJobDetailPresentation({
     polling:
       selectedDetailExecution !== undefined &&
       !isTerminalJobExecutionStatus(selectedDetailExecution.status),
-    enabled: selectedJobQuery && selectedDetailExecution !== undefined,
+    enabled: selectedDetailExecution !== undefined,
   });
   const loadedSteps = useMemo(
     () => flattenWorkflowExecutionStepsPages(stepsQuery.data),
@@ -579,7 +556,7 @@ function useSelectedJobDetailPresentation({
   const attemptsQuery = useWorkflowStepAttemptsInfiniteQuery({
     stepId: attemptsStepId,
     initialPage: attemptsStep?.attempts,
-    enabled: selectedJobQuery && attemptsStepId !== undefined,
+    enabled: attemptsStepId !== undefined,
   });
   const loadedAttempts = useMemo(
     () => flattenWorkflowStepAttemptPages(attemptsQuery.data),
@@ -710,10 +687,6 @@ function SelectedJobStepsPagination({
       </Button>
     </div>
   );
-}
-
-function isWorkflowJobDetail(data: NonNullable<JobDetailQuery['data']>): data is WorkflowJobDetail {
-  return 'selectedExecution' in data && 'workflowRunId' in data;
 }
 
 function jobDetailRunStatus(detail: WorkflowJobDetail): JobDetailData['runAttempt']['status'] {

@@ -1,6 +1,7 @@
 import {eq} from 'drizzle-orm';
 import {WorkflowRunNotCancellableError} from '#core/errors.js';
 import {nextStepForJob} from '#core/job-execution.js';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {
   buildModel,
   createTestRun,
@@ -24,7 +25,6 @@ import {
   getJobsByWorkflowRunId,
   getStepsByJobId,
   getWorkflowRunById,
-  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '../workflow-runs.js';
@@ -150,7 +150,7 @@ describe('workflow run queries', () => {
 
     test('does not mirror a non-current attempt terminal update to the run', async () => {
       const run = await createTestRun({workspaceId, projectId, definitionId});
-      const attempts = await listRunAttempts({workflowRunId: run.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: run.id, projectId});
       const firstAttempt = attempts[0];
       if (!firstAttempt) throw new Error('Expected initial attempt');
       await db().insert(workflowRunAttempts).values({
@@ -369,14 +369,14 @@ describe('workflow run queries', () => {
     test('cancels the current rerun attempt after current_attempt moves', async () => {
       const run = await createTestRun({workspaceId, projectId, definitionId});
       await updateWorkflowRunStatus({workflowRunId: run.id, status: 'failed', expectedVersion: 1});
-      const firstAttempt = (await listRunAttempts({workflowRunId: run.id, projectId}))[0];
+      const firstAttempt = (await listTestRunAttempts({workflowRunId: run.id, projectId}))[0];
       if (!firstAttempt) throw new Error('Expected initial attempt');
       await createRerunWorkflowRun({
         workflowRunId: run.id,
         mode: 'all',
         actorUserId: crypto.randomUUID(),
       });
-      const secondAttempt = (await listRunAttempts({workflowRunId: run.id, projectId})).find(
+      const secondAttempt = (await listTestRunAttempts({workflowRunId: run.id, projectId})).find(
         (attempt) => attempt.attempt === 2,
       );
       if (!secondAttempt) throw new Error('Expected rerun attempt');

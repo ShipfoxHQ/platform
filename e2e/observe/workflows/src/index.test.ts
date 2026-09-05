@@ -21,6 +21,7 @@ import {
 } from './index.js';
 
 const projectId = '11111111-1111-4111-8111-111111111111';
+const workspaceId = '99999999-9999-4999-8999-999999999999';
 const definitionId = '22222222-2222-4222-8222-222222222222';
 const runId = '33333333-3333-4333-8333-333333333333';
 const attemptId = '44444444-4444-4444-8444-444444444444';
@@ -34,6 +35,8 @@ const RUN_BY_COMMIT_OBSERVED_RE = /headCommitSha=other/u;
 const RUN_BY_DELIVERY_TIMEOUT_RE =
   /Timed out waiting for workflow run by delivery ID: expectedDeliveryId=delivery-1/u;
 const RUN_BY_DELIVERY_OBSERVED_RE = /deliveryId=other-delivery/u;
+const REPEATED_RUN_CURSOR_RE =
+  /last error: Repeated workflow run list cursor while waiting: runs-page-2/u;
 const RUN_TERMINAL_TIMEOUT_RE =
   /Timed out waiting for workflow run terminal status: runId=33333333/u;
 const RUN_TERMINAL_OBSERVED_RE = /status=running/u;
@@ -58,16 +61,12 @@ function run(params: Partial<WorkflowRunListItemDto> = {}): WorkflowRunListItemD
     trigger_provider: valueOr(params.trigger_provider, 'gitea'),
     trigger_source: valueOr(params.trigger_source, 'gitea_e2e'),
     trigger_event: valueOr(params.trigger_event, 'push'),
-    trigger_payload: valueOr(params.trigger_payload, {
-      provider: 'gitea',
-      source: 'gitea_e2e',
-      event: 'push',
-      deliveryId: 'delivery-1',
-      data: {headCommitSha: 'abc123', ref: 'main'},
+    trigger_reference: valueOr(params.trigger_reference, {
+      repository: 'acme/api',
+      ref: 'refs/heads/main',
+      commit: 'abc123',
+      actor: 'e2e',
     }),
-    trigger_reference: valueOr(params.trigger_reference, null),
-    inputs: valueOr(params.inputs, null),
-    source_snapshot: valueOr(params.source_snapshot, null),
     created_at: valueOr(params.created_at, timestamp),
     updated_at: valueOr(params.updated_at, timestamp),
     started_at: valueOr(params.started_at, null),
@@ -283,6 +282,145 @@ function context() {
   };
 }
 
+function paginatedDeliveryFetch(
+  eventId: string,
+  paths: string[],
+  options: {targetCursor?: string; unresolvedFirstDetail?: boolean} = {},
+) {
+  const targetCursor = options.targetCursor ?? 'events-page-2';
+  const otherEvent = {id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', delivery_id: 'other'};
+  const targetEvent = {id: eventId, delivery_id: 'delivery-1'};
+  const eventPages = new Map<
+    string | null,
+    {event: {id: string; delivery_id: string}; nextCursor: string | null}
+  >();
+  eventPages.set(null, {event: otherEvent, nextCursor: 'events-page-2'});
+  eventPages.set('events-page-2', {
+    event: targetCursor === 'events-page-2' ? targetEvent : otherEvent,
+    nextCursor: targetCursor === 'events-page-2' ? null : 'events-page-3',
+  });
+  if (targetCursor === 'events-page-3') {
+    eventPages.set('events-page-3', {event: targetEvent, nextCursor: null});
+  }
+  let detailCalls = 0;
+
+  const readTriggerEventPage = (cursor: string | null): Response => {
+    const page = eventPages.get(cursor);
+    if (!page) throw new Error(`Unexpected trigger event cursor: ${cursor}`);
+    return response({trigger_events: [page.event], next_cursor: page.nextCursor});
+  };
+  const readTriggerEventDetail = (): Response => {
+    detailCalls += 1;
+    return response({
+      decisions: [
+        {project_id: workspaceId, decision: 'triggered', run_id: 'other-run'},
+        {project_id: projectId, decision: 'triggered', run_id: null},
+        {
+          project_id: projectId,
+          decision: 'triggered',
+          run_id: options.unresolvedFirstDetail && detailCalls === 1 ? null : runId,
+        },
+      ],
+    });
+  };
+  const readRunPage = (cursor: string | null) =>
+    cursor === null
+      ? listResponse({runs: [run({id: 'other-run'})], next_cursor: 'runs-page-2'})
+      : listResponse({runs: [run()]});
+
+  return (input: string | URL): Response => {
+    const url = new URL(input);
+    paths.push(`${url.pathname}${url.search}`);
+    const cursor = url.searchParams.get('cursor');
+
+    if (url.pathname === '/trigger-events') return readTriggerEventPage(cursor);
+    if (url.pathname === `/trigger-events/${eventId}`) return readTriggerEventDetail();
+    if (url.pathname === '/workflows/runs') return response(readRunPage(cursor));
+    throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+  };
+}
+
+function paginatedCommitFetch(
+  paths: string[],
+  options: {failOlderPageOnce?: boolean; restartAfterEnd?: boolean} = {},
+) {
+  let failedOlderPage = false;
+  let frontPageCalls = 0;
+  const frontPageRunId = (): string => {
+    if (!options.restartAfterEnd) return 'first-page';
+    if (frontPageCalls === 8) return runId;
+    return `other-page-${frontPageCalls}`;
+  };
+
+  const readFrontPage = (): Response => {
+    frontPageCalls += 1;
+    return response(
+      listResponse({
+        runs: [
+          run({
+            id: frontPageRunId(),
+            trigger_reference: {
+              repository: 'acme/api',
+              ref: 'refs/heads/main',
+              commit: options.restartAfterEnd && frontPageCalls === 8 ? 'abc123' : 'other',
+              actor: 'e2e',
+            },
+          }),
+        ],
+        next_cursor: 'runs-page-2',
+      }),
+    );
+  };
+  const readSecondPage = (): Response =>
+    response(
+      listResponse({
+        runs: [
+          run({
+            id: 'second-page',
+            trigger_reference: {
+              repository: 'acme/api',
+              ref: 'refs/heads/main',
+              commit: 'other',
+              actor: 'e2e',
+            },
+          }),
+        ],
+        next_cursor: 'runs-page-3',
+      }),
+    );
+  const readThirdPage = (): Response => {
+    if (options.failOlderPageOnce && !failedOlderPage) {
+      failedOlderPage = true;
+      throw new Error('transient older-page failure');
+    }
+    return response(listResponse({runs: [], next_cursor: 'runs-page-4'}));
+  };
+  const readFourthPage = (): Response =>
+    response(listResponse({runs: options.restartAfterEnd ? [] : [run()]}));
+  const pages = new Map<string | null, () => Response>([
+    [null, readFrontPage],
+    ['runs-page-2', readSecondPage],
+    ['runs-page-3', readThirdPage],
+    ['runs-page-4', readFourthPage],
+  ]);
+  const readCommitPage = (cursor: string | null): Response => {
+    const page = pages.get(cursor);
+    if (!page) throw new Error(`Unexpected workflow run cursor: ${cursor}`);
+    return page();
+  };
+
+  return (input: string | URL): Response => {
+    const url = new URL(input);
+    paths.push(`${url.pathname}${url.search}`);
+    const cursor = url.searchParams.get('cursor');
+
+    if (url.pathname !== '/workflows/runs') {
+      throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+    }
+    return readCommitPage(cursor);
+  };
+}
+
 describe('waitForRunByCommit', () => {
   test('polls until a run with the matching head commit appears', async () => {
     let calls = 0;
@@ -291,7 +429,20 @@ describe('waitForRunByCommit', () => {
         calls += 1;
         return response(
           listResponse({
-            runs: [run(calls === 1 ? {trigger_payload: {data: {headCommitSha: 'other'}}} : {})],
+            runs: [
+              run(
+                calls === 1
+                  ? {
+                      trigger_reference: {
+                        repository: 'acme/api',
+                        ref: 'refs/heads/main',
+                        commit: 'other',
+                        actor: 'e2e',
+                      },
+                    }
+                  : {},
+              ),
+            ],
           }),
         );
       },
@@ -304,12 +455,21 @@ describe('waitForRunByCommit', () => {
     expect(calls).toBe(2);
   });
 
-  test('correlates on a raw VCS push payload where the head commit is `after`', async () => {
+  test('correlates on the bounded trigger reference commit', async () => {
     const result = await waitForRunByCommit({
       fetch: () =>
         response(
           listResponse({
-            runs: [run({trigger_payload: {data: {ref: 'refs/heads/main', after: 'abc123'}}})],
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'abc123',
+                  actor: 'e2e',
+                },
+              }),
+            ],
           }),
         ),
       headCommitSha: 'abc123',
@@ -320,10 +480,213 @@ describe('waitForRunByCommit', () => {
     expect(result.id).toBe(runId);
   });
 
+  test('limits each probe to two pages, rechecks the front window, and advances older pages', async () => {
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: paginatedCommitFetch(paths),
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-4`,
+    ]);
+  });
+
+  test('rechecks the front window while polling for a newly visible run', async () => {
+    let poll = 0;
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: (input) => {
+        const url = new URL(input);
+        paths.push(`${url.pathname}${url.search}`);
+        const cursor = url.searchParams.get('cursor');
+        if (url.pathname !== '/workflows/runs') {
+          throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+        }
+        if (cursor === null) {
+          poll += 1;
+          return response(
+            listResponse({
+              runs: [
+                run({
+                  id: `other-page-${poll}`,
+                  trigger_reference: {
+                    repository: 'acme/api',
+                    ref: 'refs/heads/main',
+                    commit: 'other',
+                    actor: 'e2e',
+                  },
+                }),
+              ],
+              next_cursor: 'runs-page-2',
+            }),
+          );
+        }
+        if (cursor === 'runs-page-2') {
+          return response(
+            listResponse({
+              runs: [
+                run(
+                  poll === 2
+                    ? {}
+                    : {
+                        id: 'second-page',
+                        trigger_reference: {
+                          repository: 'acme/api',
+                          ref: 'refs/heads/main',
+                          commit: 'other',
+                          actor: 'e2e',
+                        },
+                      },
+                ),
+              ],
+              next_cursor: 'runs-page-3',
+            }),
+          );
+        }
+        throw new Error(`Unexpected workflow run cursor: ${cursor}`);
+      },
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+    ]);
+  });
+
+  test('reports a repeated older cursor in the timeout diagnostic', async () => {
+    const result = waitForRunByCommit({
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname !== '/workflows/runs') {
+          throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+        }
+        return response(
+          listResponse({
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'other',
+                  actor: 'e2e',
+                },
+              }),
+            ],
+            next_cursor: 'runs-page-2',
+          }),
+        );
+      },
+      backoffFactor: 1,
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      projectId,
+      timeoutMs: 100,
+      token: 'user-token',
+    });
+
+    await expect(result).rejects.toThrow(REPEATED_RUN_CURSOR_RE);
+  });
+
+  test('retries an older page after a transient fetch failure', async () => {
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: paginatedCommitFetch(paths, {failOlderPageOnce: true}),
+      backoffFactor: 1,
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-4`,
+    ]);
+  });
+
+  test('restarts the older traversal after reaching the end of the list', async () => {
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: paginatedCommitFetch(paths, {restartAfterEnd: true}),
+      backoffFactor: 1,
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      maxDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-4`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+    ]);
+  });
+
   test('times out with a bounded run list summary', async () => {
     const result = waitForRunByCommit({
       fetch: () =>
-        response(listResponse({runs: [run({trigger_payload: {data: {headCommitSha: 'other'}}})]})),
+        response(
+          listResponse({
+            runs: [
+              run({
+                trigger_reference: {
+                  repository: 'acme/api',
+                  ref: 'refs/heads/main',
+                  commit: 'other',
+                  actor: 'e2e',
+                },
+              }),
+            ],
+          }),
+        ),
       headCommitSha: 'abc123',
       initialDelayMs: 1,
       projectId,
@@ -351,37 +714,126 @@ describe('waitForRunByCommit', () => {
 });
 
 describe('waitForRunByDeliveryId', () => {
-  test('polls until a run with the matching delivery ID appears', async () => {
+  test('polls until the matching trigger event resolves to a run', async () => {
     let calls = 0;
+    const eventId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const result = await waitForRunByDeliveryId({
-      fetch: () => {
-        calls += 1;
-        return response(
-          listResponse({
-            runs: [
-              run(calls === 1 ? {trigger_payload: {deliveryId: 'other-delivery', data: {}}} : {}),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname === '/trigger-events') {
+          calls += 1;
+          return response({
+            trigger_events: [
+              {
+                id: eventId,
+                delivery_id: calls === 1 ? 'other-delivery' : 'delivery-1',
+              },
             ],
-          }),
-        );
+            next_cursor: null,
+          });
+        }
+        if (url.pathname === `/trigger-events/${eventId}`) {
+          return response({
+            decisions: [
+              {project_id: workspaceId, decision: 'triggered', run_id: 'other-run'},
+              {project_id: projectId, decision: 'triggered', run_id: null},
+              {project_id: projectId, decision: 'triggered', run_id: runId},
+            ],
+          });
+        }
+        if (url.pathname === '/workflows/runs') {
+          return response(listResponse({runs: [run()]}));
+        }
+        throw new Error(`Unexpected request: ${url.pathname}`);
       },
       deliveryId: 'delivery-1',
       initialDelayMs: 1,
       projectId,
+      workspaceId,
       token: 'user-token',
     });
     expect(result.id).toBe(runId);
     expect(calls).toBe(2);
   });
 
-  test('times out with a bounded run list summary', async () => {
-    const result = waitForRunByDeliveryId({
-      fetch: () =>
-        response(
-          listResponse({runs: [run({trigger_payload: {deliveryId: 'other-delivery', data: {}}})]}),
-        ),
+  test('follows event and run cursors while selecting the requested project decision', async () => {
+    const eventId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const paths: string[] = [];
+    const result = await waitForRunByDeliveryId({
+      fetch: paginatedDeliveryFetch(eventId, paths),
       deliveryId: 'delivery-1',
       initialDelayMs: 1,
       projectId,
+      workspaceId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toContain(
+      '/trigger-events?workspace_id=99999999-9999-4999-8999-999999999999&limit=100',
+    );
+    expect(paths).toContain(
+      '/trigger-events?workspace_id=99999999-9999-4999-8999-999999999999&limit=100&cursor=events-page-2',
+    );
+    expect(paths).toContain(
+      '/workflows/runs?project_id=11111111-1111-4111-8111-111111111111&limit=100',
+    );
+    expect(paths).toContain(
+      '/workflows/runs?project_id=11111111-1111-4111-8111-111111111111&limit=100&cursor=runs-page-2',
+    );
+  });
+
+  test('re-reads an older event page while its project decision is unresolved', async () => {
+    const eventId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const paths: string[] = [];
+    const result = await waitForRunByDeliveryId({
+      fetch: paginatedDeliveryFetch(eventId, paths, {
+        targetCursor: 'events-page-3',
+        unresolvedFirstDetail: true,
+      }),
+      deliveryId: 'delivery-1',
+      initialDelayMs: 1,
+      projectId,
+      workspaceId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths.filter((path) => path === `/trigger-events/${eventId}`)).toHaveLength(2);
+    expect(paths).toEqual([
+      `/trigger-events?workspace_id=${workspaceId}&limit=100`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100&cursor=events-page-2`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100&cursor=events-page-2`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100&cursor=events-page-3`,
+      `/trigger-events/${eventId}`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100&cursor=events-page-2`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100`,
+      `/trigger-events?workspace_id=${workspaceId}&limit=100&cursor=events-page-3`,
+      `/trigger-events/${eventId}`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+    ]);
+  });
+
+  test('times out with a bounded trigger event summary', async () => {
+    const result = waitForRunByDeliveryId({
+      fetch: () =>
+        response({
+          trigger_events: [
+            {
+              id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              delivery_id: 'other-delivery',
+            },
+          ],
+          next_cursor: null,
+        }),
+      deliveryId: 'delivery-1',
+      initialDelayMs: 1,
+      projectId,
+      workspaceId,
       timeoutMs: 1,
       token: 'user-token',
     });

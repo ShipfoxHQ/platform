@@ -1,7 +1,6 @@
 import type {AnnotationDto} from '@shipfox/annotations-dto';
 import type {
   WorkflowRunAnnotationItemDto,
-  WorkflowRunDetailResponseDto,
   WorkflowRunJobExplanationDto,
 } from '@shipfox/api-workflows-dto';
 import {configureApiClient} from '@shipfox/client-api';
@@ -10,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import {
   workflowJobDto,
   workflowJobExecutionDto,
-  workflowRunDetailDto,
+  workflowRunFixtureDto,
   workflowRunOverviewResponseDto,
   workflowStepAttemptDto,
   workflowStepDto,
@@ -326,7 +325,7 @@ describe('WorkflowRunView', () => {
     ).toBe(true);
   });
 
-  test('opens annotations without loading the legacy full run tree', async () => {
+  test('opens annotations without loading an unbounded run tree', async () => {
     const fetchImpl = configureRunFetch([
       annotationDto({id: ANNOTATION_ID_ONE, context: 'coverage'}),
     ]);
@@ -428,26 +427,8 @@ describe('WorkflowRunView', () => {
   });
 
   test('renders the captured workflow source in the Source section', async () => {
-    const detail = workflowRunViewDetailDto({
-      source_snapshot: {format: 'yaml', content: 'jobs:\n  build:\n    steps: []'},
-    });
-    configureApiClient({
-      fetchImpl: vi.fn((input: RequestInfo | URL) => {
-        const path = new URL(requestUrl(input), 'https://api.example.test').pathname;
-        return Promise.resolve(
-          jsonResponse(
-            path === `/workflows/runs/${RUN_ID}/source`
-              ? {
-                  kind: 'available',
-                  workflow_run_id: RUN_ID,
-                  workflow_run_attempt: detail.run_attempt.attempt,
-                  source_snapshot: detail.source_snapshot,
-                }
-              : runResourceResponse(path, detail),
-          ),
-        );
-      }),
-    });
+    const sourceSnapshot = {format: 'yaml' as const, content: 'jobs:\n  build:\n    steps: []'};
+    configureRunFetch([], {}, {}, [], undefined, sourceSnapshot);
 
     renderView({tab: 'source'});
 
@@ -495,10 +476,11 @@ function requestUrl(input: RequestInfo | URL): string {
 /** Routes the independently loaded run workspace resources. */
 function configureRunFetch(
   annotations: AnnotationDto[] = [],
-  runOverrides: Partial<WorkflowRunDetailResponseDto> = {},
+  runOverrides: Parameters<typeof workflowRunFixtureDto>[0] = {},
   annotationPageOverrides: Partial<{next_cursor: string | null}> = {},
   explanations: WorkflowRunJobExplanationDto[] = [],
   nextExplanationPage?: {cursor: string; items: WorkflowRunJobExplanationDto[]} | undefined,
+  sourceSnapshot?: {format: 'yaml'; content: string} | undefined,
 ) {
   const fetchImpl = vi.fn((input: RequestInfo | URL) => {
     const url = new URL(requestUrl(input), 'https://api.example.test');
@@ -524,12 +506,12 @@ function configureRunFetch(
     if (path === `/workflows/runs/${RUN_ID}/source`) {
       return Promise.resolve(
         jsonResponse(
-          detail.source_snapshot
+          sourceSnapshot
             ? {
                 kind: 'available',
                 workflow_run_id: RUN_ID,
                 workflow_run_attempt: detail.run_attempt.attempt,
-                source_snapshot: detail.source_snapshot,
+                source_snapshot: sourceSnapshot,
               }
             : {
                 kind: 'unavailable',
@@ -608,7 +590,7 @@ function annotationSummaryDto(annotations: readonly AnnotationDto[]) {
   };
 }
 
-function runResourceResponse(path: string, detail: WorkflowRunDetailResponseDto) {
+function runResourceResponse(path: string, detail: ReturnType<typeof workflowRunFixtureDto>) {
   if (path === `/workflows/runs/${RUN_ID}/head`) {
     return {
       current_attempt: detail.current_attempt,
@@ -624,18 +606,17 @@ function runResourceResponse(path: string, detail: WorkflowRunDetailResponseDto)
     return {items: [], next_cursor: null};
   }
   if (path === '/annotations/summary') return annotationSummaryDto([]);
-  return detail;
+  return {code: 'not-found'};
 }
 
 function workflowRunViewDetailDto(
-  overrides: Partial<WorkflowRunDetailResponseDto> = {},
-): WorkflowRunDetailResponseDto {
-  return workflowRunDetailDto({
+  overrides: Parameters<typeof workflowRunFixtureDto>[0] = {},
+): ReturnType<typeof workflowRunFixtureDto> {
+  return workflowRunFixtureDto({
     id: RUN_ID,
     project_id: PROJECT_ID,
     name: 'deploy-web',
     status: 'running',
-    trigger_payload: {},
     created_at: '2026-05-07T01:01:00.000Z',
     updated_at: '2026-05-07T01:02:00.000Z',
     jobs: [

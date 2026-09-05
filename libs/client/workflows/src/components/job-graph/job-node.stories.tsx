@@ -1,18 +1,13 @@
-import type {WorkflowRunJobDetailDto} from '@shipfox/api-workflows-dto';
 import type {Meta, StoryObj} from '@storybook/react';
 import type {KeyboardEventHandler} from 'react';
-import type {JobExecutionStatus, JobStatus} from '#core/workflow-run.js';
-import {
-  workflowJob,
-  workflowJobExecutionDto,
-  workflowStepDto,
-} from '#test/fixtures/workflow-run.js';
+import type {JobExecutionStatus, JobMode, JobStatus, ListenerStatus} from '#core/workflow-run.js';
+import {workflowJobExecutionDto, workflowRunOverviewJob} from '#test/fixtures/workflow-run.js';
 import type {JobGraphNode} from './graph-model.js';
 import {JobNode} from './job-node.js';
 
 const statuses: JobStatus[] = ['pending', 'running', 'succeeded', 'failed', 'cancelled', 'skipped'];
 const ignoreKeyDown: KeyboardEventHandler<HTMLButtonElement> = () => undefined;
-const statusModes: WorkflowRunJobDetailDto['mode'][] = ['one_shot', 'listening'];
+const statusModes: JobMode[] = ['one_shot', 'listening'];
 
 const meta = {
   title: 'Workflows/JobNode',
@@ -309,16 +304,16 @@ function makeNode({
   status: JobStatus;
   position: number;
   dependencies: string[];
-  mode?: WorkflowRunJobDetailDto['mode'];
-  listenerStatus?: WorkflowRunJobDetailDto['listener_status'];
-  jobExecutions?: WorkflowRunJobDetailDto['job_executions'];
+  mode?: JobMode;
+  listenerStatus?: ListenerStatus;
+  jobExecutions?: ReturnType<typeof workflowJobExecutionDto>[];
   queuedAt?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
 }): JobGraphNode {
   const shouldCreateExecution =
     jobExecutions === undefined && (queuedAt !== null || startedAt !== null || finishedAt !== null);
-  const overrides: Partial<WorkflowRunJobDetailDto> = {
+  const overrides = {
     id,
     name: label,
     mode,
@@ -334,12 +329,11 @@ function makeNode({
             queued_at: queuedAt,
             started_at: startedAt,
             finished_at: finishedAt,
-            ...(status === 'running' ? {steps: [workflowStepDto({status: 'running'})]} : {}),
           }),
         ]
       : jobExecutions,
   };
-  const job = workflowJob(overrides);
+  const job = workflowRunOverviewJob(overrides);
   return Object.assign(Object.create(Object.getPrototypeOf(job)), job, {
     column: 0,
     row: position,
@@ -350,7 +344,7 @@ function makeNode({
 function makeExecutionsByStatus(
   jobId: string,
   statuses: readonly JobExecutionStatus[],
-): WorkflowRunJobDetailDto['job_executions'] {
+): ReturnType<typeof workflowJobExecutionDto>[] {
   return statuses.map((status, index) => ({
     id: `exec-${index + 1}`,
     job_id: jobId,
@@ -364,6 +358,6 @@ function makeExecutionsByStatus(
     timed_out_at: null,
     created_at: '2026-06-26T11:54:00.000Z',
     updated_at: '2026-06-26T12:00:00.000Z',
-    steps: status === 'running' ? [workflowStepDto({status: 'running'})] : [],
+    steps: [],
   }));
 }

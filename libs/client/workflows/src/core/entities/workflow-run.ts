@@ -1,5 +1,4 @@
 import {
-  type Job,
   type JobDisplayStatus,
   type JobMode,
   type JobStatus,
@@ -7,7 +6,7 @@ import {
   WORKFLOW_JOB_STATUSES,
 } from './job.js';
 import type {JobExecutionStatus} from './job-execution.js';
-import type {WorkflowRunAttempt, WorkflowRunAttemptSummary} from './workflow-run-attempt.js';
+import type {WorkflowRunAttemptSummary} from './workflow-run-attempt.js';
 
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 export type WorkflowRunRerunMode = 'all' | 'failed';
@@ -125,10 +124,7 @@ export interface WorkflowRun {
   triggerEvent: string;
   triggerDisplayLabel: string;
   triggerLabel: string;
-  triggerPayload: Record<string, unknown>;
   triggerReference: WorkflowRunTriggerReference | null;
-  inputs: Record<string, unknown> | null;
-  sourceSnapshot: WorkflowSourceSnapshot | null;
   createdAt: string;
   updatedAt: string;
   isTemporary: boolean;
@@ -143,13 +139,6 @@ export interface WorkflowRunRecord extends WorkflowRun {
 
 export interface WorkflowRunListItem extends WorkflowRunRecord {
   jobs: WorkflowRunJobs;
-}
-
-export interface WorkflowRunDetail extends WorkflowRun {
-  latestAttempt: number;
-  runAttempt: WorkflowRunAttempt;
-  jobs: Job[];
-  hasStartedJobExecution: boolean;
 }
 
 export interface WorkflowRunListPage {

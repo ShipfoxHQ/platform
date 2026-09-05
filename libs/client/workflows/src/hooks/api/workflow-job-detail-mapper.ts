@@ -1,7 +1,5 @@
 import type {
   StepAttemptSummaryDto,
-  StepErrorDto,
-  StepGateResultSummaryDto,
   StepSummaryDto,
   WorkflowExecutionStepsResponseDto,
   WorkflowJobDetailDto,
@@ -20,21 +18,17 @@ import type {
   WorkflowJobStepSummary,
   WorkflowStepAttemptPage,
 } from '#core/workflow-run.js';
-import {
-  Job,
-  JobExecution,
-  type Step,
-  StepAttempt,
-  type StepError,
-  type StepGateResult,
-} from '#core/workflow-run.js';
+import {Job, JobExecution, type Step, StepAttempt} from '#core/workflow-run.js';
 import {toWorkflowDiagnosticUnavailableField} from './workflow-diagnostic-mapper.js';
 import {
   toEvaluationTrace,
   toWorkflowExecutionEvent,
-  toWorkflowRunOverviewExecution,
-  toWorkflowRunOverviewJob,
-} from './workflow-run-mapper.js';
+  toWorkflowJobGateResult,
+  toWorkflowJobStepError,
+} from './workflow-model-mapper.js';
+import {toWorkflowRunOverviewExecution, toWorkflowRunOverviewJob} from './workflow-run-mapper.js';
+
+export {toWorkflowJobStepError} from './workflow-model-mapper.js';
 
 export function toWorkflowJobDetail(dto: WorkflowJobDetailDto): WorkflowJobDetail {
   return {
@@ -184,15 +178,15 @@ export function mergeWorkflowJobStepAttempts(
 }
 
 /**
- * The job log components still accept the retained complete-tree model. Keep this conversion at
- * the presentation boundary: the selected-job query and its cache never acquire legacy fields.
+ * The job log components still accept the retained job model. Keep this conversion at the
+ * presentation boundary: the selected-job query and its cache never acquire diagnostic fields.
  */
-export function toLegacyJobForJobDetail(
+export function toJobForJobDetail(
   detail: WorkflowJobDetail,
   presentation: WorkflowJobDetailPresentationOptions = {},
 ): Job {
   const execution = detail.selectedExecution
-    ? toLegacyJobExecution(detail.job.id, detail.selectedExecution, presentation)
+    ? toJobExecutionForJobDetail(detail.job.id, detail.selectedExecution, presentation)
     : undefined;
   const updatedAt = execution?.updatedAt ?? detail.job.defaultExecution?.updatedAt ?? '';
 
@@ -220,7 +214,7 @@ export function toLegacyJobForJobDetail(
   });
 }
 
-function toLegacyJobExecution(
+function toJobExecutionForJobDetail(
   jobId: string,
   detail: WorkflowJobExecutionDetail,
   presentation: WorkflowJobDetailPresentationOptions,
@@ -245,12 +239,12 @@ function toLegacyJobExecution(
     createdAt: detail.updatedAt,
     updatedAt: detail.updatedAt,
     steps: steps.map((step) =>
-      toLegacyStep(step, detail.updatedAt, presentation.attemptsByStepId?.get(step.id)),
+      toStepForJobDetail(step, detail.updatedAt, presentation.attemptsByStepId?.get(step.id)),
     ),
   });
 }
 
-function toLegacyStep(
+function toStepForJobDetail(
   step: WorkflowJobStepSummary,
   fallbackUpdatedAt: string,
   presentedAttempts: readonly WorkflowJobStepAttemptSummary[] | undefined,
@@ -276,7 +270,7 @@ function toLegacyStep(
     currentAttempt: step.currentAttempt,
     createdAt: firstAttempt?.startedAt ?? fallbackUpdatedAt,
     updatedAt,
-    attempts: attempts.map((attempt) => toLegacyStepAttempt(attempt, step.jobExecutionId)),
+    attempts: attempts.map((attempt) => toStepAttemptForJobDetail(attempt, step.jobExecutionId)),
   };
 }
 
@@ -292,7 +286,7 @@ function mergeById<T extends {id: string}>(sources: readonly (readonly T[])[]): 
   return [...merged.values()];
 }
 
-function toLegacyStepAttempt(
+function toStepAttemptForJobDetail(
   attempt: WorkflowJobStepAttemptSummary,
   jobExecutionId: string,
 ): StepAttempt {
@@ -314,45 +308,4 @@ function toLegacyStepAttempt(
     startedAt: attempt.startedAt,
     finishedAt: attempt.finishedAt,
   });
-}
-
-function toWorkflowJobStepError(dto: StepErrorDto): StepError | null {
-  if (dto === null) return null;
-  return {
-    message: dto.message,
-    ...(dto.code === undefined ? {} : {code: dto.code}),
-    ...(dto.managed_provider_id === undefined ? {} : {managedProviderId: dto.managed_provider_id}),
-    ...(dto.field === undefined ? {} : {field: dto.field}),
-    ...(dto.source === undefined ? {} : {source: dto.source}),
-    exitCode: dto.exit_code ?? null,
-    signal: dto.signal,
-    reason: dto.reason,
-    agentConfigIssue: dto.agent_config_issue,
-    category: dto.category,
-  };
-}
-
-function toWorkflowJobGateResult(dto: StepGateResultSummaryDto): StepGateResult {
-  if (dto === null) return null;
-  if (dto.kind === 'unknown') return {kind: 'unknown', data: {}};
-  if (dto.kind === 'none' || dto.kind === 'not_evaluated') return {kind: dto.kind};
-  if (dto.kind === 'passed' && 'source' in dto) {
-    return {kind: 'passed', passed: true, source: dto.source, exitCode: dto.exit_code};
-  }
-  if (dto.kind === 'failed' && 'source' in dto) {
-    return {kind: 'failed', passed: false, source: dto.source, exitCode: dto.exit_code};
-  }
-  if (dto.kind === 'uncheckable' && 'uncheckable' in dto) {
-    return {
-      kind: 'uncheckable',
-      passed: false,
-      uncheckable: true,
-      reason: dto.reason,
-      exitCode: dto.exit_code,
-    };
-  }
-  if (dto.kind === 'evaluation_error' && 'reason' in dto) {
-    return {kind: 'evaluation_error', reason: dto.reason, exitCode: dto.exit_code};
-  }
-  return {kind: 'unknown', data: {}};
 }

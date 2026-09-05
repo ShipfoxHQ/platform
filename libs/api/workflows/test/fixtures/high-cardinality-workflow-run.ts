@@ -31,14 +31,12 @@ export interface HighCardinalityWorkflowRunFixture {
     executions: number;
     steps: number;
     stepAttempts: number;
-    legacyJoinedRows: number;
   };
 }
 
 /**
- * Builds a rectangular run graph whose children all exist. This makes the current
- * `jobs -> executions -> steps -> attempts` join amplification reproducible while keeping
- * fixture payloads deterministic and free of real user data.
+ * Builds a rectangular run graph whose children all exist. This exercises bounded
+ * workflow-run reads while keeping fixture payloads deterministic and free of real user data.
  */
 export async function createHighCardinalityWorkflowRun(
   params: HighCardinalityWorkflowRunParams = {},
@@ -178,7 +176,6 @@ export async function createHighCardinalityWorkflowRun(
       executions: executionIds.length,
       steps: stepIds.length,
       stepAttempts: stepAttemptIds.length,
-      legacyJoinedRows: jobsCount * executionsPerJob * stepsPerExecution * attemptsPerStep,
     },
   };
 }

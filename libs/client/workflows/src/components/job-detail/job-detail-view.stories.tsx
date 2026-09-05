@@ -1,6 +1,7 @@
 // biome-ignore-all lint/a11y/noRedundantRoles: the story mirrors the job log region contract.
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: the story mirrors the focusable log surface.
 
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -12,7 +13,7 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router';
-import {type ReactNode, useState} from 'react';
+import {type ReactNode, useEffect, useState} from 'react';
 import {expect, userEvent, waitFor, within} from 'storybook/test';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import type {
@@ -21,17 +22,16 @@ import type {
   Step,
   StepAttemptDetail,
   WorkflowJobDetail,
-  WorkflowRunDetail,
+  WorkflowRunAttempt,
+  WorkflowRunOverview,
+  WorkflowRunStatus,
 } from '#core/workflow-run.js';
 import {workflowRunAnnotationsQueryKeys} from '#hooks/api/annotations.js';
 import {stepAttemptDetailQueryKeys} from '#hooks/api/step-attempt-detail.js';
+import type {useWorkflowJobDetailQuery} from '#hooks/api/workflow-job-detail.js';
 import {workflowJobQueryKeys} from '#hooks/api/workflow-job-detail.js';
 import {toWorkflowJobDetail} from '#hooks/api/workflow-job-detail-mapper.js';
-import {
-  toWorkflowRunLineageHeadFromRecord,
-  toWorkflowRunOverviewFromRunDetail,
-} from '#hooks/api/workflow-run-mapper.js';
-import type {useWorkflowRunAttemptQuery} from '#hooks/api/workflow-runs.js';
+import {toWorkflowRunOverview} from '#hooks/api/workflow-run-mapper.js';
 import {workflowRunsQueryKeys} from '#hooks/api/workflow-runs.js';
 import {WorkflowJobDetailPage} from '#pages/workflow-job-detail-page.js';
 import {
@@ -39,8 +39,9 @@ import {
   workflowJobDetailResponseDto,
   workflowJobExecutionDto,
   workflowRunAttemptDto,
-  workflowRunDetail,
-  workflowRunDetailDto,
+  workflowRunFixtureDto,
+  workflowRunOverviewResponseDto,
+  workflowRunTreeFixture,
   workflowStepAttemptDto,
   workflowStepDto,
 } from '#test/fixtures/workflow-run.js';
@@ -68,14 +69,23 @@ const LOG_RECORDS: StepLogSnapshot['records'] = [
 ];
 
 interface JobDetailStoryArgs {
-  run: WorkflowRunDetail;
+  run: StoryRun;
   jobId: string;
   selectedExecutionId?: string | undefined;
   search?: Parameters<typeof JobDetailView>[0]['search'];
   stepDetails?: readonly StepAttemptDetail[];
 }
 
-type JobDetailQuery = ReturnType<typeof useWorkflowRunAttemptQuery>;
+type JobDetailQuery = ReturnType<typeof useWorkflowJobDetailQuery>;
+
+type StoryRun = {
+  id: string;
+  status: WorkflowRunStatus;
+  updatedAt: string;
+  runAttempt: WorkflowRunAttempt;
+  overview: WorkflowRunOverview;
+  jobs: Job[];
+};
 
 const meta = {
   title: 'Workflows/JobDetail',
@@ -110,6 +120,7 @@ export const Loading: Story = {
       <JobDetailStoryViewport>
         <JobDetailStoryState
           query={makeQuery(undefined, {isPending: true})}
+          run={run}
           jobId={run.jobs[0]?.id ?? ''}
         />
       </JobDetailStoryViewport>
@@ -209,7 +220,7 @@ export const TestInvocationLogNavigation: Story = {
     const canvas = within(canvasElement);
     const documentBody = within(canvasElement.ownerDocument.body);
     const toolRow = await canvas.findByRole('button', {
-      name: 'Post release notice, Failed, attempt 1, Slack integration',
+      name: 'Post release notice, Failed, attempt 1',
     });
 
     await userEvent.click(
@@ -237,7 +248,8 @@ function JobDetailStoryFrame({
   return (
     <JobDetailStoryViewport>
       <JobDetailStoryState
-        query={makeQuery(run)}
+        query={makeQueryForRun(run, jobId, selectedExecution?.id)}
+        run={run}
         jobId={jobId}
         search={search ?? (selectedExecution ? {jobExecutionId: selectedExecution.id} : {})}
         stepDetails={stepDetails}
@@ -253,23 +265,24 @@ function JobDetailStoryViewport({children}: {children: ReactNode}) {
 }
 
 function JobDetailStoryState({
+  run,
   query,
   jobId,
   search = {},
   stepDetails = [],
 }: {
+  run?: StoryRun;
   query: JobDetailQuery;
   jobId: string;
   search?: Parameters<typeof JobDetailView>[0]['search'];
   stepDetails?: readonly StepAttemptDetail[];
 }) {
-  const run = query.data;
   return (
     <StoryQueryProvider run={run} stepDetails={stepDetails}>
       <JobDetailView
         workspaceSlug={WORKSPACE_SLUG}
         projectSlug={PROJECT_SLUG}
-        workflowRunId={run?.id ?? RUN_ID}
+        workflowRunId={query.data?.workflowRunId ?? run?.id ?? RUN_ID}
         jobId={jobId}
         search={search}
         query={query}
@@ -279,7 +292,7 @@ function JobDetailStoryState({
   );
 }
 
-function makeQuery(data: WorkflowRunDetail | undefined, overrides: Partial<JobDetailQuery> = {}) {
+function makeQuery(data: WorkflowJobDetail | undefined, overrides: Partial<JobDetailQuery> = {}) {
   return {
     isPending: false,
     isError: false,
@@ -291,22 +304,88 @@ function makeQuery(data: WorkflowRunDetail | undefined, overrides: Partial<JobDe
   } as JobDetailQuery;
 }
 
+function makeQueryForRun(
+  run: StoryRun,
+  jobId: string,
+  executionId?: string | undefined,
+): JobDetailQuery {
+  return makeQuery(storySelectedJobDetail(run, jobId, executionId));
+}
+
+function storySelectedJobDetail(
+  run: StoryRun,
+  jobId: string,
+  executionId?: string | undefined,
+): WorkflowJobDetail | undefined {
+  const selectedJobId = run.jobs.some((job) => job.id === jobId) ? jobId : run.jobs[0]?.id;
+  if (!selectedJobId) return undefined;
+  const detail = storyRunFixtureDto({status: run.status, jobs: run.jobs});
+  return toWorkflowJobDetail(
+    workflowJobDetailResponseDto({detail, jobId: selectedJobId, executionId}),
+  );
+}
+
 function StoryQueryProvider({
   run,
   stepDetails = [],
   children,
 }: {
-  run: WorkflowRunDetail | undefined;
+  run: StoryRun | undefined;
   stepDetails?: readonly StepAttemptDetail[];
   children: ReactNode;
 }) {
   const [queryClient] = useState(() => createStoryQueryClient(run, stepDetails));
+  const [configured, setConfigured] = useState(false);
+
+  useEffect(() => {
+    if (!run) {
+      setConfigured(true);
+      return;
+    }
+
+    configureApiClient({
+      baseUrl: 'https://api.example.test',
+      fetchImpl: (input) => {
+        const url = storyRequestUrl(input);
+        const path = new URL(url, 'https://api.example.test').pathname;
+        const response =
+          path === `/workflows/runs/${run.id}/head`
+            ? {
+                body: {
+                  current_attempt: run.overview.currentAttempt,
+                  latest_attempt: run.overview.latestAttempt,
+                  current_status: run.status,
+                  updated_at: run.updatedAt,
+                },
+                status: 200,
+              }
+            : {body: {code: 'not-found'}, status: 404};
+        return new Response(JSON.stringify(response.body), {
+          status: response.status,
+          headers: {'content-type': 'application/json'},
+        });
+      },
+    });
+    setConfigured(true);
+
+    return () => {
+      resetApiClient();
+    };
+  }, [run]);
+
+  if (!configured) return null;
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
+function storyRequestUrl(input: RequestInfo | URL): string {
+  if (input instanceof Request) return input.url;
+  if (input instanceof URL) return input.href;
+  return String(input);
+}
+
 function createStoryQueryClient(
-  run: WorkflowRunDetail | undefined,
+  run: StoryRun | undefined,
   stepDetails: readonly StepAttemptDetail[],
 ) {
   const client = new QueryClient({
@@ -314,7 +393,6 @@ function createStoryQueryClient(
   });
   if (!run) return client;
   seedStoryLogs(client, run);
-  client.setQueryData(workflowRunsQueryKeys.detail(run.id), run);
   seedStoryWorkflowQueries(client, run);
   for (const detail of stepDetails) {
     client.setQueryData(stepAttemptDetailQueryKeys.detail(detail.stepId, detail.attempt), detail);
@@ -323,14 +401,16 @@ function createStoryQueryClient(
   return client;
 }
 
-function seedStoryWorkflowQueries(client: QueryClient, run: WorkflowRunDetail): void {
-  client.setQueryData(workflowRunsQueryKeys.head(run.id), toWorkflowRunLineageHeadFromRecord(run));
-  client.setQueryData(
-    workflowRunsQueryKeys.overview(run.id, run.runAttempt.attempt),
-    toWorkflowRunOverviewFromRunDetail(run),
-  );
+function seedStoryWorkflowQueries(client: QueryClient, run: StoryRun): void {
+  client.setQueryData(workflowRunsQueryKeys.head(run.id), {
+    currentAttempt: run.overview.currentAttempt,
+    latestAttempt: run.overview.latestAttempt,
+    currentStatus: run.status,
+    updatedAt: run.updatedAt,
+  });
+  client.setQueryData(workflowRunsQueryKeys.overview(run.id, run.runAttempt.attempt), run.overview);
 
-  const detail = storyRunDto({status: run.status, jobs: run.jobs});
+  const detail = storyRunFixtureDto({status: run.status, jobs: run.jobs});
   for (const job of run.jobs) {
     seedStorySelectedJobDetail(client, detail, job.id);
     for (const execution of job.jobExecutions) {
@@ -341,7 +421,7 @@ function seedStoryWorkflowQueries(client: QueryClient, run: WorkflowRunDetail): 
 
 function seedStorySelectedJobDetail(
   client: QueryClient,
-  detail: ReturnType<typeof storyRunDto>,
+  detail: ReturnType<typeof storyRunFixtureDto>,
   jobId: string,
   executionId?: string,
 ): void {
@@ -354,7 +434,7 @@ function seedStorySelectedJobDetail(
   );
 }
 
-function seedStoryLogs(client: QueryClient, run: WorkflowRunDetail): void {
+function seedStoryLogs(client: QueryClient, run: StoryRun): void {
   for (const job of run.jobs) seedJobLogs(client, job);
 }
 
@@ -373,7 +453,7 @@ function seedExecutionLogs(client: QueryClient, execution: JobExecution): void {
   }
 }
 
-function seedStoryAnnotationSummaries(client: QueryClient, run: WorkflowRunDetail): void {
+function seedStoryAnnotationSummaries(client: QueryClient, run: StoryRun): void {
   const summary: RunAnnotationSummary = {
     total: 0,
     error: 0,
@@ -392,7 +472,7 @@ function seedStoryAnnotationSummaries(client: QueryClient, run: WorkflowRunDetai
 
 function seedJobAnnotationSummaries(
   client: QueryClient,
-  run: WorkflowRunDetail,
+  run: StoryRun,
   job: Job,
   summary: RunAnnotationSummary,
 ): void {
@@ -418,7 +498,7 @@ function storyLogSnapshot(): StepLogSnapshot {
   };
 }
 
-function playgroundRun(): WorkflowRunDetail {
+function playgroundRun(): StoryRun {
   const setupId = '22222222-2222-4222-8222-222222222222';
   const buildId = '33333333-3333-4333-8333-333333333333';
   const deployId = '44444444-4444-4444-8444-444444444445';
@@ -588,7 +668,7 @@ function compositionRun() {
   };
 }
 
-function emptyJobRun(): WorkflowRunDetail {
+function emptyJobRun(): StoryRun {
   return storyRun({
     status: 'succeeded',
     jobs: [
@@ -604,7 +684,7 @@ function emptyJobRun(): WorkflowRunDetail {
   });
 }
 
-function partialJobRun(): WorkflowRunDetail {
+function partialJobRun(): StoryRun {
   const jobId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   return storyRun({
     status: 'running',
@@ -736,6 +816,7 @@ function failureRun() {
       attempt: 1,
       authoredConfig: {run: String.raw`pnpm test --filter=\${{ inputs.package }}`},
       config: {run: 'pnpm test --filter=@shipfox/client-workflows'},
+      outputs: {failed_tests: 4},
     }),
   ];
 
@@ -768,11 +849,13 @@ function stepAttemptDetail({
   attempt,
   authoredConfig,
   config,
+  outputs,
 }: {
   stepId: string;
   attempt: number;
   authoredConfig: Record<string, unknown>;
   config: Record<string, unknown>;
+  outputs?: Record<string, unknown> | undefined;
 }): StepAttemptDetail {
   return {
     stepId,
@@ -780,6 +863,7 @@ function stepAttemptDetail({
     session: null,
     authoredConfig,
     config,
+    ...(outputs === undefined ? {} : {outputs}),
     toolArguments: null,
     evaluationTrace: [
       {
@@ -930,7 +1014,7 @@ function InvocationLogNavigationStory() {
           workflowRunId={run.id}
           jobId={jobId}
           search={{...search, jobExecutionId: search.jobExecutionId ?? executionId}}
-          query={makeQuery(run)}
+          query={makeQueryForRun(run, jobId, executionId)}
           onSelectionChange={setSearch}
         />
       </StoryQueryProvider>
@@ -952,7 +1036,7 @@ function RunCompositionStory() {
           projectSlug={PROJECT_SLUG}
           workflowRunId={run.id}
           jobId={job.id}
-          search={{}}
+          search={{runAttempt: run.runAttempt.attempt}}
         />
       </StoryRouter>
     </StoryQueryProvider>
@@ -971,7 +1055,7 @@ function FailureCompositionStory() {
           projectSlug={PROJECT_SLUG}
           workflowRunId={run.id}
           jobId={commandJobId}
-          search={{}}
+          search={{runAttempt: run.runAttempt.attempt}}
         />
       </StoryRouter>
     </StoryQueryProvider>
@@ -1031,18 +1115,21 @@ function executionStory() {
   return {run, jobId, selectedExecutionId};
 }
 
-function storyRun({
-  status,
-  jobs,
-}: {
-  status: WorkflowRunDetail['status'];
-  jobs: Job[];
-}): WorkflowRunDetail {
-  return workflowRunDetail(storyRunDto({status, jobs}));
+function storyRun({status, jobs}: {status: WorkflowRunStatus; jobs: Job[]}): StoryRun {
+  const dto = storyRunFixtureDto({status, jobs});
+  const tree = workflowRunTreeFixture(dto);
+  return {
+    id: tree.id,
+    status,
+    updatedAt: tree.updatedAt,
+    runAttempt: tree.runAttempt,
+    overview: toWorkflowRunOverview(workflowRunOverviewResponseDto(dto)),
+    jobs: tree.jobs,
+  };
 }
 
-function storyRunDto({status, jobs}: {status: WorkflowRunDetail['status']; jobs: Job[]}) {
-  return workflowRunDetailDto({
+function storyRunFixtureDto({status, jobs}: {status: WorkflowRunStatus; jobs: Job[]}) {
+  return workflowRunFixtureDto({
     id: RUN_ID,
     status,
     current_attempt: 1,
@@ -1173,7 +1260,7 @@ function makeJob({
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
   position: number;
   dependencies?: string[];
-  executions: WorkflowRunDetail['jobs'][number]['jobExecutions'];
+  executions: Job['jobExecutions'];
 }): Job {
   return workflowJob({
     id,

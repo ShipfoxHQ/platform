@@ -1,4 +1,8 @@
 import type {
+  TriggerEventDetailResponseDto,
+  TriggerEventListResponseDto,
+} from '@shipfox/api-triggers-dto';
+import type {
   JobExecutionSummaryDto,
   StepAttemptDetailResponseDto,
   StepAttemptSummaryDto,
@@ -11,10 +15,10 @@ import type {
   WorkflowJobExecutionDetailDto,
   WorkflowJobExecutionSummariesResponseDto,
   WorkflowRunAttemptDto,
-  WorkflowRunDto,
   WorkflowRunJobListSummaryDto,
   WorkflowRunJobOverviewDto,
   WorkflowRunLineageHeadResponseDto,
+  WorkflowRunListItemDto,
   WorkflowRunListResponseDto,
   WorkflowRunOverviewHeaderDto,
   WorkflowRunOverviewJobsResponseDto,
@@ -29,9 +33,14 @@ const DEFAULT_TERMINAL_TIMEOUT_MS = 180_000;
 const DEFAULT_INITIAL_DELAY_MS = 250;
 const DEFAULT_MAX_DELAY_MS = 4_000;
 const DEFAULT_BACKOFF_FACTOR = 1.5;
+const WORKFLOW_LIST_PAGE_LIMIT = '100';
+// New runs and trigger events are newest-first. Keep each poll bounded while still allowing
+// a small amount of contention from other tests; the search advances older pages across polls.
+const MAX_LIST_PAGES_PER_PROBE = 2;
 const TERMINAL_STATUSES = new Set<WorkflowRunStatusDto>(['succeeded', 'failed', 'cancelled']);
 
 type ApiClient = ReturnType<typeof makeApiClient>;
+type TriggerEventListItemDto = TriggerEventListResponseDto['trigger_events'][number];
 
 /** The bounded resources an observer may materialize for one run attempt. */
 export interface WorkflowRunObservationSelection {
@@ -125,6 +134,7 @@ export interface WaitForRunByCommitOptions extends PollingOptions {
 export interface WaitForRunByDeliveryIdOptions extends PollingOptions {
   deliveryId: string;
   projectId: string;
+  workspaceId: string;
 }
 
 export interface ObserveRunOptions extends PollingOptions {
@@ -140,48 +150,46 @@ interface ResourceTracker {
   deadline?: number | undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function headCommitSha(run: WorkflowRunDto): string | null {
-  const payload = run.trigger_payload;
-  if (!isRecord(payload) || !isRecord(payload.data)) return null;
-  const data = payload.data;
-  // Real push payloads use `after`; `headCommitSha` covers normalized test payloads.
-  if (typeof data.headCommitSha === 'string') return data.headCommitSha;
-  if (typeof data.after === 'string') return data.after;
-  if (isRecord(data.head_commit) && typeof data.head_commit.id === 'string') {
-    return data.head_commit.id;
-  }
-  return null;
-}
-
-function deliveryId(run: WorkflowRunDto): string | null {
-  const payload = run.trigger_payload;
-  if (!isRecord(payload)) return null;
-  return typeof payload.deliveryId === 'string' ? payload.deliveryId : null;
+function headCommitSha(run: WorkflowRunListItemDto): string | null {
+  return run.trigger_reference?.commit ?? null;
 }
 
 function formatRunListObserved(
   response: WorkflowRunListResponseDto | null,
   expected: string,
-  runField: (run: WorkflowRunDto) => string,
+  runField: (run: WorkflowRunListItemDto) => string,
 ): string {
   if (!response) return 'no workflow run list response observed';
-  const runs = response.runs
-    .slice(0, 5)
-    .map((run) =>
-      [
-        `id=${run.id}`,
-        `status=${run.status}`,
-        `trigger=${run.trigger_source}/${run.trigger_event}`,
-        runField(run),
-        `updatedAt=${run.updated_at}`,
-      ].join(' '),
-    );
-  const more = response.runs.length > runs.length ? ', ...' : '';
-  return `${expected} runs=[${runs.join(', ')}${more}]`;
+  return `${expected} runs=${formatObservedItems(response.runs, (run) =>
+    [
+      `id=${run.id}`,
+      `status=${run.status}`,
+      `trigger=${run.trigger_source}/${run.trigger_event}`,
+      runField(run),
+      `updatedAt=${run.updated_at}`,
+    ].join(' '),
+  )}`;
+}
+
+function formatObservedItems<T>(items: readonly T[], formatItem: (item: T) => string): string {
+  const visible = items.slice(0, 5).map(formatItem);
+  const more = items.length > visible.length ? ', ...' : '';
+  return `[${visible.join(', ')}${more}]`;
+}
+
+function assertCursorNotSeen(
+  cursor: string | null,
+  seenCursors: Set<string>,
+  cursorDescription: string,
+): void {
+  if (cursor === null) return;
+  if (seenCursors.has(cursor)) {
+    throw new Error(`Repeated ${cursorDescription} cursor while waiting: ${cursor}`);
+  }
+}
+
+function rememberCursor(cursor: string | null, seenCursors: Set<string>): void {
+  if (cursor !== null) seenCursors.add(cursor);
 }
 
 function formatRunObservationObserved(
@@ -228,71 +236,295 @@ function queryPath(path: string, params?: URLSearchParams): string {
 
 async function waitForRunMatching(
   options: PollingOptions & {
-    expected: string;
-    match: (run: WorkflowRunDto) => boolean;
-    projectId: string;
-    runField: (run: WorkflowRunDto) => string;
+    describeObserved: () => string;
+    probe: (params: {
+      client: ApiClient;
+      deadline: number;
+      signal: AbortSignal | undefined;
+    }) => Promise<WorkflowRunListItemDto | null>;
     timeoutMessage: string;
   },
-): Promise<WorkflowRunDto> {
+): Promise<WorkflowRunListItemDto> {
   const client = makeApiClient({
     apiUrl: options.apiUrl,
     fetch: options.fetch,
     token: options.token,
   });
   const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
-  let lastResponse: WorkflowRunListResponseDto | null = null;
+  const deadline = Date.now() + timeoutMs;
 
-  return await pollUntil<WorkflowRunDto>(
+  return await pollUntil<WorkflowRunListItemDto>(
     {
       timeoutMs,
       intervalMs: options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
       maxIntervalMs: options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
       backoffFactor: options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR,
       ...(options.signal ? {signal: options.signal} : {}),
-      describe: () =>
-        `${options.timeoutMessage}: ${formatRunListObserved(
-          lastResponse,
-          options.expected,
-          options.runField,
-        )}`,
+      describe: () => `${options.timeoutMessage}: ${options.describeObserved()}`,
     },
     async () => {
       options.signal?.throwIfAborted();
-      const params = new URLSearchParams({project_id: options.projectId, limit: '100'});
-      lastResponse = await client.requestJson<WorkflowRunListResponseDto>(
-        'get',
-        `/workflows/runs?${params}`,
-        {signal: options.signal},
-      );
-
-      return lastResponse.runs.find(options.match) ?? null;
+      return await options.probe({client, deadline, signal: options.signal});
     },
   );
 }
 
+async function findInCursorPages<TPage, TItem>(options: {
+  client: ApiClient;
+  cursor?: string | null | undefined;
+  deadline: number;
+  getItems: (page: TPage) => readonly TItem[];
+  getNextCursor: (page: TPage) => string | null;
+  maxPages?: number | undefined;
+  match: (item: TItem) => boolean;
+  onPage?: ((page: TPage) => void) | undefined;
+  onNextCursor?: ((cursor: string | null) => void) | undefined;
+  seenCursors?: Set<string> | undefined;
+  path: string;
+  query: Record<string, string>;
+  signal: AbortSignal | undefined;
+  cursorDescription: string;
+}): Promise<TItem | null> {
+  let cursor: string | null = options.cursor ?? null;
+  const seenCursors = options.seenCursors ?? new Set<string>();
+  const maxPages = options.maxPages ?? MAX_LIST_PAGES_PER_PROBE;
+
+  for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
+    assertCursorNotSeen(cursor, seenCursors, options.cursorDescription);
+    if (Date.now() > options.deadline) return null;
+
+    const query = new URLSearchParams({
+      ...options.query,
+      limit: WORKFLOW_LIST_PAGE_LIMIT,
+      ...(cursor === null ? {} : {cursor}),
+    });
+    const page = await options.client.requestJson<TPage>('get', `${options.path}?${query}`, {
+      signal: options.signal,
+    });
+    options.onPage?.(page);
+
+    const item = options.getItems(page).find(options.match);
+    if (item) return item;
+    rememberCursor(cursor, seenCursors);
+    cursor = options.getNextCursor(page);
+    if (cursor === null) {
+      options.onNextCursor?.(null);
+      return null;
+    }
+  }
+
+  options.onNextCursor?.(cursor);
+  return null;
+}
+
+interface CursorProbeState {
+  initialized: boolean;
+  nextCursor: string | null;
+  scanOlderNext: boolean;
+  seenCursors: Set<string>;
+}
+
+function createCursorProbeState(): CursorProbeState {
+  return {initialized: false, nextCursor: null, scanOlderNext: false, seenCursors: new Set()};
+}
+
+async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
+  client: ApiClient;
+  deadline: number;
+  getItems: (page: TPage) => readonly TItem[];
+  getNextCursor: (page: TPage) => string | null;
+  match: (item: TItem) => boolean;
+  onPage?: ((page: TPage) => void) | undefined;
+  path: string;
+  query: Record<string, string>;
+  signal: AbortSignal | undefined;
+  cursorDescription: string;
+  state: CursorProbeState;
+}): Promise<TItem | null> {
+  const updateCursor = (cursor: string | null) => {
+    options.state.nextCursor = cursor;
+  };
+
+  if (!options.state.initialized) {
+    const result = await findInCursorPages({
+      ...options,
+      cursor: null,
+      onNextCursor: updateCursor,
+    });
+    options.state.initialized = true;
+    return result;
+  }
+
+  if (options.state.scanOlderNext && options.state.nextCursor !== null) {
+    // Keep the newest page live so a run or event created during the wait is not skipped.
+    const currentPageMatch = await findInCursorPages({
+      ...options,
+      cursor: null,
+      maxPages: 1,
+    });
+    if (currentPageMatch) return currentPageMatch;
+
+    // Alternate the live front-window probe with one older-page request. This keeps page 2
+    // findable under contention while still advancing through targets beyond the page budget.
+    const olderPageMatch = await findInCursorPages({
+      ...options,
+      cursor: options.state.nextCursor,
+      maxPages: 1,
+      onNextCursor: updateCursor,
+      seenCursors: options.state.seenCursors,
+    });
+    options.state.scanOlderNext = false;
+    return olderPageMatch;
+  }
+
+  const shouldStartNewOlderTraversal = options.state.nextCursor === null;
+  if (shouldStartNewOlderTraversal) options.state.seenCursors.clear();
+  const frontWindowMatch = await findInCursorPages({
+    ...options,
+    cursor: null,
+    ...(shouldStartNewOlderTraversal ? {onNextCursor: updateCursor} : {}),
+  });
+  options.state.scanOlderNext = options.state.nextCursor !== null;
+  return frontWindowMatch;
+}
+
+function findWorkflowRunAcrossProbes(options: {
+  client: ApiClient;
+  deadline: number;
+  match: (run: WorkflowRunListItemDto) => boolean;
+  onPage?: ((page: WorkflowRunListResponseDto) => void) | undefined;
+  projectId: string;
+  signal: AbortSignal | undefined;
+  state: CursorProbeState;
+}): Promise<WorkflowRunListItemDto | null> {
+  return findInCursorPagesAcrossProbes<WorkflowRunListResponseDto, WorkflowRunListItemDto>({
+    client: options.client,
+    cursorDescription: 'workflow run list',
+    deadline: options.deadline,
+    getItems: (page) => page.runs,
+    getNextCursor: (page) => page.next_cursor,
+    match: options.match,
+    ...(options.onPage === undefined ? {} : {onPage: options.onPage}),
+    path: '/workflows/runs',
+    query: {project_id: options.projectId},
+    signal: options.signal,
+    state: options.state,
+  });
+}
+
 export async function waitForRunByCommit(
   options: WaitForRunByCommitOptions,
-): Promise<WorkflowRunDto> {
+): Promise<WorkflowRunListItemDto> {
+  let lastResponse: WorkflowRunListResponseDto | null = null;
+  const cursorState = createCursorProbeState();
   return await waitForRunMatching({
     ...options,
-    expected: `expectedHeadCommitSha=${options.headCommitSha}`,
-    match: (run) => headCommitSha(run) === options.headCommitSha,
-    runField: (run) => `headCommitSha=${headCommitSha(run) ?? 'null'}`,
+    describeObserved: () =>
+      formatRunListObserved(
+        lastResponse,
+        `expectedHeadCommitSha=${options.headCommitSha}`,
+        (run) => `headCommitSha=${headCommitSha(run) ?? 'null'}`,
+      ),
+    probe: ({client, deadline, signal}) =>
+      findWorkflowRunAcrossProbes({
+        client,
+        deadline,
+        match: (run) => headCommitSha(run) === options.headCommitSha,
+        onPage: (page) => {
+          lastResponse = page;
+        },
+        projectId: options.projectId,
+        signal,
+        state: cursorState,
+      }),
     timeoutMessage: 'Timed out waiting for workflow run by commit',
+  });
+}
+
+function findTriggerEventAcrossProbes(options: {
+  client: ApiClient;
+  deadline: number;
+  deliveryId: string;
+  onPage?: ((page: TriggerEventListResponseDto) => void) | undefined;
+  signal: AbortSignal | undefined;
+  state: CursorProbeState;
+  workspaceId: string;
+}): Promise<TriggerEventListItemDto | null> {
+  return findInCursorPagesAcrossProbes<TriggerEventListResponseDto, TriggerEventListItemDto>({
+    client: options.client,
+    cursorDescription: 'trigger event list',
+    deadline: options.deadline,
+    getItems: (page) => page.trigger_events,
+    getNextCursor: (page) => page.next_cursor,
+    match: (event) => event.delivery_id === options.deliveryId,
+    ...(options.onPage === undefined ? {} : {onPage: options.onPage}),
+    path: '/trigger-events',
+    query: {workspace_id: options.workspaceId},
+    signal: options.signal,
+    state: options.state,
   });
 }
 
 export async function waitForRunByDeliveryId(
   options: WaitForRunByDeliveryIdOptions,
-): Promise<WorkflowRunDto> {
+): Promise<WorkflowRunListItemDto> {
+  let lastResponse: TriggerEventListResponseDto | null = null;
+  const eventCursorState = createCursorProbeState();
+  const runCursorState = createCursorProbeState();
   return await waitForRunMatching({
     ...options,
-    expected: `expectedDeliveryId=${options.deliveryId}`,
-    match: (run) => deliveryId(run) === options.deliveryId,
-    runField: (run) => `deliveryId=${deliveryId(run) ?? 'null'}`,
+    describeObserved: () =>
+      formatTriggerEventsObserved(lastResponse, `expectedDeliveryId=${options.deliveryId}`),
+    probe: async ({client, deadline, signal}) => {
+      const event = await findTriggerEventAcrossProbes({
+        client,
+        deadline,
+        deliveryId: options.deliveryId,
+        onPage: (page) => {
+          lastResponse = page;
+        },
+        signal,
+        state: eventCursorState,
+        workspaceId: options.workspaceId,
+      });
+      if (!event) return null;
+      if (Date.now() > deadline) return null;
+
+      const detail = await client.requestJson<TriggerEventDetailResponseDto>(
+        'get',
+        `/trigger-events/${encodeURIComponent(event.id)}`,
+        {signal},
+      );
+      const runId = detail.decisions.find(
+        (decision) =>
+          decision.project_id === options.projectId &&
+          decision.decision === 'triggered' &&
+          decision.run_id !== null,
+      )?.run_id;
+      if (runId === undefined || runId === null) return null;
+
+      return await findWorkflowRunAcrossProbes({
+        client,
+        deadline,
+        match: (run) => run.id === runId,
+        projectId: options.projectId,
+        signal,
+        state: runCursorState,
+      });
+    },
     timeoutMessage: 'Timed out waiting for workflow run by delivery ID',
   });
+}
+
+function formatTriggerEventsObserved(
+  response: TriggerEventListResponseDto | null,
+  expected: string,
+): string {
+  if (!response) return `${expected} no trigger event list response observed`;
+  return `${expected} triggerEvents=${formatObservedItems(
+    response.trigger_events,
+    (event) => `deliveryId=${event.delivery_id ?? 'null'}`,
+  )}`;
 }
 
 async function readRunBase(options: {
