@@ -226,6 +226,7 @@ export function assembleJobActivationContext(
 
 type ListenerPredicateField = 'listener.on' | 'listener.until';
 type ListenerSnapshotRoot = Exclude<WorkflowPredicateContextRoot<ListenerPredicateField>, 'event'>;
+const simpleIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export interface MatcherSnapshotPlan {
   readonly matcher: JobListeningTrigger;
@@ -296,7 +297,9 @@ function planMatcherFilterSnapshot(
       const analysis = analyzeContextPathAccess(matcher.filter, ['jobs']);
       jobPaths = analysis.references;
       jobsAreBroad =
-        analysis.unknown.length > 0 || analysis.references.some(isBroadJobsPathReference);
+        analysis.unknown.length > 0 ||
+        analysis.references.some(isBroadJobsPathReference) ||
+        analysis.references.some(isWholeElementJobsPathReference);
     }
   } catch {
     return {
@@ -330,6 +333,14 @@ function planMatcherFilterSnapshot(
 function isBroadJobsPathReference(reference: ContextPathReference): boolean {
   const [jobKey] = reference.segments;
   return jobKey === undefined || jobKey === '*' || typeof jobKey !== 'string';
+}
+
+function isWholeElementJobsPathReference(reference: ContextPathReference): boolean {
+  return (
+    reference.root === 'jobs' &&
+    reference.segments.at(-1) === '*' &&
+    simpleIdentifierPattern.test(reference.source.trim())
+  );
 }
 
 function isListenerSnapshotRoot(

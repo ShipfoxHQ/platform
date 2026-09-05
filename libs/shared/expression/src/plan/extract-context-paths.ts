@@ -89,6 +89,22 @@ function collectContextPaths(
     return;
   }
 
+  const base = accessBase(node);
+  if (base !== undefined) {
+    const baseRoots = collectUnresolvedAccessDependencies(
+      base,
+      source,
+      scopedPaths,
+      selectedRoots,
+      references,
+      unknown,
+    );
+    for (const root of baseRoots) {
+      unknown.push({root, source: sourceForNode(node, source), reason: 'dynamic'});
+    }
+    return;
+  }
+
   collectContextPathChildren(node, source, scopedPaths, selectedRoots, references, unknown);
 }
 
@@ -261,6 +277,53 @@ function recordPath(
   }
 
   references.push({root: chain.root, segments: chain.segments, source: expressionSource});
+}
+
+function collectUnresolvedAccessDependencies(
+  node: ASTNode,
+  source: string,
+  scopedPaths: ScopedPaths,
+  selectedRoots: ReadonlySet<string> | undefined,
+  references: ContextPathReference[],
+  unknown: ContextPathAccessUnknown[],
+): Set<string> {
+  const base = accessBase(node);
+  if (base === undefined) {
+    const baseReferences: ContextPathReference[] = [];
+    const baseUnknown: ContextPathAccessUnknown[] = [];
+    collectContextPaths(node, source, scopedPaths, selectedRoots, baseReferences, baseUnknown);
+    references.push(...baseReferences);
+    unknown.push(...baseUnknown);
+    return new Set([
+      ...baseReferences.map((reference) => reference.root),
+      ...baseUnknown.map((access) => access.root),
+    ]);
+  }
+
+  const roots = collectUnresolvedAccessDependencies(
+    base,
+    source,
+    scopedPaths,
+    selectedRoots,
+    references,
+    unknown,
+  );
+  if (node.op === '[]' || node.op === '[?]') {
+    collectContextPaths(node.args[1], source, scopedPaths, selectedRoots, references, unknown);
+  }
+  return roots;
+}
+
+function accessBase(node: ASTNode): ASTNode | undefined {
+  switch (node.op) {
+    case '.':
+    case '.?':
+    case '[]':
+    case '[?]':
+      return node.args[0];
+    default:
+      return undefined;
+  }
 }
 
 function accessChain(node: ASTNode, scopedPaths: ScopedPaths): PathChain | undefined {

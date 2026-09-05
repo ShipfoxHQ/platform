@@ -1069,6 +1069,64 @@ describe('listener filter snapshots', () => {
         },
       },
     });
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          outputs: {details: {count: 42, createdAt: '2026-06-30T12:00:00.000Z'}},
+        },
+      },
+    });
+  });
+
+  it('projects list and map output types', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.outputs.items[0] + 1 == 43 && jobs.build.outputs.metadata["key"] == "value"',
+        },
+      ],
+      until: null,
+    });
+    const dependencyJobs = [
+      {
+        job: {
+          key: 'build',
+          status: 'succeeded' as const,
+          outputs: {items: [42], metadata: {key: 'value'}, unrelated: 'large'},
+        },
+        outputTypes: {
+          items: {kind: 'list' as const, element: 'int' as const},
+          metadata: {kind: 'map' as const},
+          unrelated: 'string' as const,
+        },
+        executions: [],
+      },
+    ];
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs,
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
+
+    expect(matcher?.filter_output_types).toEqual({
+      build: {
+        items: {kind: 'list', element: 'int'},
+        metadata: {kind: 'map'},
+      },
+    });
   });
 
   it('omits dynamic listener output metadata for rolling-deploy compatibility', () => {
@@ -1246,6 +1304,64 @@ describe('listener filter snapshots', () => {
           status: 'succeeded',
           executions: [{status: 'succeeded'}],
         },
+      },
+    });
+  });
+
+  it('snapshots full jobs when a comprehension uses a whole element alias', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.executions.exists(e, e.name == "Build #0" || e in jobs.review.executions)',
+        },
+      ],
+      until: null,
+    });
+    expect(plan.on[0]?.jobsAreBroad).toBe(true);
+
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {pr_number: 42, unrelated: 'large'}},
+          executions: [
+            jobExecution({name: 'Build #0', status: 'succeeded', outputs: {pr_number: 42}}),
+          ],
+        },
+        {
+          job: {key: 'review', status: 'failed', outputs: {reason: 'unrelated'}},
+          executions: [jobExecution({name: 'Review #0', status: 'failed'})],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: expect.objectContaining({
+          key: 'build',
+          status: 'succeeded',
+          outputs: {pr_number: 42, unrelated: 'large'},
+          executions: [
+            expect.objectContaining({
+              name: 'Build #0',
+              status: 'succeeded',
+              outputs: {pr_number: 42},
+            }),
+          ],
+        }),
+        review: expect.objectContaining({
+          key: 'review',
+          status: 'failed',
+          outputs: {reason: 'unrelated'},
+        }),
       },
     });
   });

@@ -1,5 +1,5 @@
 ---
-"@shipfox/api-workflows": patch
+"@shipfox/api-workflows": minor
 "@shipfox/api-agent-access-dto": minor
 "@shipfox/api-workflows-dto": minor
 "@shipfox/client-workflows": minor

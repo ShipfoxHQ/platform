@@ -137,4 +137,46 @@ describe('analyzeContextPathAccess', () => {
       unknown: [],
     });
   });
+
+  it('marks suffixes after filtered comprehension access as dynamic', () => {
+    const source =
+      'jobs.build.executions.filter(e, e.status == "failed")[0].outputs.pr_number == 42';
+
+    expect(analyzeContextPathAccess(source, ['jobs'])).toEqual({
+      references: [
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'status'],
+          source: 'e.status',
+        },
+      ],
+      unknown: [
+        {
+          root: 'jobs',
+          source: 'jobs.build.executions.filter(e, e.status == "failed")[0].outputs.pr_number',
+          reason: 'dynamic',
+        },
+      ],
+    });
+  });
+
+  it('records whole comprehension element aliases', () => {
+    const source =
+      'jobs.build.executions.exists(e, e.name == "Build #0" || e in jobs.review.executions)';
+
+    expect(analyzeContextPathAccess(source, ['jobs'])).toEqual({
+      references: [
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'name'],
+          source: 'e.name',
+        },
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'e'},
+        {root: 'jobs', segments: ['review', 'executions'], source: 'jobs.review.executions'},
+      ],
+      unknown: [],
+    });
+  });
 });
