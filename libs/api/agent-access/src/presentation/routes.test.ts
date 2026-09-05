@@ -169,6 +169,25 @@ describe('agent-access MCP routes', () => {
     expect(authCalls).toBe(1);
   });
 
+  test.each([
+    'http://api.example.test',
+    'https://api.example.test/v1',
+    'https://user:password@api.example.test',
+  ])('rejects an invalid public API origin at startup: %s', (apiPublicUrl) => {
+    expect(() => createAgentAccessRoutes({apiPublicUrl})).toThrow(
+      'Agent-access API public URL configuration is invalid',
+    );
+  });
+
+  test.each([
+    'https://api.example.test/',
+    'http://localhost:16101/',
+    'http://127.0.0.1:16101',
+    'http://[::1]:16101',
+  ])('accepts a secure or loopback public API origin: %s', (apiPublicUrl) => {
+    expect(() => createAgentAccessRoutes({apiPublicUrl})).not.toThrow();
+  });
+
   test('serves stateless Streamable HTTP with the fixture tool', async () => {
     const app = await createTestApp();
     const address = await app.listen({port: 0, host: '127.0.0.1'});

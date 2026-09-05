@@ -74,17 +74,24 @@ describe('AgentAccessSettingsPage', () => {
 
   test('keeps the disconnect dialog retryable when revocation fails', async () => {
     const user = userEvent.setup();
+    let deleteCount = 0;
+    let hasGrant = true;
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
       if (request.url.endsWith(`/grants/${GRANT_ID}`) && request.method === 'DELETE') {
-        return Promise.resolve(
-          jsonResponse(
-            {code: 'auth-dependency-unavailable', message: 'Temporarily unavailable'},
-            {status: 503},
-          ),
-        );
+        deleteCount += 1;
+        if (deleteCount === 1) {
+          return Promise.resolve(
+            jsonResponse(
+              {code: 'auth-dependency-unavailable', message: 'Temporarily unavailable'},
+              {status: 503},
+            ),
+          );
+        }
+        hasGrant = false;
+        return Promise.resolve(new Response(null, {status: 204}));
       }
-      return Promise.resolve(jsonResponse({grants: [grantDto()]}));
+      return Promise.resolve(jsonResponse({grants: hasGrant ? [grantDto()] : []}));
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
@@ -102,6 +109,12 @@ describe('AgentAccessSettingsPage', () => {
     );
     expect(dialog).toBeVisible();
     expect(confirmButton).toBeEnabled();
+
+    await user.click(confirmButton);
+
+    await waitFor(() => expect(deleteCount).toBe(2));
+    expect(screen.getByText('No connected apps')).toBeVisible();
+    expect(dialog).not.toBeInTheDocument();
   });
 });
 

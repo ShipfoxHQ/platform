@@ -18,3 +18,8 @@ Applications that previously appended `createOAuthRoutes`,
 `createAuthModule().routes` must remove those manual route groups. The standard
 module composition now registers them, and composing them twice causes duplicate
 Fastify route registration.
+
+Applications that replace the standard Auth module with `authModuleFactory`
+must register `AUTH_AGENT_ACCESS`. Include the `createAgentAccessAuthMethod`
+export from `@shipfox/api-auth` in the replacement module's auth methods so the
+default MCP route can authenticate agent-access credentials.

@@ -30,8 +30,6 @@ import {recordAgentAccessAuthFailure} from '#metrics/index.js';
 import {type AgentAccessToolCallRecorder, createAgentAccessToolCallRecorder} from './audit.js';
 import {buildAgentAccessMcpServer} from './mcp-server.js';
 
-const TRAILING_SLASHES_RE = /\/+$/u;
-
 export interface CreateAgentAccessRoutesOptions {
   apiPublicUrl?: string | undefined;
   protectedResourceMetadataUrl?: string | undefined;
@@ -187,7 +185,41 @@ function resourceMetadataUrl(options: CreateAgentAccessRoutesOptions): string {
     return options.protectedResourceMetadataUrl;
   }
   if (options.apiPublicUrl === undefined) return AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH;
-  return `${options.apiPublicUrl.replace(TRAILING_SLASHES_RE, '')}${AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH}`;
+  const apiPublicOrigin = validateAgentAccessApiPublicOrigin(options.apiPublicUrl);
+  return `${apiPublicOrigin}${AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH}`;
+}
+
+function validateAgentAccessApiPublicOrigin(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return rejectInvalidApiPublicOrigin();
+  }
+
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/gu, '');
+  const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  if (
+    (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) ||
+    value.trim() !== value ||
+    [...value].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint < 0x20 || codePoint === 0x7f;
+    }) ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash ||
+    url.hostname.length === 0
+  ) {
+    return rejectInvalidApiPublicOrigin();
+  }
+  return url.origin;
+}
+
+function rejectInvalidApiPublicOrigin(): never {
+  throw new Error('Agent-access API public URL configuration is invalid');
 }
 
 function escapeHeaderValue(value: string): string {

@@ -73,6 +73,10 @@ it needs. The legacy `agentModule`, `authModule`, and `runnersModule` factory
 options remain supported as deprecated aliases. Migrate configuration-only
 factories to the matching `*ModuleOptions` field.
 
+A replacement Auth module must register `AUTH_AGENT_ACCESS`, including
+`createAgentAccessAuthMethod` from `@shipfox/api-auth` in its auth methods. The
+default MCP route requires that method to authenticate agent-access credentials.
+
 The standard Agent module validates its configuration during composition. Its
 additive options cannot provide or replace the composition-owned Secrets and
 Workflows clients. The returned standard module therefore keeps the

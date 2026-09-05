@@ -1,6 +1,6 @@
 import {configureApiClient} from '@shipfox/client-api';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
-import {act, render, screen} from '@testing-library/react';
+import {act, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {OAuthConsentPage, OAuthConsentRoutePage} from './oauth-consent-page.js';
 
@@ -150,15 +150,22 @@ describe('OAuthConsentPage', () => {
 
   test('keeps consent actions retryable when approval fails', async () => {
     const user = userEvent.setup();
+    let approvalCount = 0;
     let resolveApproval: (response: Response) => void = () => undefined;
     const approvalResponse = new Promise<Response>((resolve) => {
       resolveApproval = resolve;
     });
     const fetchImpl = vi.fn((input: RequestInfo | URL) => {
       const request = input as Request;
-      return request.url.endsWith('/approve')
+      if (!request.url.endsWith('/approve')) {
+        return Promise.resolve(jsonResponse(consentResponse()));
+      }
+      approvalCount += 1;
+      return approvalCount === 1
         ? approvalResponse
-        : Promise.resolve(jsonResponse(consentResponse()));
+        : Promise.resolve(
+            jsonResponse({redirect_url: 'http://127.0.0.1:4567/callback?code=retry-code'}),
+          );
     });
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     const {onRedirect} = renderConsent();
@@ -182,6 +189,11 @@ describe('OAuthConsentPage', () => {
     expect(approveButton).toBeEnabled();
     expect(denyButton).toBeEnabled();
     expect(onRedirect).not.toHaveBeenCalled();
+
+    await user.click(approveButton);
+
+    await waitFor(() => expect(approvalCount).toBe(2));
+    expect(onRedirect).toHaveBeenCalledWith('http://127.0.0.1:4567/callback?code=retry-code');
   });
 
   test('preserves loaded consent details when a background refetch fails', async () => {
