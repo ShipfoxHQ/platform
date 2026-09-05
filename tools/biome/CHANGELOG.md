@@ -1,5 +1,12 @@
 # @shipfox/biome
 
+## 1.10.2
+
+### Patch Changes
+
+- d958f16: Documents a rule enforced by this repository's root config but not distributed
+  through the `@shipfox/biome` npm package.
+
 ## 1.10.1
 
 ### Patch Changes
