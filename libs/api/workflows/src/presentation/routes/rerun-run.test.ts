@@ -24,11 +24,11 @@ import {
   getJobsByWorkflowRunId,
   getStepsByJobId,
   getWorkflowRunById,
-  listRunAttempts,
   updateJobStatus,
   updateWorkflowRunStatus,
 } from '#db/workflow-runs.js';
 import {createWorkflowsModule} from '#index.js';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {runAttemptCreatedEvents} from '#test/helpers/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {rerunRunRoute} from './rerun-run.js';
@@ -163,7 +163,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
 
   test('creates a new attempt for failed mode and carries sessions between attempts', async () => {
     const source = await createFailedRunWithFailedJob();
-    const [sourceAttempt] = await listRunAttempts({workflowRunId: source.id, projectId});
+    const [sourceAttempt] = await listTestRunAttempts({workflowRunId: source.id, projectId});
     if (!sourceAttempt) throw new Error('Expected source attempt');
 
     const res = await app.inject({
@@ -172,7 +172,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       payload: {mode: 'failed'},
     });
 
-    const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+    const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
     const targetAttempt = attempts.find((attempt) => attempt.attempt === 2);
 
     if (!targetAttempt) throw new Error('Expected target attempt');
@@ -204,7 +204,7 @@ describe('POST /api/workflows/runs/:id/rerun', () => {
       status: 'pending',
     });
 
-    const sourceAttempt = (await listRunAttempts({workflowRunId: source.id, projectId})).find(
+    const sourceAttempt = (await listTestRunAttempts({workflowRunId: source.id, projectId})).find(
       (attempt) => attempt.attempt === 1,
     );
     if (!sourceAttempt) throw new Error('Expected source attempt');

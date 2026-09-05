@@ -8,9 +8,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {WorkflowStatusIcon} from '#components/workflow-status/workflow-status-icon.js';
 import type {RunAnnotationSummary} from '#core/run-annotation.js';
 import {
-  defaultJobExecution,
   deriveJobDisplayStatus,
-  type Job,
   type WorkflowRunJobSummary,
   type WorkflowRunListItem,
   type WorkflowRunOverview,
@@ -26,7 +24,7 @@ import {JobExecutionTimeText} from '../job-detail/job-execution-time-text.js';
 
 type RunWorkspaceSection = Exclude<WorkflowRunTab, 'jobs'>;
 type RunWorkspaceRun = WorkflowRunOverview | WorkflowRunListItem;
-type RunWorkspaceJob = Job | WorkflowRunOverviewJob | WorkflowRunJobSummary;
+type RunWorkspaceJob = WorkflowRunOverviewJob | WorkflowRunJobSummary;
 
 const RUN_WORKSPACE_LINK_CLASS_NAME =
   'relative flex min-h-32 items-center gap-inline rounded-4 px-tight outline-none transition-colors hover:bg-background-neutral-hover focus-visible:shadow-border-interactive-with-active @max-[767px]:min-h-44 [@media(pointer:coarse)]:min-h-44';
@@ -362,11 +360,6 @@ function workspaceJobs(
   run: RunWorkspaceRun,
   activeJob: RunWorkspaceJob | undefined,
 ): {jobs: RunWorkspaceJob[]; jobCount: number} {
-  if (Array.isArray(run.jobs)) {
-    const jobs: RunWorkspaceJob[] = [...run.jobs];
-    if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
-    return {jobs: jobs.sort(compareJobs), jobCount: run.jobs.length};
-  }
   if ('preview' in run.jobs) {
     const jobs: RunWorkspaceJob[] = [...run.jobs.preview];
     if (activeJob && !jobs.some((job) => job.id === activeJob.id)) jobs.push(activeJob);
@@ -386,7 +379,7 @@ function workspaceJobs(
 }
 
 function workspaceHasCompleteJobIndex(run: RunWorkspaceRun): boolean {
-  return Array.isArray(run.jobs) || ('kind' in run.jobs && run.jobs.kind === 'complete');
+  return 'kind' in run.jobs && run.jobs.kind === 'complete';
 }
 
 function workspaceJobDisplayName(job: RunWorkspaceJob): string {
@@ -395,16 +388,11 @@ function workspaceJobDisplayName(job: RunWorkspaceJob): string {
 
 function workspaceJobDisplayStatus(job: RunWorkspaceJob) {
   if ('defaultExecution' in job) return job.displayStatus;
-  if ('jobExecutions' in job) return deriveJobDisplayStatus(job);
   return deriveJobDisplayStatus({...job, jobExecutions: []});
 }
 
 function workspaceJobDuration(job: RunWorkspaceJob) {
   if ('defaultExecution' in job) return job.displayDuration;
-  if ('jobExecutions' in job) {
-    const execution = defaultJobExecution(job);
-    return execution?.displayDuration ?? job.displayDuration;
-  }
   return null;
 }
 

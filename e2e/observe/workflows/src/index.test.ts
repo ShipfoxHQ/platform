@@ -280,6 +280,45 @@ function context() {
   };
 }
 
+function paginatedDeliveryFetch(eventId: string, paths: string[]) {
+  return (input: string | URL): Response => {
+    const url = new URL(input);
+    paths.push(`${url.pathname}${url.search}`);
+    const cursor = url.searchParams.get('cursor');
+
+    if (url.pathname === '/trigger-events') {
+      return response(
+        cursor === null
+          ? {
+              trigger_events: [{id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', delivery_id: 'other'}],
+              next_cursor: 'events-page-2',
+            }
+          : {
+              trigger_events: [{id: eventId, delivery_id: 'delivery-1'}],
+              next_cursor: null,
+            },
+      );
+    }
+    if (url.pathname === `/trigger-events/${eventId}`) {
+      return response({
+        decisions: [
+          {project_id: workspaceId, decision: 'triggered', run_id: 'other-run'},
+          {project_id: projectId, decision: 'triggered', run_id: null},
+          {project_id: projectId, decision: 'triggered', run_id: runId},
+        ],
+      });
+    }
+    if (url.pathname === '/workflows/runs') {
+      return response(
+        cursor === null
+          ? listResponse({runs: [run({id: 'other-run'})], next_cursor: 'runs-page-2'})
+          : listResponse({runs: [run()]}),
+      );
+    }
+    throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+  };
+}
+
 describe('waitForRunByCommit', () => {
   test('polls until a run with the matching head commit appears', async () => {
     let calls = 0;
@@ -403,7 +442,11 @@ describe('waitForRunByDeliveryId', () => {
         }
         if (url.pathname === `/trigger-events/${eventId}`) {
           return response({
-            decisions: [{project_id: projectId, decision: 'triggered', run_id: runId}],
+            decisions: [
+              {project_id: workspaceId, decision: 'triggered', run_id: 'other-run'},
+              {project_id: projectId, decision: 'triggered', run_id: null},
+              {project_id: projectId, decision: 'triggered', run_id: runId},
+            ],
           });
         }
         if (url.pathname === '/workflows/runs') {
@@ -419,6 +462,33 @@ describe('waitForRunByDeliveryId', () => {
     });
     expect(result.id).toBe(runId);
     expect(calls).toBe(2);
+  });
+
+  test('follows event and run cursors while selecting the requested project decision', async () => {
+    const eventId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const paths: string[] = [];
+    const result = await waitForRunByDeliveryId({
+      fetch: paginatedDeliveryFetch(eventId, paths),
+      deliveryId: 'delivery-1',
+      initialDelayMs: 1,
+      projectId,
+      workspaceId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toContain(
+      '/trigger-events?workspace_id=99999999-9999-4999-8999-999999999999&limit=100',
+    );
+    expect(paths).toContain(
+      '/trigger-events?workspace_id=99999999-9999-4999-8999-999999999999&limit=100&cursor=events-page-2',
+    );
+    expect(paths).toContain(
+      '/workflows/runs?project_id=11111111-1111-4111-8111-111111111111&limit=100',
+    );
+    expect(paths).toContain(
+      '/workflows/runs?project_id=11111111-1111-4111-8111-111111111111&limit=100&cursor=runs-page-2',
+    );
   });
 
   test('times out with a bounded trigger event summary', async () => {

@@ -523,10 +523,6 @@ function ReplayOfEventLabel({
 }
 
 function hasFailedOrCancelledJobs(run: WorkflowRunSummaryRun): boolean {
-  if (Array.isArray(run.jobs)) {
-    return run.jobs.some((job) => job.status === 'failed' || job.status === 'cancelled');
-  }
-
   if ('preview' in run.jobs) {
     return run.jobs.statusCounts.some(({status}) => status === 'failed' || status === 'cancelled');
   }

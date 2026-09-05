@@ -14,6 +14,7 @@ import {
 import {nextStepForJob, recordStepResult} from '#core/job-execution.js';
 import {resolveTestAgentDefaults} from '#test/fixtures/agent-inter-module.js';
 import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {buildModel, expression, shellRef, template} from '#test/helpers/workflow-runs.js';
 import {workflowModel} from '#test/index.js';
 import {db} from '../db.js';
@@ -28,7 +29,6 @@ import {
   getStepsByJobId,
   getWorkflowRunAttemptById,
   getWorkflowRunById,
-  listRunAttempts,
   resolveJobStatusFromJobExecutions,
   updateJobExecutionStatus,
 } from '../workflow-runs.js';
@@ -757,7 +757,7 @@ describe('workflow run queries', () => {
         },
       });
 
-      const [attemptSummary] = await listRunAttempts({workflowRunId: run.id, projectId});
+      const [attemptSummary] = await listTestRunAttempts({workflowRunId: run.id, projectId});
       const attempt = await getWorkflowRunAttemptById(attemptSummary?.id as string);
       const [runJob] = await getJobsByWorkflowRunId(run.id);
       if (!runJob) throw new Error('Expected workflow job');
@@ -831,7 +831,7 @@ describe('workflow run queries', () => {
         secrets,
       });
 
-      const [attempt] = await listRunAttempts({workflowRunId: run.id, projectId});
+      const [attempt] = await listTestRunAttempts({workflowRunId: run.id, projectId});
 
       expect(attempt?.vars).toEqual(values);
     });
@@ -1028,7 +1028,7 @@ describe('workflow run queries', () => {
         },
       });
 
-      const [attemptSummary] = await listRunAttempts({workflowRunId: run.id, projectId});
+      const [attemptSummary] = await listTestRunAttempts({workflowRunId: run.id, projectId});
       const attempt = await getWorkflowRunAttemptById(attemptSummary?.id as string);
       expect(attempt?.model).toEqual(model);
     });
@@ -2001,7 +2001,7 @@ describe('workflow run queries', () => {
 
       const allJobs = await getJobsByWorkflowRunId(first.id);
       expect(allJobs).toHaveLength(1);
-      const attempts = await listRunAttempts({workflowRunId: first.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: first.id, projectId});
       expect(attempts).toHaveLength(1);
       expect(attempts[0]?.model).toEqual(model);
       const outboxRows = await db()

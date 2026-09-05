@@ -1,7 +1,7 @@
 // biome-ignore-all lint/a11y/noRedundantRoles: the story mirrors the job log region contract.
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: the story mirrors the focusable log surface.
 
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import {type StepLogSnapshot, stepLogsQueryKeys} from '@shipfox/client-logs';
 import type {Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -369,7 +369,7 @@ function StoryQueryProvider({
     setConfigured(true);
 
     return () => {
-      configureApiClient({baseUrl: '', fetchImpl: undefined});
+      resetApiClient();
     };
   }, [run]);
 

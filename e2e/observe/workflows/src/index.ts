@@ -33,6 +33,7 @@ const DEFAULT_TERMINAL_TIMEOUT_MS = 180_000;
 const DEFAULT_INITIAL_DELAY_MS = 250;
 const DEFAULT_MAX_DELAY_MS = 4_000;
 const DEFAULT_BACKOFF_FACTOR = 1.5;
+const WORKFLOW_LIST_PAGE_LIMIT = '100';
 const TERMINAL_STATUSES = new Set<WorkflowRunStatusDto>(['succeeded', 'failed', 'cancelled']);
 
 type ApiClient = ReturnType<typeof makeApiClient>;
@@ -155,19 +156,21 @@ function formatRunListObserved(
   runField: (run: WorkflowRunListItemDto) => string,
 ): string {
   if (!response) return 'no workflow run list response observed';
-  const runs = response.runs
-    .slice(0, 5)
-    .map((run) =>
-      [
-        `id=${run.id}`,
-        `status=${run.status}`,
-        `trigger=${run.trigger_source}/${run.trigger_event}`,
-        runField(run),
-        `updatedAt=${run.updated_at}`,
-      ].join(' '),
-    );
-  const more = response.runs.length > runs.length ? ', ...' : '';
-  return `${expected} runs=[${runs.join(', ')}${more}]`;
+  return `${expected} runs=${formatObservedItems(response.runs, (run) =>
+    [
+      `id=${run.id}`,
+      `status=${run.status}`,
+      `trigger=${run.trigger_source}/${run.trigger_event}`,
+      runField(run),
+      `updatedAt=${run.updated_at}`,
+    ].join(' '),
+  )}`;
+}
+
+function formatObservedItems<T>(items: readonly T[], formatItem: (item: T) => string): string {
+  const visible = items.slice(0, 5).map(formatItem);
+  const more = items.length > visible.length ? ', ...' : '';
+  return `[${visible.join(', ')}${more}]`;
 }
 
 function formatRunObservationObserved(
@@ -214,10 +217,12 @@ function queryPath(path: string, params?: URLSearchParams): string {
 
 async function waitForRunMatching(
   options: PollingOptions & {
-    expected: string;
-    match: (run: WorkflowRunListItemDto) => boolean;
-    projectId: string;
-    runField: (run: WorkflowRunListItemDto) => string;
+    describeObserved: () => string;
+    probe: (params: {
+      client: ApiClient;
+      deadline: number;
+      signal: AbortSignal | undefined;
+    }) => Promise<WorkflowRunListItemDto | null>;
     timeoutMessage: string;
   },
 ): Promise<WorkflowRunListItemDto> {
@@ -227,7 +232,7 @@ async function waitForRunMatching(
     token: options.token,
   });
   const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
-  let lastResponse: WorkflowRunListResponseDto | null = null;
+  const deadline = Date.now() + timeoutMs;
 
   return await pollUntil<WorkflowRunListItemDto>(
     {
@@ -236,81 +241,148 @@ async function waitForRunMatching(
       maxIntervalMs: options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
       backoffFactor: options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR,
       ...(options.signal ? {signal: options.signal} : {}),
-      describe: () =>
-        `${options.timeoutMessage}: ${formatRunListObserved(
-          lastResponse,
-          options.expected,
-          options.runField,
-        )}`,
+      describe: () => `${options.timeoutMessage}: ${options.describeObserved()}`,
     },
     async () => {
       options.signal?.throwIfAborted();
-      const params = new URLSearchParams({project_id: options.projectId, limit: '100'});
-      lastResponse = await client.requestJson<WorkflowRunListResponseDto>(
-        'get',
-        `/workflows/runs?${params}`,
-        {signal: options.signal},
-      );
-
-      return lastResponse.runs.find(options.match) ?? null;
+      return await options.probe({client, deadline, signal: options.signal});
     },
   );
+}
+
+async function findWorkflowRunInPages(options: {
+  client: ApiClient;
+  deadline: number;
+  match: (run: WorkflowRunListItemDto) => boolean;
+  onPage?: ((page: WorkflowRunListResponseDto) => void) | undefined;
+  projectId: string;
+  signal: AbortSignal | undefined;
+}): Promise<WorkflowRunListItemDto | null> {
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
+
+  for (;;) {
+    if (cursor !== null) {
+      if (seenCursors.has(cursor)) {
+        throw new Error(`Repeated workflow run list cursor while waiting: ${cursor}`);
+      }
+      seenCursors.add(cursor);
+    }
+    if (Date.now() > options.deadline) return null;
+
+    const query = new URLSearchParams({
+      project_id: options.projectId,
+      limit: WORKFLOW_LIST_PAGE_LIMIT,
+      ...(cursor === null ? {} : {cursor}),
+    });
+    const page = await options.client.requestJson<WorkflowRunListResponseDto>(
+      'get',
+      `/workflows/runs?${query}`,
+      {signal: options.signal},
+    );
+    options.onPage?.(page);
+
+    const run = page.runs.find(options.match);
+    if (run) return run;
+    cursor = page.next_cursor;
+    if (cursor === null) return null;
+  }
 }
 
 export async function waitForRunByCommit(
   options: WaitForRunByCommitOptions,
 ): Promise<WorkflowRunListItemDto> {
+  let lastResponse: WorkflowRunListResponseDto | null = null;
   return await waitForRunMatching({
     ...options,
-    expected: `expectedHeadCommitSha=${options.headCommitSha}`,
-    match: (run) => headCommitSha(run) === options.headCommitSha,
-    runField: (run) => `headCommitSha=${headCommitSha(run) ?? 'null'}`,
+    describeObserved: () =>
+      formatRunListObserved(
+        lastResponse,
+        `expectedHeadCommitSha=${options.headCommitSha}`,
+        (run) => `headCommitSha=${headCommitSha(run) ?? 'null'}`,
+      ),
+    probe: ({client, deadline, signal}) =>
+      findWorkflowRunInPages({
+        client,
+        deadline,
+        match: (run) => headCommitSha(run) === options.headCommitSha,
+        onPage: (page) => {
+          lastResponse = page;
+        },
+        projectId: options.projectId,
+        signal,
+      }),
     timeoutMessage: 'Timed out waiting for workflow run by commit',
   });
+}
+
+async function findTriggerEventInPages(options: {
+  client: ApiClient;
+  deadline: number;
+  deliveryId: string;
+  onPage?: ((page: TriggerEventListResponseDto) => void) | undefined;
+  signal: AbortSignal | undefined;
+  workspaceId: string;
+}): Promise<{id: string} | null> {
+  let cursor: string | null = null;
+  const seenCursors = new Set<string>();
+
+  for (;;) {
+    if (cursor !== null) {
+      if (seenCursors.has(cursor)) {
+        throw new Error(`Repeated trigger event list cursor while waiting: ${cursor}`);
+      }
+      seenCursors.add(cursor);
+    }
+    if (Date.now() > options.deadline) return null;
+
+    const query = new URLSearchParams({
+      workspace_id: options.workspaceId,
+      limit: WORKFLOW_LIST_PAGE_LIMIT,
+      ...(cursor === null ? {} : {cursor}),
+    });
+    const page = await options.client.requestJson<TriggerEventListResponseDto>(
+      'get',
+      `/trigger-events?${query}`,
+      {signal: options.signal},
+    );
+    options.onPage?.(page);
+
+    const event = page.trigger_events.find(
+      (candidate) => candidate.delivery_id === options.deliveryId,
+    );
+    if (event) return event;
+    cursor = page.next_cursor;
+    if (cursor === null) return null;
+  }
 }
 
 export async function waitForRunByDeliveryId(
   options: WaitForRunByDeliveryIdOptions,
 ): Promise<WorkflowRunListItemDto> {
-  const client = makeApiClient({
-    apiUrl: options.apiUrl,
-    fetch: options.fetch,
-    token: options.token,
-  });
-  const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
   let lastResponse: TriggerEventListResponseDto | null = null;
-
-  return await pollUntil<WorkflowRunListItemDto>(
-    {
-      timeoutMs,
-      intervalMs: options.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS,
-      maxIntervalMs: options.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
-      backoffFactor: options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR,
-      ...(options.signal ? {signal: options.signal} : {}),
-      describe: () =>
-        `Timed out waiting for workflow run by delivery ID: ${formatTriggerEventsObserved(
-          lastResponse,
-          `expectedDeliveryId=${options.deliveryId}`,
-        )}`,
-    },
-    async () => {
-      options.signal?.throwIfAborted();
-      const params = new URLSearchParams({workspace_id: options.workspaceId, limit: '100'});
-      lastResponse = await client.requestJson<TriggerEventListResponseDto>(
-        'get',
-        `/trigger-events?${params}`,
-        {signal: options.signal},
-      );
-
-      const event = lastResponse.trigger_events.find(
-        (candidate) => candidate.delivery_id === options.deliveryId,
-      );
+  return await waitForRunMatching({
+    ...options,
+    describeObserved: () =>
+      formatTriggerEventsObserved(lastResponse, `expectedDeliveryId=${options.deliveryId}`),
+    probe: async ({client, deadline, signal}) => {
+      const event = await findTriggerEventInPages({
+        client,
+        deadline,
+        deliveryId: options.deliveryId,
+        onPage: (page) => {
+          lastResponse = page;
+        },
+        signal,
+        workspaceId: options.workspaceId,
+      });
       if (!event) return null;
+      if (Date.now() > deadline) return null;
 
       const detail = await client.requestJson<TriggerEventDetailResponseDto>(
         'get',
         `/trigger-events/${encodeURIComponent(event.id)}`,
-        {signal: options.signal},
+        {signal},
       );
       const runId = detail.decisions.find(
         (decision) =>
@@ -320,15 +392,16 @@ export async function waitForRunByDeliveryId(
       )?.run_id;
       if (runId === undefined || runId === null) return null;
 
-      const runParams = new URLSearchParams({project_id: options.projectId, limit: '100'});
-      const runs = await client.requestJson<WorkflowRunListResponseDto>(
-        'get',
-        `/workflows/runs?${runParams}`,
-        {signal: options.signal},
-      );
-      return runs.runs.find((run) => run.id === runId) ?? null;
+      return await findWorkflowRunInPages({
+        client,
+        deadline,
+        match: (run) => run.id === runId,
+        projectId: options.projectId,
+        signal,
+      });
     },
-  );
+    timeoutMessage: 'Timed out waiting for workflow run by delivery ID',
+  });
 }
 
 function formatTriggerEventsObserved(
@@ -336,11 +409,10 @@ function formatTriggerEventsObserved(
   expected: string,
 ): string {
   if (!response) return `${expected} no trigger event list response observed`;
-  const events = response.trigger_events
-    .slice(0, 5)
-    .map((event) => `deliveryId=${event.delivery_id ?? 'null'}`);
-  const more = response.trigger_events.length > events.length ? ', ...' : '';
-  return `${expected} triggerEvents=[${events.join(', ')}${more}]`;
+  return `${expected} triggerEvents=${formatObservedItems(
+    response.trigger_events,
+    (event) => `deliveryId=${event.delivery_id ?? 'null'}`,
+  )}`;
 }
 
 async function readRunBase(options: {

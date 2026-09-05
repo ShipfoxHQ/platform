@@ -134,7 +134,6 @@ export type {
 } from './workflow-runs/queries.js';
 export {
   buildWorkflowRunListConditions,
-  getJobExecutionDetail,
   getLatestAttempt,
   getLatestRunAttempt,
   getWorkflowJobExecutionDepth,
@@ -144,7 +143,6 @@ export {
   getWorkflowRunById,
   getWorkflowRunLineageHead,
   getWorkflowRunSelection,
-  listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,

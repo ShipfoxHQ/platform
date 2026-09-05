@@ -2,10 +2,10 @@ import {act, screen, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {useState} from 'react';
 import {
-  workflowJob,
   workflowJobDto,
   workflowJobExecutionDto,
   workflowRunOverview,
+  workflowRunOverviewJob,
 } from '#test/fixtures/workflow-run.js';
 import {renderWithRouter} from '#test/render.js';
 import {RunWorkspaceNav} from './run-workspace-nav.js';
@@ -180,7 +180,7 @@ describe('RunWorkspaceNav', () => {
   });
 
   test('keeps the route job identity when it is outside the large-workflow preview', async () => {
-    const activeJob = workflowJob({id: CURRENT_JOB_ID, name: 'build', position: 101});
+    const activeJob = workflowRunOverviewJob({id: CURRENT_JOB_ID, name: 'build', position: 101});
     const run = {
       ...workflowRunOverview({
         id: RUN_ID,

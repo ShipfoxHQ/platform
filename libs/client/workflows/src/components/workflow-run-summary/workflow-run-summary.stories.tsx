@@ -1,6 +1,6 @@
 import {argosScreenshot} from '@argos-ci/storybook/vitest';
 import type {RerunMode} from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {
@@ -109,7 +109,7 @@ function AttemptApiProvider({children}: {children: ReactNode}) {
     setConfigured(true);
 
     return () => {
-      configureApiClient({baseUrl: '', fetchImpl: undefined});
+      resetApiClient();
     };
   }, []);
 

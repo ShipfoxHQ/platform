@@ -14,6 +14,7 @@ import {encodeStringIdCursor} from '@shipfox/node-drizzle';
 import type {
   WorkflowRun,
   WorkflowRunDevSource,
+  WorkflowRunList,
   WorkflowRunTriggerReference,
 } from '#core/entities/workflow-run.js';
 import type {WorkflowRunAttempt} from '#core/entities/workflow-run-attempt.js';
@@ -62,17 +63,11 @@ const EMPTY_JOBS: WorkflowRunJobsSummary = {
 };
 
 export function toRunListItemDto(
-  run: WorkflowRun,
+  run: WorkflowRun | WorkflowRunList,
   jobs: WorkflowRunJobsSummary = EMPTY_JOBS,
 ): WorkflowRunListItemDto {
-  const {
-    trigger_payload: _triggerPayload,
-    inputs: _inputs,
-    source_snapshot: _sourceSnapshot,
-    ...runWithoutHeavyFields
-  } = toRunDto(run);
   return {
-    ...runWithoutHeavyFields,
+    ...toRunListDto(run),
     jobs: jobs.preview.map((job) => ({
       id: job.id,
       key: job.key,
@@ -86,6 +81,30 @@ export function toRunListItemDto(
     job_status_counts: jobs.rawStatusCounts.map(({status, count}) => ({status, count})),
     job_display_status_counts: jobs.statusCounts.map(({status, count}) => ({status, count})),
     has_started_job_execution: jobs.hasStartedJobExecution,
+  };
+}
+
+function toRunListDto(run: WorkflowRun | WorkflowRunList) {
+  return {
+    id: run.id,
+    project_id: run.projectId,
+    definition_id: run.definitionId,
+    number: run.number,
+    name: run.name,
+    workflow_name: run.workflowName,
+    status: run.status,
+    origin: run.origin,
+    dev_source: toDevSourceDto(run.devSource),
+    current_attempt: run.currentAttempt,
+    latest_attempt: run.currentAttempt,
+    trigger_provider: run.triggerProvider,
+    trigger_source: run.triggerSource,
+    trigger_event: run.triggerEvent,
+    trigger_reference: toTriggerReferenceDto(run.triggerReference),
+    created_at: run.createdAt.toISOString(),
+    updated_at: run.updatedAt.toISOString(),
+    started_at: run.startedAt?.toISOString() ?? null,
+    finished_at: run.finishedAt?.toISOString() ?? null,
   };
 }
 

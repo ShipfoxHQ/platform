@@ -1,5 +1,6 @@
 import {WORKFLOW_RUN_JOB_PREVIEW_LIMIT} from '@shipfox/api-workflows-dto';
 import {eq} from 'drizzle-orm';
+import {listTestRunAttempts} from '#test/helpers/run-attempts.js';
 import {buildModel, createTestRun} from '#test/helpers/workflow-runs.js';
 import {db} from '../db.js';
 import {jobs} from '../schema/jobs.js';
@@ -14,7 +15,6 @@ import {
   getWorkflowRunById,
   getWorkflowRunLineageHead,
   getWorkflowRunSelection,
-  listRunAttempts,
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
@@ -168,7 +168,7 @@ describe('workflow run queries', () => {
         actorUserId: crypto.randomUUID(),
       });
 
-      const attempts = await listRunAttempts({workflowRunId: source.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: source.id, projectId});
       const latestAttempt = await getLatestAttempt({workflowRunId: source.id, projectId});
       const workspaceLatestAttempt = await getLatestRunAttempt({
         workflowRunId: source.id,
@@ -223,7 +223,7 @@ describe('workflow run queries', () => {
       });
       expect(otherProjectRun.projectId).not.toBe(projectId);
 
-      const attempts = await listRunAttempts({workflowRunId: run.id, projectId});
+      const attempts = await listTestRunAttempts({workflowRunId: run.id, projectId});
 
       expect(attempts.map((attempt) => attempt.workflowRunId)).toEqual([run.id]);
     });

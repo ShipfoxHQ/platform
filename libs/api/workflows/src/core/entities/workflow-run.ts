@@ -1,6 +1,3 @@
-import type {JobExecution} from './job-execution.js';
-import type {Step, StepAttempt} from './step.js';
-
 export type WorkflowRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type WorkflowRunOrigin = 'synced' | 'dev';
@@ -109,10 +106,8 @@ export type WorkflowRun = WorkflowRunOriginState & {
   finishedAt: Date | null;
 };
 
-export interface StepDetail extends Step {
-  attempts: StepAttempt[];
-}
-
-export interface JobExecutionDetail extends JobExecution {
-  steps: StepDetail[];
-}
+/** The run fields needed by list responses, excluding write-owned heavy JSON values. */
+export type WorkflowRunList = Omit<
+  WorkflowRun,
+  'triggerPayload' | 'inputs' | 'sourceSnapshot' | 'triggerIdempotencyKey' | 'timeoutMs' | 'version'
+>;

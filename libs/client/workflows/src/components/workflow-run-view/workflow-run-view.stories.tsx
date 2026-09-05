@@ -5,7 +5,7 @@ import type {
   WorkflowRunJobOverviewDto,
   WorkflowRunOverviewResponseDto,
 } from '@shipfox/api-workflows-dto';
-import {configureApiClient} from '@shipfox/client-api';
+import {configureApiClient, resetApiClient} from '@shipfox/client-api';
 import type {Decorator, Meta, StoryObj} from '@storybook/react';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {type ReactNode, useEffect, useState} from 'react';
@@ -362,7 +362,7 @@ function RunWorkspaceStoryProviders({
     setConfigured(true);
 
     return () => {
-      configureApiClient({baseUrl: '', fetchImpl: undefined});
+      resetApiClient();
     };
   }, [annotations, explanations, workflowSize]);
 
