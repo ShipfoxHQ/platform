@@ -26,8 +26,8 @@ function fakeConnection(id: string): IntegrationConnection {
   };
 }
 
-function signedInstallationRequest(deliveryId: string, installationId: number) {
-  const body = Buffer.from(JSON.stringify({action: 'deleted', installation: {id: installationId}}));
+function signedInstallationRequest(deliveryId: string, installationId: number, action = 'deleted') {
+  const body = Buffer.from(JSON.stringify({action, installation: {id: installationId}}));
   return createStoredWebhookRequest({
     requestId: randomUUID(),
     routeId: 'github',
@@ -180,6 +180,56 @@ describe('GitHub webhook processor', () => {
     expect(retryResult).toEqual({outcome: 'duplicate', deliveryId});
     expect(deleteInstallationTokenSecret).toHaveBeenCalledTimes(2);
     expect(deleteInstallationTokenSecret).toHaveBeenLastCalledWith({
+      workspaceId: connection.workspaceId,
+      installationId,
+    });
+  });
+
+  it('retries cleanup for repeated permission approval deliveries', async () => {
+    const installationId = 8414;
+    const connectionId = randomUUID();
+    const connection = fakeConnection(connectionId);
+    const deliveryId = randomUUID();
+    await githubInstallationFactory.create({
+      connectionId,
+      installationId: String(installationId),
+    });
+    const publishIntegrationEventReceived = vi
+      .fn()
+      .mockResolvedValueOnce({published: true})
+      .mockResolvedValueOnce({published: false});
+    const deleteInstallationTokenSecret = vi.fn(() => Promise.resolve(1));
+    const processor = createGithubWebhookProcessor({
+      coreDb: db,
+      publishIntegrationEventReceived,
+      publishSourceRepositoryUpdated: vi.fn(),
+      publishSourcePush: vi.fn(),
+      recordDeliveryOnly: vi.fn(),
+      getIntegrationConnectionById: vi.fn(() => Promise.resolve(connection)),
+      deleteInstallationTokenSecret,
+    });
+    const request = signedInstallationRequest(
+      deliveryId,
+      installationId,
+      'new_permissions_accepted',
+    );
+
+    await expect(processor.process(request)).resolves.toEqual({
+      outcome: 'processed',
+      deliveryId,
+    });
+    await expect(processor.process(request)).resolves.toEqual({
+      outcome: 'duplicate',
+      deliveryId,
+    });
+
+    expect(publishIntegrationEventReceived).toHaveBeenCalledTimes(2);
+    expect(deleteInstallationTokenSecret).toHaveBeenCalledTimes(2);
+    expect(deleteInstallationTokenSecret).toHaveBeenNthCalledWith(1, {
+      workspaceId: connection.workspaceId,
+      installationId,
+    });
+    expect(deleteInstallationTokenSecret).toHaveBeenNthCalledWith(2, {
       workspaceId: connection.workspaceId,
       installationId,
     });

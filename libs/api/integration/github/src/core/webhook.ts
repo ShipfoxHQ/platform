@@ -339,7 +339,10 @@ function toSourceRepositoryIdentity(repository: {
 }
 
 function shouldDeleteInstallationTokenSecret(event: string, action: string | undefined): boolean {
-  return event === 'installation' && (action === 'deleted' || action === 'suspend');
+  return (
+    event === 'installation' &&
+    (action === 'deleted' || action === 'suspend' || action === 'new_permissions_accepted')
+  );
 }
 
 function withInstallationTokenCleanup(
