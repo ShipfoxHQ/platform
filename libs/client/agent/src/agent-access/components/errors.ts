@@ -36,9 +36,9 @@ export function oauthConsentErrorMessage(error: unknown): string {
     case 'auth-dependency-unavailable':
       return 'This connection request is temporarily unavailable. Try again in a moment.';
     case 'not-found':
-      return 'This connection request expired or is no longer available. Return to the agent and start again.';
+      return 'This connection request expired or is no longer available. Return to your MCP client and start again.';
     case 'invalid-request':
-      return 'This connection request is invalid. Return to the agent and start again.';
+      return 'This connection request is invalid. Return to your MCP client and start again.';
     default:
       return error.message;
   }

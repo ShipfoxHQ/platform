@@ -125,12 +125,12 @@ describe('OAuthConsentPage', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(
-        'This connection request expired or is no longer available. Return to the agent and start again.',
+        'This connection request expired or is no longer available. Return to your MCP client and start again.',
       ),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(
-        'This connection request is invalid. Return to the agent and start again.',
+        'This connection request is invalid. Return to your MCP client and start again.',
       ),
     ).not.toBeInTheDocument();
   });

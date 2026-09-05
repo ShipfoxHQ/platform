@@ -33,7 +33,7 @@ export function OAuthConsentRoutePage() {
           <EmptyState
             icon="linkUnlink"
             title="Open a new connection request"
-            description="Return to the agent and start the connection again."
+            description="Return to your MCP client and start the connection again."
             variant="panel"
           />
         </Panel>
@@ -135,7 +135,7 @@ function OAuthConsentLoaded({
                 {consent.clientName}
               </Text>
               <Text size="sm" className="text-foreground-neutral-muted">
-                External agent client
+                External MCP client
               </Text>
             </div>
 
@@ -240,7 +240,7 @@ function OAuthConsentLoaded({
             </Button>
           </div>
           <Text size="sm" className="text-center text-foreground-neutral-muted">
-            You can revoke this connection later in workspace settings.
+            You can disconnect this app later in workspace settings.
           </Text>
         </div>
       </div>

@@ -45,9 +45,12 @@ describe('MCP connection error copy', () => {
     ],
     [
       'not-found',
-      'This connection request expired or is no longer available. Return to the agent and start again.',
+      'This connection request expired or is no longer available. Return to your MCP client and start again.',
     ],
-    ['invalid-request', 'This connection request is invalid. Return to the agent and start again.'],
+    [
+      'invalid-request',
+      'This connection request is invalid. Return to your MCP client and start again.',
+    ],
   ])('keeps consent copy contextual for %s', (code, expected) => {
     expect(
       oauthConsentErrorMessage(new ApiError({code, message: 'Server copy', status: 409})),
