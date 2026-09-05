@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import {
-  createRootConfigProbe,
-  removeRootConfigProbe,
-  removeStaleRootConfigProbes,
-} from './root-config-probes.js';
 
 const execFileAsync = promisify(execFile);
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
@@ -49,6 +45,7 @@ const storageRulePattern = /client-architecture\/no-direct-browser-storage/u;
 const rawSpacingRulePattern = /client-architecture\/no-raw-spacing/u;
 const rawSpacingDiagnosticPattern = /client-architecture\/no-raw-spacing/g;
 const rawSpacingRejectedLocationPattern = /rejected\.tsx:/u;
+const rootConfigProbePrefix = resolve(tmpdir(), 'shipfox-biome-root-config-probe-');
 
 const fixtureRuleNames = [
   'fixture-boundary',
@@ -68,8 +65,6 @@ const surfaceSystemRuleNames = [
 ] as const;
 
 describe('client-architecture Biome plugins', () => {
-  beforeAll(removeStaleRootConfigProbes);
-
   for (const ruleName of fixtureRuleNames) {
     const ruleRoot = resolve(fixtureRoot, ruleName);
 
@@ -308,7 +303,7 @@ describe('client-architecture Biome plugins', () => {
   });
 
   test('enforces all surface-system plugins through the real root config', async () => {
-    const probeRoot = await createRootConfigProbe();
+    const probeRoot = await mkdtemp(rootConfigProbePrefix);
     const probePath = resolve(
       probeRoot,
       'libs/client/workflows/src/pages/surface-system-glob-regression.tsx',
@@ -336,13 +331,7 @@ describe('client-architecture Biome plugins', () => {
       await assert.rejects(
         execFileAsync(
           process.execPath,
-          [
-            biomeCheck,
-            '--config-path',
-            rootConfig,
-            '--vcs-use-ignore-file=false',
-            probePath,
-          ],
+          [biomeCheck, '--config-path', rootConfig, probePath],
           {cwd: workspaceRoot},
         ),
         (error: unknown) => {
@@ -355,7 +344,7 @@ describe('client-architecture Biome plugins', () => {
         },
       );
     } finally {
-      await removeRootConfigProbe(probeRoot);
+      await rm(probeRoot, {recursive: true, force: true});
     }
   });
 
@@ -363,7 +352,7 @@ describe('client-architecture Biome plugins', () => {
   // the real root config so a regression in the repository glob shape cannot make
   // the production rules silently inert.
   test('enforces client-architecture plugins against the real root config', async () => {
-    const probeRoot = await createRootConfigProbe();
+    const probeRoot = await mkdtemp(rootConfigProbePrefix);
     const probePath = resolve(probeRoot, 'libs/client/plugin-glob-regression-probe.ts');
     try {
       await mkdir(dirname(probePath), {recursive: true});
@@ -381,13 +370,7 @@ describe('client-architecture Biome plugins', () => {
       await assert.rejects(
         execFileAsync(
           process.execPath,
-          [
-            biomeCheck,
-            '--config-path',
-            rootConfig,
-            '--vcs-use-ignore-file=false',
-            probePath,
-          ],
+          [biomeCheck, '--config-path', rootConfig, probePath],
           {cwd: workspaceRoot},
         ),
         (error: unknown) => {
@@ -399,7 +382,7 @@ describe('client-architecture Biome plugins', () => {
         },
       );
     } finally {
-      await removeRootConfigProbe(probeRoot);
+      await rm(probeRoot, {recursive: true, force: true});
     }
   });
 

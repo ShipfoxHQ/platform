@@ -2,4 +2,5 @@
 "@shipfox/biome": patch
 ---
 
-Adds a repository-local Biome rule that rejects fully empty `for` loops.
+Documents a rule enforced by this repository's root config but not distributed
+through the `@shipfox/biome` npm package.
