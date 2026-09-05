@@ -4,7 +4,7 @@ import {
   type WorkflowsJobActivatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {createWorkflowExpression} from '@shipfox/expression';
-import {and, asc, eq, isNull} from 'drizzle-orm';
+import {and, asc, eq, isNull, sql} from 'drizzle-orm';
 import type {JobListeningTrigger, JobStatus} from '#core/entities/job.js';
 import type {JobExecutionStatus, WorkflowExecutionEvent} from '#core/entities/job-execution.js';
 import type {WorkflowRunTriggerReference} from '#core/entities/workflow-run.js';
@@ -32,7 +32,9 @@ import {workflowRunAttempts} from '#db/schema/workflow-run-attempts.js';
 import {jobExecutionTerminatedEvents} from '#test/helpers/workflow-runs.js';
 import {jobFactory, workflowModel, workflowRunFactory} from '#test/index.js';
 import {
+  getDirectDependencyJobContexts,
   getFirstJobExecutionByJobId,
+  getJobExecutionById,
   getJobExecutionsByJobId,
   getJobExecutionsByWorkflowRunAttemptId,
   getJobsByWorkflowRunId,
@@ -1261,6 +1263,7 @@ describe('drainListenerEventsIntoExecution', () => {
 
     const first = await getFirstJobExecutionByJobId(job.id);
     const latest = await getLatestJobExecutionByJobId(job.id);
+    const byId = await getJobExecutionById(legacyExecution.id);
     const byJob = await getJobExecutionsByJobId(job.id);
     const byAttempt = await getJobExecutionsByWorkflowRunAttemptId(job.workflowRunAttemptId);
 
@@ -1271,6 +1274,7 @@ describe('drainListenerEventsIntoExecution', () => {
       'last',
     ]);
     expect(latest?.triggerEvents).toEqual([legacyEvent]);
+    expect(byId?.triggerEvents).toEqual([legacyEvent]);
     expect(byJob.map((execution) => execution.triggerEvents)).toEqual([
       first?.triggerEvents,
       [legacyEvent],
@@ -1278,6 +1282,32 @@ describe('drainListenerEventsIntoExecution', () => {
     expect(byAttempt.map((execution) => execution.triggerEvents)).toEqual([
       first?.triggerEvents,
       [legacyEvent],
+    ]);
+
+    const dependencyListener = await createListenerWithDependencies({
+      on: [{source: 'github', event: 'pull_request'}],
+    });
+    const [dependencyJob] = await db()
+      .select()
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.workflowRunAttemptId, dependencyListener.workflowRunAttemptId),
+          eq(jobs.key, 'build'),
+        ),
+      )
+      .limit(1);
+    if (!dependencyJob) throw new Error('Expected dependency job');
+    await db().delete(jobExecutions).where(eq(jobExecutions.jobId, dependencyJob.id));
+    const dependencyExecution = await insertExecution(dependencyJob.id, 1, 'succeeded');
+    await db()
+      .update(jobExecutions)
+      .set({triggerEvents: [legacyEvent]})
+      .where(eq(jobExecutions.id, dependencyExecution.id));
+
+    const dependencyContexts = await getDirectDependencyJobContexts(dependencyListener.id);
+    expect(dependencyContexts.find((context) => context.job.key === 'build')?.executions).toEqual([
+      expect.objectContaining({triggerEvents: [legacyEvent]}),
     ]);
   });
 
@@ -1587,14 +1617,37 @@ describe('getListenerEventStorageStats', () => {
           normalizedEventBytes: 98,
           receivedAt: new Date('2026-01-03T00:00:00.000Z'),
         },
+        {
+          jobId: job.id,
+          disposition: 'resolve',
+          outcome: 'abandoned',
+          outcomeReason: 'until',
+          eventRef: 'storage-metric-abandoned',
+          deliveryId: 'storage-metric-abandoned',
+          source: 'github',
+          event: 'push',
+          payload: {state: 'abandoned'},
+          storedPayloadBytes: 17,
+          normalizedEventBytes: 18,
+          receivedAt: new Date('2026-01-04T00:00:00.000Z'),
+        },
       ]);
 
+    const afterArray = await getListenerEventStorageStats();
+    const nonArrayExecution = await insertExecution(job.id, 2, 'pending');
+    await db()
+      .update(jobExecutions)
+      .set({triggerEvents: sql`'{"legacy":"object"}'::jsonb`})
+      .where(eq(jobExecutions.id, nonArrayExecution.id));
     const after = await getListenerEventStorageStats();
 
-    expect(after.listenerEventRows - before.listenerEventRows).toBe(3);
-    expect(after.listenerEventPayloadBytes - before.listenerEventPayloadBytes).toBe(24);
+    expect(after.listenerEventRows - before.listenerEventRows).toBe(4);
+    expect(after.listenerEventPayloadBytes - before.listenerEventPayloadBytes).toBe(41);
     expect(after.consumedListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
     expect(after.pendingListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
-    expect(after.duplicateTriggerEventsBytes).toBeGreaterThan(before.duplicateTriggerEventsBytes);
+    expect(afterArray.duplicateTriggerEventsBytes).toBeGreaterThan(
+      before.duplicateTriggerEventsBytes,
+    );
+    expect(after.duplicateTriggerEventsBytes).toBe(afterArray.duplicateTriggerEventsBytes);
   });
 });
