@@ -145,7 +145,7 @@ describe('GitHub webhook processor', () => {
     expect(result).toMatchObject({outcome: 'discarded', reason: 'malformed_payload'});
   });
 
-  it('retries credential cleanup after the delivery transaction commits', async () => {
+  it('reports permission cleanup failures without failing the committed delivery', async () => {
     const installationId = 8412;
     const connectionId = randomUUID();
     const connection = fakeConnection(connectionId);
@@ -154,35 +154,25 @@ describe('GitHub webhook processor', () => {
       connectionId,
       installationId: String(installationId),
     });
-    const publishIntegrationEventReceived = vi
-      .fn()
-      .mockResolvedValueOnce({published: true})
-      .mockResolvedValueOnce({published: false});
     const deleteInstallationTokenSecret = vi
       .fn()
-      .mockRejectedValueOnce(new Error('secret store unavailable'))
-      .mockResolvedValueOnce(1);
+      .mockRejectedValue(new Error('secret store unavailable'));
     const processor = createGithubWebhookProcessor({
       coreDb: db,
-      publishIntegrationEventReceived,
+      publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: true})),
       publishSourceRepositoryUpdated: vi.fn(),
       publishSourcePush: vi.fn(),
       recordDeliveryOnly: vi.fn(),
       getIntegrationConnectionById: vi.fn(() => Promise.resolve(connection)),
       deleteInstallationTokenSecret,
     });
-    const request = signedInstallationRequest(deliveryId, installationId);
 
-    const firstAttempt = processor.process(request);
-    await expect(firstAttempt).rejects.toThrow('secret store unavailable');
-    const retryResult = await processor.process(request);
+    const result = await processor.process(
+      signedInstallationRequest(deliveryId, installationId, 'new_permissions_accepted'),
+    );
 
-    expect(retryResult).toEqual({outcome: 'duplicate', deliveryId});
-    expect(deleteInstallationTokenSecret).toHaveBeenCalledTimes(2);
-    expect(deleteInstallationTokenSecret).toHaveBeenLastCalledWith({
-      workspaceId: connection.workspaceId,
-      installationId,
-    });
+    expect(result).toEqual({outcome: 'processed', deliveryId});
+    expect(deleteInstallationTokenSecret).toHaveBeenCalledOnce();
   });
 
   it('retries cleanup for repeated permission approval deliveries', async () => {

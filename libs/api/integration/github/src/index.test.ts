@@ -127,6 +127,50 @@ describe('createGithubIntegrationProvider', () => {
     });
   });
 
+  it('evicts the installation token provider before deleting its namespace', async () => {
+    const deleteSecrets = vi.fn(() => Promise.resolve(1));
+    const deleteInstallation = vi.fn(() => Promise.resolve(1));
+    const provider = createGithubIntegrationProvider({
+      github: {} as never,
+      getExistingGithubConnection: vi.fn(() => Promise.resolve(undefined)),
+      connectGithubInstallation: vi.fn() as never,
+      coreDb: vi.fn() as never,
+      publishIntegrationEventReceived: vi.fn(() => Promise.resolve({published: false})),
+      publishSourceRepositoryUpdated: vi.fn(() => Promise.resolve({published: false})),
+      publishSourcePush: vi.fn(() => Promise.resolve({published: false})),
+      recordDeliveryOnly: vi.fn(() => Promise.resolve()),
+      getIntegrationConnectionById: vi.fn(() => Promise.resolve(undefined)),
+      deleteSecrets,
+      agentTools: {
+        tokenProvider: {
+          getInstallationAccessToken: vi.fn(),
+          deleteInstallation,
+        },
+      },
+    });
+
+    const processorOptions = state.processorOptions as {
+      deleteInstallationTokenSecret: (params: {
+        workspaceId: string;
+        installationId: number;
+      }) => Promise<unknown>;
+    };
+    await processorOptions.deleteInstallationTokenSecret({
+      workspaceId: 'workspace-1',
+      installationId: 123,
+    });
+
+    expect(deleteInstallation).toHaveBeenCalledWith(123);
+    expect(deleteSecrets).toHaveBeenCalledWith({
+      workspaceId: 'workspace-1',
+      namespace: githubInstallationTokenNamespace(123),
+    });
+    expect(deleteInstallation.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteSecrets.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(provider.adapters.agent_tools).toBeDefined();
+  });
+
   it('uses the exact cache lifecycle for installation cleanup when it is available', async () => {
     const deleteSecrets = vi.fn(() => Promise.resolve(1));
     const deleteInstallation = vi.fn(() => Promise.resolve(1));

@@ -342,6 +342,46 @@ describe('SharedInstallationTokenCache', () => {
     expect(mint).toHaveBeenCalledTimes(1);
   });
 
+  it('waits for in-flight writes before installation namespace deletion', async () => {
+    const store = createStore();
+    const backoffKey = githubInstallationTokenBackoffKey('broad');
+    let releaseWrite: () => void = () => undefined;
+    let resolveWriteStarted: () => void = () => undefined;
+    const writeStarted = new Promise<void>((resolve) => {
+      resolveWriteStarted = resolve;
+    });
+    const originalWrite = store.write;
+    store.write = async (writeWorkspaceId, writeInstallationId, key, envelope) => {
+      if (key === backoffKey) {
+        resolveWriteStarted();
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+      }
+      await originalWrite(writeWorkspaceId, writeInstallationId, key, envelope);
+    };
+    const shared = cache({store});
+    const mint = vi
+      .fn()
+      .mockRejectedValue(new GithubIntegrationProviderError('provider-rejected', 'rejected'));
+
+    const failedMint = shared.getOrMint(installationId, 'broad', mint);
+    await writeStarted;
+
+    let deleted = false;
+    const deletion = shared.deleteInstallation(installationId).then(() => {
+      deleted = true;
+      store.values.clear();
+    });
+    await Promise.resolve();
+    expect(deleted).toBe(false);
+
+    releaseWrite();
+    await deletion;
+    await expect(failedMint).rejects.toMatchObject({reason: 'provider-rejected'});
+    expect(store.values.size).toBe(0);
+  });
+
   it('returns a warm store hit without minting', async () => {
     const store = createStore();
     setEnvelope(store, token('ghs_cached'));

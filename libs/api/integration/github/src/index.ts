@@ -126,23 +126,29 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
     options.getGithubInstallationByConnectionId ?? getGithubInstallationByConnectionId;
   const deleteSecrets = options.deleteSecrets;
   const checkoutTokenCache = options.checkoutTokenCache;
+  const installationTokenProvider =
+    options.agentTools?.tokenProvider ??
+    createGithubInstallationTokenProvider({
+      getGithubInstallationByInstallationId:
+        options.getGithubInstallationByInstallationId ?? getGithubInstallationByInstallationId,
+    });
   const checkoutTokenProviderInstance =
     deleteSecrets || checkoutTokenCache
       ? githubProviderInstanceFingerprint(normalizedGithubApiBaseUrl(), config.GITHUB_APP_ID)
       : undefined;
   const deleteInstallationSecrets =
     deleteSecrets || checkoutTokenCache
-      ? async (params: {workspaceId: string; installationId: number}): Promise<void> => {
-          const cleanup: Promise<unknown>[] = [];
+      ? async (params: {workspaceId: string; installationId: number}): Promise<number> => {
+          let deletedEntries =
+            (await installationTokenProvider.deleteInstallation?.(params.installationId)) ?? 0;
           if (deleteSecrets) {
-            cleanup.push(
-              deleteGithubInstallationTokenSecret({
-                workspaceId: params.workspaceId,
-                installationId: params.installationId,
-                deleteSecrets,
-              }),
-            );
+            deletedEntries += await deleteGithubInstallationTokenSecret({
+              workspaceId: params.workspaceId,
+              installationId: params.installationId,
+              deleteSecrets,
+            });
           }
+          const cleanup: Promise<number>[] = [];
           if (checkoutTokenProviderInstance) {
             cleanup.push(
               (async () => {
@@ -156,17 +162,19 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
                 // A cache without a shared store can still evict its RAM copy but
                 // must fall through to the authoritative namespace deletion.
                 if (deleted === 0 && deleteSecrets) {
-                  await deleteGithubCheckoutTokenSecretGroup({
+                  return await deleteGithubCheckoutTokenSecretGroup({
                     workspaceId: params.workspaceId,
                     providerInstance: checkoutTokenProviderInstance,
                     installationId: params.installationId,
                     deleteSecrets,
                   });
                 }
+                return deleted;
               })(),
             );
           }
-          await Promise.all(cleanup);
+          const deleted = await Promise.all(cleanup);
+          return deletedEntries + deleted.reduce((total, count) => total + count, 0);
         }
       : undefined;
   const deleteInstallationTokenSecret = deleteInstallationSecrets
@@ -202,13 +210,7 @@ export function createGithubIntegrationProvider(options: CreateGithubIntegration
       source_control: new GithubSourceControlProvider(github, undefined, checkoutTokenCache),
       agent_tools: new GithubAgentToolsProvider({
         getInstallationByConnectionId: getInstallationByConnectionId,
-        tokenProvider:
-          options.agentTools?.tokenProvider ??
-          createGithubInstallationTokenProvider({
-            getGithubInstallationByInstallationId:
-              options.getGithubInstallationByInstallationId ??
-              getGithubInstallationByInstallationId,
-          }),
+        tokenProvider: installationTokenProvider,
       }),
     },
     ...(deleteConnectionSecrets ? {deleteConnectionSecrets} : {}),

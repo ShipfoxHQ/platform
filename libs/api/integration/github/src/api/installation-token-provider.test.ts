@@ -193,6 +193,32 @@ describe('GithubInstallationTokenProvider', () => {
     expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(1);
   });
 
+  it('evicts installation tokens from the RAM cache', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-10T11:00:00.000Z'));
+    createInstallationAccessTokenMock
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_first',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          token: 'ghs_second',
+          expires_at: '2026-06-10T12:00:00.000Z',
+        },
+      });
+    const provider = createGithubInstallationTokenProvider();
+
+    await provider.getInstallationAccessToken(1);
+    await provider.deleteInstallation?.(1);
+    const refreshed = await provider.getInstallationAccessToken(1);
+
+    expect(refreshed.token).toBe('ghs_second');
+    expect(createInstallationAccessTokenMock).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['suspended', {suspendedAt: new Date()}],
     ['deleted', {deletedAt: new Date()}],

@@ -645,6 +645,27 @@ describe('handleGithubEvent', () => {
     expect(handlers.recordDeliveryOnly).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['installation', 'created'],
+    ['repository', 'deleted'],
+  ] as const)('does not request cleanup for %s.%s deliveries', async (event, action) => {
+    const installationId = 7796;
+    const connection = fakeConnection();
+    await seedInstallation(installationId, connection.id);
+    const handlers = deps({connection});
+
+    const result = await handleGithubEvent({
+      tx: db(),
+      deliveryId: randomUUID(),
+      event,
+      payload: {action, installation: {id: installationId}},
+      ...handlers,
+    });
+
+    expect(result.outcome).toBe('published-envelope');
+    expect(result.installationTokenCleanup).toBeUndefined();
+  });
+
   it('publishes a bare resource envelope when action is malformed', async () => {
     const installationId = 7782;
     const connection = fakeConnection();

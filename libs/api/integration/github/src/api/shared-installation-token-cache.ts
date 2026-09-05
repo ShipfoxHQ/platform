@@ -35,6 +35,7 @@ export interface InstallationTokenCache {
     permissionFingerprint: string,
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken>;
+  deleteInstallation?(installationId: number): Promise<number>;
 }
 
 export type InstallationTokenLockResult<T> = {acquired: true; value: T} | {acquired: false};
@@ -73,6 +74,8 @@ const DEFAULT_MINT_TIMEOUT_MS = 30 * 1000;
 
 export class SharedInstallationTokenCache implements InstallationTokenCache {
   private readonly workspaceIds = new Map<number, {workspaceId: string; expiresAtMs: number}>();
+  private readonly deletionEpochs = new Map<number, number>();
+  private readonly pendingWrites = new Map<number, Set<Promise<void>>>();
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly pollDelaysMs: number[];
@@ -87,11 +90,20 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     this.mintTimeoutMs = options.mintTimeoutMs ?? DEFAULT_MINT_TIMEOUT_MS;
   }
 
+  async deleteInstallation(installationId: number): Promise<number> {
+    this.deletionEpochs.set(installationId, this.currentDeletionEpoch(installationId) + 1);
+    this.workspaceIds.delete(installationId);
+    const pendingWrites = [...(this.pendingWrites.get(installationId) ?? [])];
+    await Promise.all(pendingWrites.map((pendingWrite) => pendingWrite.catch(() => undefined)));
+    return 0;
+  }
+
   async getOrMint(
     installationId: number,
     permissionFingerprint: string,
     mint: () => Promise<GithubInstallationAccessToken>,
   ): Promise<GithubInstallationAccessToken> {
+    const deletionEpoch = this.currentDeletionEpoch(installationId);
     const workspaceId = await this.resolveWorkspaceId(installationId);
     const profileKey = githubInstallationTokenKey(permissionFingerprint);
     const backoffKeys = githubInstallationTokenBackoffKeys(permissionFingerprint);
@@ -130,6 +142,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           permissionFingerprint,
           mint,
           reportReadFailure,
+          deletionEpoch,
         }),
       );
     } catch (error) {
@@ -142,6 +155,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         permissionFingerprint,
         reportReadFailure,
         failure: error,
+        deletionEpoch,
       });
       if (
         error.failure.class === 'transient' &&
@@ -182,6 +196,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         profileKey,
         backoffKeys,
         reportReadFailure,
+        deletionEpoch,
       });
       return result.value;
     }
@@ -204,6 +219,7 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     permissionFingerprint: string;
     mint: () => Promise<GithubInstallationAccessToken>;
     reportReadFailure: (error: unknown) => void;
+    deletionEpoch: number;
   }): Promise<GithubInstallationAccessToken> {
     const envelope = await this.readEnvelope(
       params.workspaceId,
@@ -249,11 +265,17 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     }
 
     try {
-      await this.writeEnvelope(params.workspaceId, params.installationId, params.profileKey, {
-        token: token.token,
-        expiresAt: token.expiresAt,
-        permissions: token.permissions,
-      });
+      await this.writeEnvelope(
+        params.workspaceId,
+        params.installationId,
+        params.profileKey,
+        {
+          token: token.token,
+          expiresAt: token.expiresAt,
+          permissions: token.permissions,
+        },
+        params.deletionEpoch,
+      );
     } catch (error) {
       logger().warn(
         {installationId: params.installationId, expiresAt: token.expiresAt.toISOString(), error},
@@ -286,9 +308,13 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     permissionFingerprint: string;
     reportReadFailure: (error: unknown) => void;
     failure: InstallationTokenMintFailure;
+    deletionEpoch: number;
   }): Promise<Date> {
     const candidateUntil = new Date(this.now().getTime() + backoffMs(params.failure.failure));
     const backoffScope = mintBackoffScopeForReason(params.failure.failure.reason);
+    if (!this.isCurrentDeletionEpoch(params.installationId, params.deletionEpoch)) {
+      return candidateUntil;
+    }
     const backoffKey =
       backoffScope === 'installation'
         ? GITHUB_INSTALLATION_TOKEN_BACKOFF_KEY
@@ -302,6 +328,9 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
         params.installationId,
         lockFingerprint,
         async () => {
+          if (!this.isCurrentDeletionEpoch(params.installationId, params.deletionEpoch)) {
+            return candidateUntil;
+          }
           let readFailed = false;
           const reportReadFailure = (error: unknown) => {
             readFailed = true;
@@ -342,15 +371,22 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
               params.installationId,
               backoffKey,
               selectedBackoff,
+              params.deletionEpoch,
             ),
           ];
           if (!readFailed) {
             writes.push(
-              this.writeEnvelope(params.workspaceId, params.installationId, params.profileKey, {
-                token: envelope?.token,
-                expiresAt: envelope?.expiresAt,
-                permissions: envelope?.permissions,
-              }),
+              this.writeEnvelope(
+                params.workspaceId,
+                params.installationId,
+                params.profileKey,
+                {
+                  token: envelope?.token,
+                  expiresAt: envelope?.expiresAt,
+                  permissions: envelope?.permissions,
+                },
+                params.deletionEpoch,
+              ),
             );
           }
           await Promise.all(writes);
@@ -392,12 +428,14 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     profileKey: string;
     backoffKeys: readonly string[];
     reportReadFailure: (error: unknown) => void;
+    deletionEpoch: number;
   }): Promise<void> {
     try {
       await this.withBackoffLock(
         params.installationId,
         GITHUB_COMPATIBILITY_PERMISSION_FINGERPRINT,
         async () => {
+          if (!this.isCurrentDeletionEpoch(params.installationId, params.deletionEpoch)) return;
           let readFailed = false;
           const envelope = await this.readEnvelope(
             params.workspaceId,
@@ -412,7 +450,13 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
           if (readFailed || activeBackoff(envelope, this.now())) return;
           await Promise.all(
             params.backoffKeys.map((backoffKey) =>
-              this.writeEnvelope(params.workspaceId, params.installationId, backoffKey, {}),
+              this.writeEnvelope(
+                params.workspaceId,
+                params.installationId,
+                backoffKey,
+                {},
+                params.deletionEpoch,
+              ),
             ),
           );
         },
@@ -567,8 +611,29 @@ export class SharedInstallationTokenCache implements InstallationTokenCache {
     installationId: number,
     key: string,
     envelope: InstallationTokenEnvelope,
+    deletionEpoch = this.currentDeletionEpoch(installationId),
   ): Promise<void> {
-    await this.options.secretStore.write(workspaceId, installationId, key, envelope);
+    const pendingWrite = Promise.resolve().then(async () => {
+      if (!this.isCurrentDeletionEpoch(installationId, deletionEpoch)) return;
+      await this.options.secretStore.write(workspaceId, installationId, key, envelope);
+    });
+    const writes = this.pendingWrites.get(installationId) ?? new Set<Promise<void>>();
+    writes.add(pendingWrite);
+    this.pendingWrites.set(installationId, writes);
+    try {
+      await pendingWrite;
+    } finally {
+      writes.delete(pendingWrite);
+      if (writes.size === 0) this.pendingWrites.delete(installationId);
+    }
+  }
+
+  private currentDeletionEpoch(installationId: number): number {
+    return this.deletionEpochs.get(installationId) ?? 0;
+  }
+
+  private isCurrentDeletionEpoch(installationId: number, deletionEpoch: number): boolean {
+    return this.currentDeletionEpoch(installationId) === deletionEpoch;
   }
 
   private async resolveWorkspaceId(installationId: number): Promise<string> {
