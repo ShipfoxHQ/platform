@@ -35,7 +35,7 @@ const DEFAULT_MAX_DELAY_MS = 4_000;
 const DEFAULT_BACKOFF_FACTOR = 1.5;
 const WORKFLOW_LIST_PAGE_LIMIT = '100';
 // New runs and trigger events are newest-first. Keep each poll bounded while still allowing
-// a small amount of contention from other tests; the outer poll retries the prefix later.
+// a small amount of contention from other tests; the search advances older pages across polls.
 const MAX_LIST_PAGES_PER_PROBE = 2;
 const TERMINAL_STATUSES = new Set<WorkflowRunStatusDto>(['succeeded', 'failed', 'cancelled']);
 
@@ -177,6 +177,18 @@ function formatObservedItems<T>(items: readonly T[], formatItem: (item: T) => st
   return `[${visible.join(', ')}${more}]`;
 }
 
+function trackCursor(
+  cursor: string | null,
+  seenCursors: Set<string>,
+  cursorDescription: string,
+): void {
+  if (cursor === null) return;
+  if (seenCursors.has(cursor)) {
+    throw new Error(`Repeated ${cursorDescription} cursor while waiting: ${cursor}`);
+  }
+  seenCursors.add(cursor);
+}
+
 function formatRunObservationObserved(
   lineage: WorkflowRunLineageHeadResponseDto | null,
   overview: WorkflowRunOverviewResponseDto | null,
@@ -256,26 +268,25 @@ async function waitForRunMatching(
 
 async function findInCursorPages<TPage, TItem>(options: {
   client: ApiClient;
+  cursor?: string | null | undefined;
   deadline: number;
   getItems: (page: TPage) => readonly TItem[];
   getNextCursor: (page: TPage) => string | null;
+  maxPages?: number | undefined;
   match: (item: TItem) => boolean;
   onPage?: ((page: TPage) => void) | undefined;
+  onNextCursor?: ((cursor: string | null) => void) | undefined;
   path: string;
   query: Record<string, string>;
   signal: AbortSignal | undefined;
   cursorDescription: string;
 }): Promise<TItem | null> {
-  let cursor: string | null = null;
+  let cursor: string | null = options.cursor ?? null;
   const seenCursors = new Set<string>();
+  const maxPages = options.maxPages ?? MAX_LIST_PAGES_PER_PROBE;
 
-  for (let pageNumber = 0; pageNumber < MAX_LIST_PAGES_PER_PROBE; pageNumber += 1) {
-    if (cursor !== null) {
-      if (seenCursors.has(cursor)) {
-        throw new Error(`Repeated ${options.cursorDescription} cursor while waiting: ${cursor}`);
-      }
-      seenCursors.add(cursor);
-    }
+  for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
+    trackCursor(cursor, seenCursors, options.cursorDescription);
     if (Date.now() > options.deadline) return null;
 
     const query = new URLSearchParams({
@@ -291,21 +302,80 @@ async function findInCursorPages<TPage, TItem>(options: {
     const item = options.getItems(page).find(options.match);
     if (item) return item;
     cursor = options.getNextCursor(page);
-    if (cursor === null) return null;
+    if (cursor === null) {
+      options.onNextCursor?.(null);
+      return null;
+    }
   }
 
+  options.onNextCursor?.(cursor);
   return null;
 }
 
-function findWorkflowRunInPages(options: {
+interface CursorProbeState {
+  initialized: boolean;
+  nextCursor: string | null;
+}
+
+function createCursorProbeState(): CursorProbeState {
+  return {initialized: false, nextCursor: null};
+}
+
+async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
+  client: ApiClient;
+  deadline: number;
+  getItems: (page: TPage) => readonly TItem[];
+  getNextCursor: (page: TPage) => string | null;
+  match: (item: TItem) => boolean;
+  onPage?: ((page: TPage) => void) | undefined;
+  path: string;
+  query: Record<string, string>;
+  signal: AbortSignal | undefined;
+  cursorDescription: string;
+  state: CursorProbeState;
+}): Promise<TItem | null> {
+  const updateCursor = (cursor: string | null) => {
+    options.state.nextCursor = cursor;
+  };
+
+  if (!options.state.initialized) {
+    options.state.initialized = true;
+    return await findInCursorPages({
+      ...options,
+      cursor: null,
+      onNextCursor: updateCursor,
+    });
+  }
+
+  // Keep the newest page live so a run or event created during the wait is not skipped.
+  const currentPageMatch = await findInCursorPages({
+    ...options,
+    cursor: null,
+    maxPages: 1,
+  });
+  if (currentPageMatch) return currentPageMatch;
+  if (options.state.nextCursor === null) return null;
+
+  // Use the second request to advance the older-page cursor. This keeps every probe bounded
+  // while allowing a target that was already beyond the initial page budget to be found.
+  return await findInCursorPages({
+    ...options,
+    cursor: options.state.nextCursor,
+    maxPages: 1,
+    onNextCursor: updateCursor,
+  });
+}
+
+function findWorkflowRunAcrossProbes(options: {
   client: ApiClient;
   deadline: number;
   match: (run: WorkflowRunListItemDto) => boolean;
   onPage?: ((page: WorkflowRunListResponseDto) => void) | undefined;
   projectId: string;
   signal: AbortSignal | undefined;
+  state: CursorProbeState;
 }): Promise<WorkflowRunListItemDto | null> {
-  return findInCursorPages<WorkflowRunListResponseDto, WorkflowRunListItemDto>({
+  return findInCursorPagesAcrossProbes<WorkflowRunListResponseDto, WorkflowRunListItemDto>({
     client: options.client,
     cursorDescription: 'workflow run list',
     deadline: options.deadline,
@@ -316,6 +386,7 @@ function findWorkflowRunInPages(options: {
     path: '/workflows/runs',
     query: {project_id: options.projectId},
     signal: options.signal,
+    state: options.state,
   });
 }
 
@@ -323,6 +394,7 @@ export async function waitForRunByCommit(
   options: WaitForRunByCommitOptions,
 ): Promise<WorkflowRunListItemDto> {
   let lastResponse: WorkflowRunListResponseDto | null = null;
+  const cursorState = createCursorProbeState();
   return await waitForRunMatching({
     ...options,
     describeObserved: () =>
@@ -332,7 +404,7 @@ export async function waitForRunByCommit(
         (run) => `headCommitSha=${headCommitSha(run) ?? 'null'}`,
       ),
     probe: ({client, deadline, signal}) =>
-      findWorkflowRunInPages({
+      findWorkflowRunAcrossProbes({
         client,
         deadline,
         match: (run) => headCommitSha(run) === options.headCommitSha,
@@ -341,20 +413,22 @@ export async function waitForRunByCommit(
         },
         projectId: options.projectId,
         signal,
+        state: cursorState,
       }),
     timeoutMessage: 'Timed out waiting for workflow run by commit',
   });
 }
 
-function findTriggerEventInPages(options: {
+function findTriggerEventAcrossProbes(options: {
   client: ApiClient;
   deadline: number;
   deliveryId: string;
   onPage?: ((page: TriggerEventListResponseDto) => void) | undefined;
   signal: AbortSignal | undefined;
+  state: CursorProbeState;
   workspaceId: string;
 }): Promise<TriggerEventListItemDto | null> {
-  return findInCursorPages<TriggerEventListResponseDto, TriggerEventListItemDto>({
+  return findInCursorPagesAcrossProbes<TriggerEventListResponseDto, TriggerEventListItemDto>({
     client: options.client,
     cursorDescription: 'trigger event list',
     deadline: options.deadline,
@@ -365,6 +439,7 @@ function findTriggerEventInPages(options: {
     path: '/trigger-events',
     query: {workspace_id: options.workspaceId},
     signal: options.signal,
+    state: options.state,
   });
 }
 
@@ -372,12 +447,14 @@ export async function waitForRunByDeliveryId(
   options: WaitForRunByDeliveryIdOptions,
 ): Promise<WorkflowRunListItemDto> {
   let lastResponse: TriggerEventListResponseDto | null = null;
+  const eventCursorState = createCursorProbeState();
+  const runCursorState = createCursorProbeState();
   return await waitForRunMatching({
     ...options,
     describeObserved: () =>
       formatTriggerEventsObserved(lastResponse, `expectedDeliveryId=${options.deliveryId}`),
     probe: async ({client, deadline, signal}) => {
-      const event = await findTriggerEventInPages({
+      const event = await findTriggerEventAcrossProbes({
         client,
         deadline,
         deliveryId: options.deliveryId,
@@ -385,6 +462,7 @@ export async function waitForRunByDeliveryId(
           lastResponse = page;
         },
         signal,
+        state: eventCursorState,
         workspaceId: options.workspaceId,
       });
       if (!event) return null;
@@ -403,12 +481,13 @@ export async function waitForRunByDeliveryId(
       )?.run_id;
       if (runId === undefined || runId === null) return null;
 
-      return await findWorkflowRunInPages({
+      return await findWorkflowRunAcrossProbes({
         client,
         deadline,
         match: (run) => run.id === runId,
         projectId: options.projectId,
         signal,
+        state: runCursorState,
       });
     },
     timeoutMessage: 'Timed out waiting for workflow run by delivery ID',

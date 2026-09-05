@@ -319,6 +319,58 @@ function paginatedDeliveryFetch(eventId: string, paths: string[]) {
   };
 }
 
+function paginatedCommitFetch(paths: string[]) {
+  return (input: string | URL): Response => {
+    const url = new URL(input);
+    paths.push(`${url.pathname}${url.search}`);
+    const cursor = url.searchParams.get('cursor');
+
+    if (url.pathname !== '/workflows/runs') {
+      throw new Error(`Unexpected request: ${url.pathname}${url.search}`);
+    }
+    if (cursor === null) {
+      return response(
+        listResponse({
+          runs: [
+            run({
+              id: 'first-page',
+              trigger_reference: {
+                repository: 'acme/api',
+                ref: 'refs/heads/main',
+                commit: 'other',
+                actor: 'e2e',
+              },
+            }),
+          ],
+          next_cursor: 'runs-page-2',
+        }),
+      );
+    }
+    if (cursor === 'runs-page-2') {
+      return response(
+        listResponse({
+          runs: [
+            run({
+              id: 'second-page',
+              trigger_reference: {
+                repository: 'acme/api',
+                ref: 'refs/heads/main',
+                commit: 'other',
+                actor: 'e2e',
+              },
+            }),
+          ],
+          next_cursor: 'runs-page-3',
+        }),
+      );
+    }
+    if (cursor === 'runs-page-3') {
+      return response(listResponse({runs: [run()]}));
+    }
+    throw new Error(`Unexpected workflow run cursor: ${cursor}`);
+  };
+}
+
 describe('waitForRunByCommit', () => {
   test('polls until a run with the matching head commit appears', async () => {
     let calls = 0;
@@ -376,6 +428,25 @@ describe('waitForRunByCommit', () => {
       token: 'user-token',
     });
     expect(result.id).toBe(runId);
+  });
+
+  test('limits each probe to two pages and advances to older pages on the next poll', async () => {
+    const paths: string[] = [];
+    const result = await waitForRunByCommit({
+      fetch: paginatedCommitFetch(paths),
+      headCommitSha: 'abc123',
+      initialDelayMs: 1,
+      projectId,
+      token: 'user-token',
+    });
+
+    expect(result.id).toBe(runId);
+    expect(paths).toEqual([
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-2`,
+      `/workflows/runs?project_id=${projectId}&limit=100`,
+      `/workflows/runs?project_id=${projectId}&limit=100&cursor=runs-page-3`,
+    ]);
   });
 
   test('times out with a bounded run list summary', async () => {

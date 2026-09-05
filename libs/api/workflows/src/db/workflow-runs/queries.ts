@@ -832,11 +832,6 @@ function appendStatusCount<T extends string>(
   }
 }
 
-export async function listWorkflowRunsByProject(projectId: string): Promise<WorkflowRunList[]> {
-  const result = await listWorkflowRuns({projectId, limit: 100});
-  return result.runs;
-}
-
 export async function getWorkflowRunAggregates(params: {
   projectId: string;
   filters?: WorkflowRunFilters | undefined;

@@ -18,7 +18,6 @@ import {
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
-  listWorkflowRunsByProject,
   recordJobExecutionStartedAt,
   updateJobExecutionStatus,
   updateJobStatus,
@@ -671,7 +670,7 @@ describe('workflow run queries', () => {
     });
   });
 
-  describe('listWorkflowRunsByProject', () => {
+  describe('listWorkflowRuns', () => {
     test('returns runs ordered by creation descending', async () => {
       await createWorkflowRun({
         workspaceId,
@@ -698,7 +697,8 @@ describe('workflow run queries', () => {
         },
       });
 
-      const runs = await listWorkflowRunsByProject(projectId);
+      const result = await listWorkflowRuns({projectId, limit: 100});
+      const runs = result.runs;
 
       expect(runs).toHaveLength(2);
       expect(runs[0]?.createdAt.getTime()).toBeGreaterThanOrEqual(
@@ -707,13 +707,11 @@ describe('workflow run queries', () => {
     });
 
     test('returns empty array for unknown project', async () => {
-      const runs = await listWorkflowRunsByProject(crypto.randomUUID());
+      const result = await listWorkflowRuns({projectId: crypto.randomUUID(), limit: 100});
 
-      expect(runs).toEqual([]);
+      expect(result.runs).toEqual([]);
     });
-  });
 
-  describe('listWorkflowRuns', () => {
     test('scopes a listing to the requested workspace', async () => {
       await createWorkflowRun({
         workspaceId,

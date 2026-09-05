@@ -146,7 +146,6 @@ export {
   listRunAttemptsPage,
   listWorkflowRunJobSummaries,
   listWorkflowRuns,
-  listWorkflowRunsByProject,
 } from './workflow-runs/queries.js';
 export type {
   CancelWorkflowRunParams,

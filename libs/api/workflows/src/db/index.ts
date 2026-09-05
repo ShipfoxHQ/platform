@@ -170,7 +170,6 @@ export {
   listWorkflowRunJobSummaries,
   listWorkflowRunJobsPage,
   listWorkflowRuns,
-  listWorkflowRunsByProject,
   listWorkflowStepAttemptSummaries,
   queueJobExecution,
   recordJobExecutionStartedAt,
