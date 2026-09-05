@@ -58,6 +58,9 @@ routes, auth wiring, or test utilities unless another package needs them.
 
 ## Readable control flow
 
+Use `while (true)` for an unconditional loop. Don't use `for (;;)`, because
+its empty clauses hide that intent.
+
 Name a conditional decision before branching when it combines multiple ideas.
 A name such as `hasPendingStep` or `shouldRetry` makes the branch read as a
 sentence. Inline checks work for obvious single comparisons.

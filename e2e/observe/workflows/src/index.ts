@@ -986,7 +986,7 @@ async function readExecutionSummaries(options: {
   let cursor: string | null = null;
   const seenCursors = new Set<string>();
 
-  for (;;) {
+  while (true) {
     assertNewCursor(cursor, seenCursors, options.tracker);
     const page = await readExecutionSummaryPage({
       client: options.client,

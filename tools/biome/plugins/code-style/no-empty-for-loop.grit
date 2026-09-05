@@ -1,0 +1,6 @@
+engine biome(1.0)
+language js(typescript, jsx)
+
+JsForStatement(initializer=., test=., update=.) as $loop where {
+  register_diagnostic(span=$loop, message="code-style/no-empty-for-loop: use `while (true)` for an unconditional loop, or state the exit condition in a `while` condition.")
+}

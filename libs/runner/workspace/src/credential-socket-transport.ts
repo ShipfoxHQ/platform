@@ -494,7 +494,7 @@ async function acquireSocketLock(socketPath: string): Promise<FileHandle> {
   let ownershipTransferred = false;
   try {
     await handle.writeFile(`${process.pid}\n`, 'utf8');
-    for (;;) {
+    while (true) {
       if (!(await tryPublishSocketLock(socketPath, lockPath, candidatePath))) continue;
       lockPublished = true;
       await rm(candidatePath, {force: true});

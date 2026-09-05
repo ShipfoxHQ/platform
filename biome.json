@@ -15,7 +15,8 @@
       "**",
       "!libs/client/shell/test/external/fixture",
       "!tools/biome/plugins/client-architecture/fixtures",
-      "!tools/biome/plugins/api-architecture/fixtures"
+      "!tools/biome/plugins/api-architecture/fixtures",
+      "!tools/biome/plugins/code-style/fixtures"
     ]
   },
   "plugins": [
@@ -359,6 +360,25 @@
         "!**/*.gen.ts",
         "!**/*.gen.tsx",
         "!**/libs/api/**/src/db/schema/common.ts"
+      ]
+    },
+    {
+      "path": "./tools/biome/plugins/code-style/no-empty-for-loop.grit",
+      "includes": [
+        "**/apps/**",
+        "**/e2e/**",
+        "**/infra/**",
+        "**/libs/**",
+        "**/tools/**",
+        "**/.github/scripts/**",
+        "!**/dist/**",
+        "!**/node_modules/**",
+        "!**/coverage/**",
+        "!**/generated/**",
+        "!**/__generated__/**",
+        "!**/*.gen.ts",
+        "!**/*.gen.tsx",
+        "!**/tools/biome/plugins/code-style/fixtures/**"
       ]
     }
   ],
