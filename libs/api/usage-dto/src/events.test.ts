@@ -67,6 +67,7 @@ const validSegment = {
   cacheCreationTokens: 0,
   cacheReadTokens: 4,
   reasoningTokens: 6,
+  webSearchRequests: 1,
   recordedAt: '2026-09-04T10:01:00.000Z',
 };
 

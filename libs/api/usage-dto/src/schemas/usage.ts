@@ -78,6 +78,7 @@ const inferenceSegmentInputObjectSchema = z
     cacheCreationTokens: usageCountSchema,
     cacheReadTokens: usageCountSchema,
     reasoningTokens: usageCountSchema,
+    webSearchRequests: usageCountSchema,
   })
   .strict();
 
@@ -152,6 +153,7 @@ const inferenceSegmentUsageHttpObjectSchema = z
     cache_creation_tokens: usageCountSchema,
     cache_read_tokens: usageCountSchema,
     reasoning_tokens: usageCountSchema,
+    web_search_requests: usageCountSchema,
     recorded_at: dateTimeSchema,
   })
   .strict();

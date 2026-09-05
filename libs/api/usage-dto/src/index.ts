@@ -32,3 +32,7 @@ export {
   usageJobExecutionStatusSchema,
   usageRunResponseSchema,
 } from './schemas/usage.js';
+export {
+  type NormalisedTokenClasses,
+  normaliseTokenClasses,
+} from './token-classes.js';

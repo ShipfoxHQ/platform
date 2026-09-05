@@ -126,6 +126,7 @@ function inferenceSegment(workspaceId = crypto.randomUUID()) {
     cacheCreationTokens: 0,
     cacheReadTokens: 4,
     reasoningTokens: 6,
+    webSearchRequests: 3,
   };
 }
 
@@ -311,7 +312,10 @@ describe('Usage projections', () => {
     expect(nextPage.nextCursor).toBeNull();
     const firstSegment = page.segments[0];
     if (!firstSegment) throw new Error('Expected a first inference segment');
-    expect(toInferenceSegmentUsage(firstSegment)).toMatchObject({workspaceId});
+    expect(toInferenceSegmentUsage(firstSegment)).toMatchObject({
+      workspaceId,
+      webSearchRequests: 3,
+    });
   });
 
   it('replays terminal job executions by a stable timestamp and id cursor', async () => {
