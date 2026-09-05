@@ -1,5 +1,15 @@
 # @shipfox/api-agent-access
 
+## 22.0.0
+
+### Patch Changes
+
+- 6fd8c7b: Omit absent cursors, attempts, filters, and execution IDs from agent tool requests.
+- Updated dependencies [c392dfb]
+- Updated dependencies [e390533]
+  - @shipfox/api-triggers-dto@22.0.0
+  - @shipfox/api-workflows-dto@22.0.0
+
 ## 21.2.0
 
 ### Minor Changes

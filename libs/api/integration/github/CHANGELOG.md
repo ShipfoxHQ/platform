@@ -1,5 +1,13 @@
 # @shipfox/api-integration-github
 
+## 22.0.0
+
+### Patch Changes
+
+- d452266: Fixes GitHub review-thread reads to use the provider's thread location fields.
+  - @shipfox/api-integration-github-dto@22.0.0
+  - @shipfox/api-integration-spi@4.1.1
+
 ## 21.2.0
 
 ### Minor Changes

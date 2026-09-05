@@ -1,5 +1,12 @@
 # @shipfox/client-onboarding
 
+## 36.0.0
+
+### Patch Changes
+
+- @shipfox/client-integrations@36.0.0
+- @shipfox/client-projects@36.0.0
+
 ## 35.0.0
 
 ### Patch Changes

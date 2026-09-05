@@ -1,5 +1,17 @@
 # @shipfox/runner-agent
 
+## 0.2.30
+
+### Patch Changes
+
+- 665f202: Stabilizes SVG rasterizer startup under emulation without extending render deadlines.
+- Updated dependencies [c392dfb]
+- Updated dependencies [e390533]
+  - @shipfox/api-workflows-dto@22.0.0
+  - @shipfox/runner-execution@0.1.43
+  - @shipfox/runner-protocol@0.2.36
+  - @shipfox/runner-workspace@0.0.38
+
 ## 0.2.29
 
 ### Patch Changes

@@ -1,5 +1,24 @@
 # @shipfox/api-integration-core
 
+## 22.0.0
+
+### Patch Changes
+
+- c392dfb: Adds typed synthetic listener dispatch and shared payload limits for production-shaped E2E coverage.
+- Updated dependencies [c392dfb]
+- Updated dependencies [e390533]
+- Updated dependencies [d452266]
+  - @shipfox/api-integration-core-dto@22.0.0
+  - @shipfox/api-workflows-dto@22.0.0
+  - @shipfox/api-integration-github@22.0.0
+  - @shipfox/api-integration-spi@4.1.1
+  - @shipfox/api-integration-gitea@22.0.0
+  - @shipfox/api-integration-jira@22.0.0
+  - @shipfox/api-integration-linear@22.0.0
+  - @shipfox/api-integration-sentry@22.0.0
+  - @shipfox/api-integration-slack@22.0.0
+  - @shipfox/api-integration-webhook@22.0.0
+
 ## 21.2.0
 
 ### Minor Changes
