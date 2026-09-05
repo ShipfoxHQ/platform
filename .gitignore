@@ -146,6 +146,9 @@ storybook-output/
 # Turbo cache
 .turbo
 
+# Biome root-config regression probes
+tools/biome/.root-config-probe-*/
+
 # Client composition output
 apps/client/src/shipfox-app.gen.ts
 

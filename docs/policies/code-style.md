@@ -62,6 +62,10 @@ Don't use the fully empty `for (;;)` form. Write it as `while (true)`. A `for`
 loop may omit its condition when an initializer or update clause makes the loop
 state explicit.
 
+Mirrored skill assets under `.agents/skills`, `.claude/skills`, and
+`.github/skills` are exempt from this repository-local rule. Update their
+upstream source instead of editing the local copies.
+
 Name a conditional decision before branching when it combines multiple ideas.
 A name such as `hasPendingStep` or `shouldRetry` makes the branch read as a
 sentence. Inline checks work for obvious single comparisons.

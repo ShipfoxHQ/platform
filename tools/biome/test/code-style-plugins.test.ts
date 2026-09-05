@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
+import {
+  createRootConfigProbe,
+  removeRootConfigProbe,
+  removeStaleRootConfigProbes,
+} from './root-config-probes.js';
 
 const execFileAsync = promisify(execFile);
 const packageDirectory = dirname(fileURLToPath(import.meta.url));
@@ -19,25 +24,10 @@ const fixtureRoot = resolve(
 );
 const diagnosticPattern = /code-style\/no-fully-empty-for-loop/u;
 const rejectedLocationPattern = /rejected\.ts:2:3/u;
-const rootConfigProbePrefix = resolve(workspaceRoot, 'tools/biome/.root-config-probe-');
-const maintainedSourceIncludes = [
-  '**/apps/**',
-  '**/e2e/**',
-  '**/infra/**',
-  '**/libs/**',
-  '**/tools/**',
-  '**/.github/scripts/**',
-  '!**/dist/**',
-  '!**/node_modules/**',
-  '!**/coverage/**',
-  '!**/generated/**',
-  '!**/__generated__/**',
-  '!**/*.gen.ts',
-  '!**/*.gen.tsx',
-  '!**/tools/biome/plugins/code-style/fixtures/**',
-];
 
 describe('code-style Biome plugins', () => {
+  beforeAll(removeStaleRootConfigProbes);
+
   test('rejects a fully empty for loop', async () => {
     await assert.rejects(
       execFileAsync(process.execPath, [biomeCheck, '--config-path', fixtureConfig, fixtureRoot], {
@@ -66,17 +56,43 @@ describe('code-style Biome plugins', () => {
   test('registers the rule for maintained source roots', async () => {
     const config = JSON.parse(await readFile(resolve(workspaceRoot, 'biome.json'), 'utf8')) as {
       plugins: {includes: string[]; path: string}[];
+      overrides: {
+        includes?: string[];
+        linter?: {
+          rules?: {
+            complexity?: {
+              noExcessiveCognitiveComplexity?: {level?: string};
+            };
+          };
+        };
+      }[];
     };
     const plugin = config.plugins.find(({path}) => path.endsWith('/no-fully-empty-for-loop.grit'));
+    const maintainedSourceOverride = config.overrides.find(
+      ({linter}) =>
+        linter?.rules?.complexity?.noExcessiveCognitiveComplexity?.level === 'error',
+    );
 
-    assert.deepEqual(plugin, {
-      path: './tools/biome/plugins/code-style/no-fully-empty-for-loop.grit',
-      includes: maintainedSourceIncludes,
-    });
+    assert.ok(plugin, 'Expected the root Biome config to register no-fully-empty-for-loop.');
+    assert.ok(maintainedSourceOverride, 'Expected the maintained-source override to exist.');
+
+    const expectedSourceRoots = (maintainedSourceOverride.includes ?? [])
+      .filter((include) => !include.startsWith('!'))
+      .map((include) => `**/${include}`);
+    const pluginSourceRoots = plugin.includes.filter((include) => !include.startsWith('!'));
+
+    assert.equal(plugin.path, './tools/biome/plugins/code-style/no-fully-empty-for-loop.grit');
+    assert.deepEqual(pluginSourceRoots, expectedSourceRoots);
+
+    for (const exclusion of (maintainedSourceOverride.includes ?? []).filter((include) =>
+      include.startsWith('!'),
+    )) {
+      assert.ok(plugin.includes.includes(exclusion), `Expected the plugin to preserve ${exclusion}.`);
+    }
   });
 
   test('enforces the rule through the real root config', async () => {
-    const probeRoot = await mkdtemp(rootConfigProbePrefix);
+    const probeRoot = await createRootConfigProbe();
     const probePath = resolve(probeRoot, 'fully-empty-for-loop.ts');
 
     try {
@@ -87,7 +103,9 @@ describe('code-style Biome plugins', () => {
         ),
       );
       await assert.rejects(
-        execFileAsync(process.execPath, [biomeCheck, probePath], {cwd: workspaceRoot}),
+        execFileAsync(process.execPath, [biomeCheck, '--vcs-use-ignore-file=false', probePath], {
+          cwd: workspaceRoot,
+        }),
         (error: unknown) => {
           const commandError = error as {stdout?: string; stderr?: string};
           assert.match(
@@ -98,7 +116,7 @@ describe('code-style Biome plugins', () => {
         },
       );
     } finally {
-      await rm(probeRoot, {recursive: true, force: true});
+      await removeRootConfigProbe(probeRoot);
     }
   });
 });
