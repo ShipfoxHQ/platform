@@ -1,0 +1,38 @@
+{
+  "projectId": "f6a18036-8b26-4041-9cfe-7ae450df78ef",
+  "pkg": "@shipfox/react-ui",
+  "shape": "storybook",
+  "storybookConfigDir": "libs/shared/react/ui/.storybook",
+  "storybookStatic": ".design-sync/sb-reference",
+  "buildCmd": "turbo run build --filter=@shipfox/react-ui...",
+  "readmeHeader": ".design-sync/conventions.md",
+  "titleMap": {
+    "Loader": "ShipfoxLoader",
+    "Toast": "Toaster"
+  },
+  "provider": {
+    "component": "ThemeProvider",
+    "props": { "defaultTheme": "system", "storageKey": "shipfox-theme-system" }
+  },
+  "overrides": {
+    "IconButton": { "cardMode": "column" },
+    "Alert": { "cardMode": "column" },
+    "Badge": { "cardMode": "column" },
+    "Button": { "cardMode": "column" },
+    "Card": { "cardMode": "column" },
+    "Combobox": { "cardMode": "column" },
+    "EmptyState": { "cardMode": "column" },
+    "FormField": { "cardMode": "column" },
+    "Input": { "cardMode": "column" },
+    "LoadErrorState": { "cardMode": "column" },
+    "Modal": { "cardMode": "column" },
+    "RadioGroup": { "cardMode": "column" },
+    "ShipfoxLoader": { "cardMode": "column" },
+    "Skeleton": { "cardMode": "column" },
+    "Table": { "cardMode": "column" },
+    "Tabs": { "cardMode": "column" },
+    "DropdownMenu": { "cardMode": "single", "primaryStory": "Default" },
+    "Sheet": { "cardMode": "single", "primaryStory": "Default" },
+    "Tooltip": { "cardMode": "single", "primaryStory": "Default" }
+  }
+}

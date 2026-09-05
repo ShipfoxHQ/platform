@@ -167,3 +167,11 @@ screenshots/
 
 # Local scratch backlog; tracked work lives in Linear
 TODOS.md
+
+# design-sync (claude.ai/design)
+.ds-sync/
+ds-bundle/
+.design-sync/sb-reference/
+.design-sync/learnings/
+.design-sync/.cache/
+.design-sync/node_modules
