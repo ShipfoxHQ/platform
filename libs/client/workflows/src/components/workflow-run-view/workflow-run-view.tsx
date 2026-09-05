@@ -1,5 +1,6 @@
 import {ApiError} from '@shipfox/client-api';
 import {QueryLoadError} from '@shipfox/client-ui';
+import {type RunUsage, useRunUsageQuery} from '@shipfox/client-usage';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {EmptyState} from '@shipfox/react-ui/empty-state';
@@ -86,6 +87,7 @@ type WorkflowRunShell =
 
 export interface WorkflowRunViewProps {
   projectId: string;
+  workspaceId?: string | undefined;
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
   workflowRunId?: string | undefined;
@@ -104,6 +106,7 @@ export interface WorkflowRunViewProps {
  */
 export function WorkflowRunView({
   projectId,
+  workspaceId,
   workspaceSlug,
   projectSlug,
   workflowRunId,
@@ -221,6 +224,7 @@ export function WorkflowRunView({
     <RelativeTimeProvider>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <RunViewContent
+          workspaceId={workspaceId}
           workspaceSlug={workspaceSlug}
           projectSlug={projectSlug}
           headQuery={headQuery}
@@ -533,6 +537,7 @@ function useRefreshWorkflowRunHeadOnTerminal({
 }
 
 function RunViewContent({
+  workspaceId,
   workspaceSlug,
   projectSlug,
   headQuery,
@@ -554,6 +559,7 @@ function RunViewContent({
   jobContent,
   selectionResolutionEnabled,
 }: {
+  workspaceId: string | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   headQuery: ReturnType<typeof useWorkflowRunLineageHeadQuery>;
@@ -665,6 +671,7 @@ function RunViewContent({
 
   return (
     <RunViewLayout
+      workspaceId={workspaceId}
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
       headQuery={headQuery}
@@ -712,6 +719,7 @@ function selectedRunJobId({
 }
 
 function RunViewLayout({
+  workspaceId,
   workspaceSlug,
   projectSlug,
   headQuery,
@@ -741,6 +749,7 @@ function RunViewLayout({
   onClearAnnotationFilters,
   onClearSelection,
 }: {
+  workspaceId: string | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   headQuery: ReturnType<typeof useWorkflowRunLineageHeadQuery>;
@@ -770,6 +779,14 @@ function RunViewLayout({
   onClearAnnotationFilters: () => void;
   onClearSelection: () => void;
 }) {
+  const usageQuery = useRunUsageQuery({
+    workspaceId,
+    workflowRunId: shellRun?.id,
+    enabled: shellRun !== undefined,
+    polling: shellRun
+      ? !isWorkflowRunTerminal(headQuery.data?.currentStatus ?? shellRun.runAttempt.status)
+      : false,
+  });
   const newerAttempt =
     shellRun && headQuery.data && headQuery.data.latestAttempt > shellRun.runAttempt.attempt
       ? headQuery.data.latestAttempt
@@ -788,6 +805,7 @@ function RunViewLayout({
           rerunPending={rerunPending}
           onRerun={onRerun}
           latestAttempt={headQuery.data?.latestAttempt ?? shellRun.latestAttempt}
+          usage={usageQuery.data}
         />
       ) : (
         <WorkflowRunSkeleton />
@@ -836,6 +854,7 @@ function RunViewLayout({
               annotations={annotations}
               jobExplanations={jobExplanations}
               annotationSummary={annotationSummary}
+              usage={usageQuery.data}
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
               selection={selection}
@@ -866,6 +885,7 @@ function RunWorkspaceContent({
   annotations,
   jobExplanations,
   annotationSummary,
+  usage,
   workspaceSlug,
   projectSlug,
   selection,
@@ -890,6 +910,7 @@ function RunWorkspaceContent({
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
   jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
+  usage: RunUsage | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   selection: WorkflowRunsSearch | undefined;
@@ -947,6 +968,7 @@ function RunWorkspaceContent({
       annotations={annotations}
       jobExplanations={jobExplanations}
       annotationSummary={annotationSummary}
+      usage={usage}
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
       selection={selection}
@@ -1016,6 +1038,7 @@ function RunSectionContent({
   annotations,
   jobExplanations,
   annotationSummary,
+  usage,
   workspaceSlug,
   projectSlug,
   selection,
@@ -1032,6 +1055,7 @@ function RunSectionContent({
   annotations: ReturnType<typeof useRunAnnotationsQuery>;
   jobExplanations: ReturnType<typeof useRunJobExplanationsQuery>;
   annotationSummary: RunAnnotationSummary | undefined;
+  usage: RunUsage | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   selection: WorkflowRunsSearch | undefined;
@@ -1056,6 +1080,7 @@ function RunSectionContent({
           {run.jobs.kind === 'large' ? (
             <WorkflowRunLargeJobs
               run={run}
+              usage={usage}
               workspaceSlug={workspaceSlug}
               projectSlug={projectSlug}
             />

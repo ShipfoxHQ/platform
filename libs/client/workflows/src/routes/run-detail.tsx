@@ -14,6 +14,7 @@ export default defineRoute({
         {(project) => (
           <WorkflowRunDetailPage
             projectId={project.id}
+            workspaceId={project.workspaceId}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
             workflowRunId={workflowRunId}

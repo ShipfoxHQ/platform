@@ -1,11 +1,11 @@
 {
-  "name": "@shipfox/client-workflows",
+  "name": "@shipfox/client-usage",
   "license": "MIT",
-  "version": "35.0.0",
+  "version": "34.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",
-    "directory": "libs/client/workflows"
+    "directory": "libs/client/usage"
   },
   "type": "module",
   "main": "dist/index.js",
@@ -15,8 +15,7 @@
       "types": "./src/*",
       "workspace-source": "./src/*",
       "default": "./dist/*"
-    },
-    "#test/*": "./test/*"
+    }
   },
   "exports": {
     ".": {
@@ -28,33 +27,13 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
-    },
-    "./feature": {
-      "workspace-source": {
-        "types": "./src/feature.ts",
-        "default": "./src/feature.ts"
-      },
-      "default": {
-        "types": "./dist/feature.d.ts",
-        "default": "./dist/feature.js"
-      }
-    },
-    "./routes/*": {
-      "workspace-source": {
-        "types": "./src/routes/*.tsx",
-        "default": "./src/routes/*.tsx"
-      },
-      "default": {
-        "types": "./dist/routes/*.d.ts",
-        "default": "./dist/routes/*.js"
-      }
     }
   },
   "scripts": {
     "build": "shipfox-swc",
     "check": "shipfox-biome-check",
     "check:fix": "shipfox-biome-check --write",
-    "storybook": "storybook dev -p 6007",
+    "storybook": "storybook dev -p 6017",
     "storybook:build": "storybook build -o storybook-static",
     "test": "shipfox-vitest-run",
     "test:watch": "shipfox-vitest-watch",
@@ -62,26 +41,14 @@
     "type:emit": "shipfox-tsc-emit"
   },
   "dependencies": {
-    "@shipfox/annotations-dto": "workspace:*",
-    "@shipfox/api-definitions-dto": "workspace:*",
-    "@shipfox/api-triggers-dto": "workspace:*",
-    "@shipfox/api-workflows-dto": "workspace:*",
+    "@shipfox/api-usage-dto": "workspace:*",
     "@shipfox/client-api": "workspace:*",
-    "@shipfox/client-integrations": "workspace:*",
-    "@shipfox/client-logs": "workspace:*",
-    "@shipfox/client-projects": "workspace:*",
     "@shipfox/client-shell": "workspace:*",
-    "@shipfox/client-triggers": "workspace:*",
-    "@shipfox/client-ui": "workspace:*",
-    "@shipfox/client-usage": "workspace:*",
     "@shipfox/react-ui": "workspace:*",
-    "@shipfox/regex": "workspace:*",
-    "@swc/helpers": "catalog:",
-    "date-fns": "catalog:"
+    "@swc/helpers": "catalog:"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.101.0",
-    "@tanstack/react-router": "^1.170.16",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -100,16 +67,12 @@
     "@storybook/react-vite": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "catalog:",
-    "@tanstack/react-router": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
-    "@testing-library/user-event": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/browser-playwright": "catalog:",
-    "happy-dom": "catalog:",
-    "jotai": "catalog:",
     "jsdom": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

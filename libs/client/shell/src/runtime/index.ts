@@ -33,6 +33,7 @@ export * from './anchors.js';
 export * from './auth.js';
 export * from './chrome-context.js';
 export * from './client-analytics.js';
+export * from './client-usage-pricing.js';
 export * from './compose-client-app.js';
 export * from './define-route.js';
 export * from './last-workspace.js';

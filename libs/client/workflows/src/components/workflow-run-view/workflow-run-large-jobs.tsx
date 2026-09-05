@@ -1,3 +1,4 @@
+import {JobUsageCells, type RunUsage} from '@shipfox/client-usage';
 import {Button} from '@shipfox/react-ui/button';
 import {Callout} from '@shipfox/react-ui/callout';
 import {Panel, PanelBody, PanelHeader} from '@shipfox/react-ui/panel';
@@ -17,6 +18,7 @@ import {WorkflowStatusIcon} from '../workflow-status/workflow-status-icon.js';
 
 export interface WorkflowRunLargeJobsProps {
   run: WorkflowRunOverview;
+  usage?: RunUsage | undefined;
   workspaceSlug?: string | undefined;
   projectSlug?: string | undefined;
 }
@@ -29,12 +31,18 @@ type LargeWorkflowRunOverview = Omit<WorkflowRunOverview, 'jobs'> & {
  * The honest large-workflow surface. The overview deliberately withholds dependency edges, so
  * this list never tries to reconstruct a partial graph from the first page.
  */
-export function WorkflowRunLargeJobs({run, workspaceSlug, projectSlug}: WorkflowRunLargeJobsProps) {
+export function WorkflowRunLargeJobs({
+  run,
+  usage,
+  workspaceSlug,
+  projectSlug,
+}: WorkflowRunLargeJobsProps) {
   if (run.jobs.kind !== 'large') return null;
 
   return (
     <WorkflowRunLargeJobsContent
       run={run as LargeWorkflowRunOverview}
+      usage={usage}
       workspaceSlug={workspaceSlug}
       projectSlug={projectSlug}
     />
@@ -43,6 +51,7 @@ export function WorkflowRunLargeJobs({run, workspaceSlug, projectSlug}: Workflow
 
 function WorkflowRunLargeJobsContent({
   run,
+  usage,
   workspaceSlug,
   projectSlug,
 }: Omit<WorkflowRunLargeJobsProps, 'run'> & {run: LargeWorkflowRunOverview}) {
@@ -105,6 +114,7 @@ function WorkflowRunLargeJobsContent({
                   key={job.id}
                   job={job}
                   workflowRunId={run.id}
+                  usage={usage}
                   workspaceSlug={workspaceSlug}
                   projectSlug={projectSlug}
                   runAttempt={run.runAttempt.attempt}
@@ -135,16 +145,33 @@ function WorkflowRunLargeJobsContent({
 function LargeWorkflowJobRow({
   job,
   workflowRunId,
+  usage,
   workspaceSlug,
   projectSlug,
   runAttempt,
 }: {
   job: WorkflowRunOverviewJob;
   workflowRunId: string;
+  usage: RunUsage | undefined;
   workspaceSlug: string | undefined;
   projectSlug: string | undefined;
   runAttempt: number;
 }) {
+  const jobExecutionId = job.defaultExecution?.id;
+  const jobExecution = jobExecutionId
+    ? usage?.jobExecutions.find((candidate) => candidate.jobExecutionId === jobExecutionId)
+    : undefined;
+  const inferenceSegments = usage?.inferenceSegments;
+  const jobUsage = useMemo(() => {
+    if (!jobExecution) return undefined;
+    return {
+      jobExecution,
+      inferenceSegments:
+        inferenceSegments?.filter(
+          (segment) => segment.jobExecutionId === jobExecution.jobExecutionId,
+        ) ?? [],
+    };
+  }, [inferenceSegments, jobExecution]);
   const content = (
     <>
       <WorkflowStatusIcon status={job.displayStatus} size={14} tooltip={false} />
@@ -159,6 +186,7 @@ function LargeWorkflowJobRow({
       <span className="w-72 shrink-0 text-right font-code text-xs tabular-nums text-foreground-neutral-muted">
         {job.displayDuration ? <JobExecutionTimeText time={job.displayDuration} /> : '-'}
       </span>
+      <JobUsageCells usage={jobUsage} />
     </>
   );
   const className =

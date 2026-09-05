@@ -16,6 +16,7 @@ import {type WorkflowJobSearch, workflowJobSearchParams} from '#routes/inputs.js
 
 export interface WorkflowJobDetailPageProps {
   projectId: string;
+  workspaceId?: string | undefined;
   workspaceSlug: string;
   projectSlug: string;
   workflowRunId: string;
@@ -25,6 +26,7 @@ export interface WorkflowJobDetailPageProps {
 
 export function WorkflowJobDetailPage({
   projectId,
+  workspaceId,
   workspaceSlug,
   projectSlug,
   workflowRunId,
@@ -86,6 +88,7 @@ export function WorkflowJobDetailPage({
     >
       <WorkflowRunView
         projectId={projectId}
+        workspaceId={workspaceId}
         workspaceSlug={workspaceSlug}
         projectSlug={projectSlug}
         workflowRunId={workflowRunId}
@@ -96,6 +99,7 @@ export function WorkflowJobDetailPage({
         jobContent={
           <JobDetailView
             key={jobId}
+            workspaceId={workspaceId}
             workspaceSlug={workspaceSlug}
             projectSlug={projectSlug}
             workflowRunId={workflowRunId}

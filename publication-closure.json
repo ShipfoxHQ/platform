@@ -97,6 +97,7 @@
     "@shipfox/client-shell",
     "@shipfox/client-triggers",
     "@shipfox/client-ui",
+    "@shipfox/client-usage",
     "@shipfox/client-workflows",
     "@shipfox/client-workspace-settings",
     "@shipfox/config",
