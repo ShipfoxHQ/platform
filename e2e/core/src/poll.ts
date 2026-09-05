@@ -66,7 +66,7 @@ export async function pollUntil<T>(
   const backoffFactor = Math.max(1, options.backoffFactor ?? DEFAULT_BACKOFF_FACTOR);
   let lastError: unknown;
 
-  for (;;) {
+  while (true) {
     if (options.signal?.aborted) {
       throw new Error(`Stopped waiting for ${options.describe()}`);
     }

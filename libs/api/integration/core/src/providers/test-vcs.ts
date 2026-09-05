@@ -191,7 +191,7 @@ export class TestVcsSourceControlProvider implements SourceControlProvider<TestV
       input.permissions,
       configuration,
     );
-    for (;;) {
+    while (true) {
       const cached = this.cachedCredentials.get(cacheKey);
       if (
         cached !== undefined &&

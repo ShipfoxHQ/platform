@@ -19,7 +19,7 @@ export function inspectSvgPolicy(source: Uint8Array): SvgPolicyRejection | undef
   }
 
   CSS_URL_START.lastIndex = 0;
-  for (;;) {
+  while (true) {
     const match = CSS_URL_START.exec(text);
     if (match === null) break;
     const closeIndex = cssUrlEnd(text, CSS_URL_START.lastIndex);
