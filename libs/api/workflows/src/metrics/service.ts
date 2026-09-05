@@ -23,12 +23,7 @@ function createListenerEventStorageStatsCache(): () => Promise<ListenerEventStor
         refresh = undefined;
       });
 
-    try {
-      return await refresh;
-    } catch (error) {
-      if (cached) return cached.value;
-      throw error;
-    }
+    return await refresh;
   };
 }
 

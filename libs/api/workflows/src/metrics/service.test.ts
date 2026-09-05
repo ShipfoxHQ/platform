@@ -152,4 +152,50 @@ describe('registerWorkflowsServiceMetrics', () => {
       ),
     ).toBe(false);
   });
+
+  test('omits expired storage gauges when a refresh fails', async () => {
+    vi.useFakeTimers();
+    try {
+      const storageStats = {
+        listenerEventRows: 7,
+        listenerEventPayloadBytes: 8,
+        consumedListenerEventOldestAgeMilliseconds: 9,
+        pendingListenerEventOldestAgeMilliseconds: 10,
+        duplicateTriggerEventsBytes: 11,
+      };
+      mocks.getWorkflowJobExecutionDepth.mockResolvedValue({
+        runningRuns: 2,
+        runningJobExecutions: 3,
+      });
+      mocks.countActiveListeners.mockResolvedValue(4);
+      mocks.getToolInvocationDepth.mockResolvedValue({queued: 5, inFlight: 6});
+      mocks.getListenerEventStorageStats
+        .mockResolvedValueOnce(storageStats)
+        .mockRejectedValueOnce(new Error('storage unavailable'));
+
+      registerWorkflowsServiceMetrics();
+      const callback = mocks.addBatchObservableCallback.mock.calls[0]?.[0];
+      const observer = {observe: vi.fn()};
+
+      await callback?.(observer);
+      expect(observer.observe).toHaveBeenCalledWith(
+        mocks.gauges.get('workflows_duplicate_trigger_events_bytes'),
+        11,
+      );
+
+      vi.advanceTimersByTime(60_001);
+      observer.observe.mockClear();
+      await callback?.(observer);
+
+      expect(observer.observe).toHaveBeenCalledWith(mocks.gauges.get('workflows_running_runs'), 2);
+      expect(
+        observer.observe.mock.calls.some(
+          ([gauge]) => gauge === mocks.gauges.get('workflows_listener_event_rows'),
+        ),
+      ).toBe(false);
+      expect(mocks.getListenerEventStorageStats).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

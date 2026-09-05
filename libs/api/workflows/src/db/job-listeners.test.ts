@@ -1587,7 +1587,7 @@ describe('getListenerEventStorageStats', () => {
           payload: {state: 'consumed'},
           storedPayloadBytes: 11,
           normalizedEventBytes: 12,
-          receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+          receivedAt: new Date('1970-01-01T00:00:00.000Z'),
           consumedByExecutionId: execution.id,
         },
         {
@@ -1601,7 +1601,7 @@ describe('getListenerEventStorageStats', () => {
           payload: {state: 'pending'},
           storedPayloadBytes: 13,
           normalizedEventBytes: 14,
-          receivedAt: new Date('2026-01-02T00:00:00.000Z'),
+          receivedAt: new Date('1970-01-01T00:01:00.000Z'),
         },
         {
           jobId: job.id,
@@ -1643,8 +1643,14 @@ describe('getListenerEventStorageStats', () => {
 
     expect(after.listenerEventRows - before.listenerEventRows).toBe(4);
     expect(after.listenerEventPayloadBytes - before.listenerEventPayloadBytes).toBe(41);
-    expect(after.consumedListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
-    expect(after.pendingListenerEventOldestAgeMilliseconds).toBeGreaterThan(0);
+    expect(
+      after.consumedListenerEventOldestAgeMilliseconds -
+        before.consumedListenerEventOldestAgeMilliseconds,
+    ).toBeGreaterThan(0);
+    expect(
+      after.pendingListenerEventOldestAgeMilliseconds -
+        before.pendingListenerEventOldestAgeMilliseconds,
+    ).toBeGreaterThan(0);
     expect(afterArray.duplicateTriggerEventsBytes).toBeGreaterThan(
       before.duplicateTriggerEventsBytes,
     );

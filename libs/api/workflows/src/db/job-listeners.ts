@@ -63,8 +63,8 @@ import {
 import {writeWorkflowsOutboxEvent} from './outbox-writes.js';
 import {
   type JobExecutionDb,
-  type JobExecutionDbWithoutTriggerEvents,
   jobExecutions,
+  jobExecutionWithoutTriggerEventsSelection,
   toJobExecution,
 } from './schema/job-executions.js';
 import {type JobListenerEventDb, jobListenerEvents} from './schema/job-listener-events.js';
@@ -110,32 +110,6 @@ function recordFinalizedListenerEventMetrics(
     recordWorkflowListenerEventOutcome('abandoned', reason, counts.abandoned);
   }
 }
-
-const listenerPriorExecutionSelection = {
-  id: jobExecutions.id,
-  jobId: jobExecutions.jobId,
-  sequence: jobExecutions.sequence,
-  name: jobExecutions.name,
-  runner: jobExecutions.runner,
-  runnerLabels: jobExecutions.runnerLabels,
-  templateKey: jobExecutions.templateKey,
-  provisionerId: jobExecutions.provisionerId,
-  provisionerScope: jobExecutions.provisionerScope,
-  providerKind: jobExecutions.providerKind,
-  launchKind: jobExecutions.launchKind,
-  status: jobExecutions.status,
-  statusReason: jobExecutions.statusReason,
-  statusReasonMessage: jobExecutions.statusReasonMessage,
-  outputs: jobExecutions.outputs,
-  evaluationTrace: jobExecutions.evaluationTrace,
-  version: jobExecutions.version,
-  createdAt: jobExecutions.createdAt,
-  updatedAt: jobExecutions.updatedAt,
-  queuedAt: jobExecutions.queuedAt,
-  startedAt: jobExecutions.startedAt,
-  finishedAt: jobExecutions.finishedAt,
-  timedOutAt: jobExecutions.timedOutAt,
-} satisfies Record<keyof JobExecutionDbWithoutTriggerEvents, unknown>;
 
 export interface ActivateJobListenerParams {
   jobId: string;
@@ -1086,7 +1060,7 @@ async function loadListenerPriorExecutions(
 ): Promise<JobExecution[]> {
   if (!includeTriggerEvents) {
     const priorExecutions = await source
-      .select(listenerPriorExecutionSelection)
+      .select(jobExecutionWithoutTriggerEventsSelection)
       .from(jobExecutions)
       .where(eq(jobExecutions.jobId, jobId))
       .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));

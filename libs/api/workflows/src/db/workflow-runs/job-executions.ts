@@ -24,7 +24,12 @@ import {
 } from '#metrics/instance.js';
 import {db, type Tx} from '../db.js';
 import {loadJobExecutionsWithCanonicalTriggerEvents} from '../execution-trigger-events.js';
-import {type JobExecutionDb, jobExecutions, toJobExecution} from '../schema/job-executions.js';
+import {
+  type JobExecutionDb,
+  jobExecutions,
+  jobExecutionWithoutTriggerEventsSelection,
+  toJobExecution,
+} from '../schema/job-executions.js';
 import {jobs, toJob} from '../schema/jobs.js';
 import {stepAttempts, toStepAttempt} from '../schema/step-attempts.js';
 import {steps, toStep} from '../schema/steps.js';
@@ -72,15 +77,22 @@ export async function getJobExecutionsByWorkflowRunAttemptId(
   workflowRunAttemptId: string,
   options: {includeTriggerEvents?: boolean} = {},
 ): Promise<JobExecution[]> {
+  if (options.includeTriggerEvents === false) {
+    const rows = await db()
+      .select({jobExecution: jobExecutionWithoutTriggerEventsSelection, job: jobs})
+      .from(jobExecutions)
+      .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
+      .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
+      .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
+    return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
+  }
+
   const rows = await db()
     .select({jobExecution: jobExecutions, job: jobs})
     .from(jobExecutions)
     .innerJoin(jobs, eq(jobExecutions.jobId, jobs.id))
     .where(eq(jobs.workflowRunAttemptId, workflowRunAttemptId))
     .orderBy(asc(jobExecutions.sequence), asc(jobExecutions.id));
-  if (options.includeTriggerEvents === false) {
-    return rows.map((row) => toJobExecution(row.jobExecution, row.job.name ?? row.job.key));
-  }
   const executions = await loadJobExecutionsWithCanonicalTriggerEvents(
     db(),
     rows.map((row) => row.jobExecution),

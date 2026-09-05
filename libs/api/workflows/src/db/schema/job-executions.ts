@@ -82,6 +82,32 @@ export type JobExecutionDb = typeof jobExecutions.$inferSelect;
 export type JobExecutionDbWithoutTriggerEvents = Omit<JobExecutionDb, 'triggerEvents'>;
 export type JobExecutionCreateDb = typeof jobExecutions.$inferInsert;
 
+export const jobExecutionWithoutTriggerEventsSelection = {
+  id: jobExecutions.id,
+  jobId: jobExecutions.jobId,
+  sequence: jobExecutions.sequence,
+  name: jobExecutions.name,
+  runner: jobExecutions.runner,
+  runnerLabels: jobExecutions.runnerLabels,
+  templateKey: jobExecutions.templateKey,
+  provisionerId: jobExecutions.provisionerId,
+  provisionerScope: jobExecutions.provisionerScope,
+  providerKind: jobExecutions.providerKind,
+  launchKind: jobExecutions.launchKind,
+  status: jobExecutions.status,
+  statusReason: jobExecutions.statusReason,
+  statusReasonMessage: jobExecutions.statusReasonMessage,
+  outputs: jobExecutions.outputs,
+  evaluationTrace: jobExecutions.evaluationTrace,
+  version: jobExecutions.version,
+  createdAt: jobExecutions.createdAt,
+  updatedAt: jobExecutions.updatedAt,
+  queuedAt: jobExecutions.queuedAt,
+  startedAt: jobExecutions.startedAt,
+  finishedAt: jobExecutions.finishedAt,
+  timedOutAt: jobExecutions.timedOutAt,
+} satisfies Record<keyof JobExecutionDbWithoutTriggerEvents, unknown>;
+
 export function toJobExecution(
   row: JobExecutionDb | JobExecutionDbWithoutTriggerEvents,
   fallbackName: string,
