@@ -31,7 +31,7 @@ import {
   triggerWebhookAndAwaitRun,
   type WebhookDiagnosticsRequest,
 } from './webhook.js';
-import {seedAndWaitForDefinition, seedWorkflowProject} from './workflow-project.js';
+import {seedProjectWithApiDefinition, seedWorkflowProject} from './workflow-project.js';
 
 const REJECTION_NO_RUN_TIMEOUT_MS = 15_000;
 const E2E_SECRET_ACTOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -294,7 +294,7 @@ async function seedScenarioProject(params: {
     const seeded = await seedWorkflowProject(seedParams);
     return {definition: undefined, project: seeded.project, giteaIssue: seeded.giteaIssue};
   }
-  const seeded = await seedAndWaitForDefinition(seedParams);
+  const seeded = await seedProjectWithApiDefinition(seedParams);
   return {
     definition: seeded.definition,
     project: seeded.project,
