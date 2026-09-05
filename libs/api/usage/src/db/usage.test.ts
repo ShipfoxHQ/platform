@@ -1,4 +1,5 @@
 import type {RunnerJobClaimedEvent, RunnerJobLeaseExpiredEvent} from '@shipfox/api-runners-dto';
+import {inferenceSegmentUsageHttpSchema} from '@shipfox/api-usage-dto';
 import type {
   WorkflowsJobExecutionQueuedEventDto,
   WorkflowsJobExecutionTerminatedEventDto,
@@ -319,6 +320,12 @@ describe('Usage projections', () => {
     });
     expect(toInferenceSegmentUsageDto(firstSegment)).toMatchObject({
       web_search_requests: 3,
+    });
+    const {web_search_requests: webSearchRequests, ...legacyHttpDto} =
+      toInferenceSegmentUsageDto(firstSegment);
+    void webSearchRequests;
+    expect(inferenceSegmentUsageHttpSchema.parse(legacyHttpDto)).toMatchObject({
+      web_search_requests: 0,
     });
   });
 

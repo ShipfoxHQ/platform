@@ -6,6 +6,7 @@ import {
   usageInferenceSegmentRecordedEventSchema,
   usageJobExecutionRecordedEventSchema,
 } from './events.js';
+import {inferenceSegmentInputSchema} from './schemas/usage.js';
 
 const ids = {
   workspaceId: crypto.randomUUID(),
@@ -104,6 +105,25 @@ describe('Usage event contracts', () => {
     expect(() =>
       usageInferenceSegmentRecordedEventSchema.parse({...validSegment, version: 1, extra: true}),
     ).toThrow();
+  });
+
+  it('accepts the maximum persisted web-search count', () => {
+    const {id, recordedAt, ...validInputSegment} = validSegment;
+    void id;
+    void recordedAt;
+    expect(
+      inferenceSegmentInputSchema.parse({
+        ...validInputSegment,
+        webSearchRequests: 2_147_483_647,
+      }),
+    ).toEqual({...validInputSegment, webSearchRequests: 2_147_483_647});
+    expect(
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        webSearchRequests: 2_147_483_647,
+        version: 1,
+      }),
+    ).toMatchObject({webSearchRequests: 2_147_483_647});
   });
 
   it('rejects invalid inference windows and unsafe counters', () => {
