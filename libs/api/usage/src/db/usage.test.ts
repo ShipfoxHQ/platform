@@ -4,6 +4,7 @@ import type {
   WorkflowsJobExecutionTerminatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {eq, sql} from 'drizzle-orm';
+import {toInferenceSegmentUsageDto} from '#presentation/dto.js';
 import {db} from './db.js';
 import {
   listInferenceSegments,
@@ -315,6 +316,9 @@ describe('Usage projections', () => {
     expect(toInferenceSegmentUsage(firstSegment)).toMatchObject({
       workspaceId,
       webSearchRequests: 3,
+    });
+    expect(toInferenceSegmentUsageDto(firstSegment)).toMatchObject({
+      web_search_requests: 3,
     });
   });
 

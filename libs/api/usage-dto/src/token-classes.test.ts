@@ -34,6 +34,24 @@ describe('normaliseTokenClasses', () => {
     });
   });
 
+  it('clamps an OpenAI cache subset that exceeds reported input', () => {
+    expect(
+      normaliseTokenClasses({
+        ...baseSegment,
+        dialect: 'openai-responses',
+        inputTokens: 10,
+        cacheReadTokens: 20,
+      }),
+    ).toEqual({
+      inputTokens: 0,
+      cachedInputTokens: 20,
+      cacheWriteTokens: 0,
+      outputTokens: 30,
+      totalTokens: 50,
+      cacheHitRate: 1,
+    });
+  });
+
   it.each([
     'anthropic-messages',
     'openai-completions',

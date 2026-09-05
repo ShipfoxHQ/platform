@@ -87,6 +87,14 @@ describe('Usage event contracts', () => {
       ...validSegment,
       version: 1,
     });
+
+    const {webSearchRequests, ...legacySegment} = validSegment;
+    void webSearchRequests;
+    expect(usageInferenceSegmentRecordedEventSchema.parse({...legacySegment, version: 1})).toEqual({
+      ...legacySegment,
+      webSearchRequests: 0,
+      version: 1,
+    });
   });
 
   it('rejects unknown fields and non-v1 event versions', () => {
@@ -124,6 +132,13 @@ describe('Usage event contracts', () => {
       usageInferenceSegmentRecordedEventSchema.parse({
         ...validSegment,
         inputTokens: Number.MAX_SAFE_INTEGER + 1,
+        version: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        webSearchRequests: 2_147_483_648,
         version: 1,
       }),
     ).toThrow();

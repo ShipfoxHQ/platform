@@ -9,12 +9,15 @@ export {
   usageJobExecutionRecordedEventSchema,
 } from './events.js';
 export {
+  type InferenceSegmentDialect,
   type InferenceSegmentInputDto,
   type InferenceSegmentUsageDto,
   type InferenceSegmentUsageHttpDto,
+  inferenceSegmentDialects,
   inferenceSegmentInputSchema,
   inferenceSegmentUsageHttpSchema,
   inferenceSegmentUsageSchema,
+  isOpenAiInferenceDialect,
   type JobExecutionUsageDto,
   type JobExecutionUsageHttpDto,
   type JobExecutionUsageResponseDto,
@@ -23,6 +26,7 @@ export {
   jobExecutionUsageSchema,
   MAX_INFERENCE_SEGMENTS_BATCH_SIZE,
   MAX_USAGE_REPLAY_LIMIT,
+  MAX_WEB_SEARCH_REQUESTS,
   type RecordedJobExecutionUsageDto,
   type RunUsageResponseDto,
   recordedJobExecutionUsageSchema,

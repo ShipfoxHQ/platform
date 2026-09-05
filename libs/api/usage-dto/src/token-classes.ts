@@ -1,4 +1,4 @@
-import type {InferenceSegmentInputDto} from './schemas/usage.js';
+import {type InferenceSegmentInputDto, isOpenAiInferenceDialect} from './schemas/usage.js';
 
 /** The four token classes used for display and pricing, plus derived totals. */
 export interface NormalisedTokenClasses {
@@ -28,11 +28,10 @@ type TokenClassSegment = Pick<
  * count used for display and pricing.
  */
 export function normaliseTokenClasses(segment: TokenClassSegment): NormalisedTokenClasses {
-  const isOpenAiDialect =
-    segment.dialect === 'openai-completions' || segment.dialect === 'openai-responses';
+  const isOpenAiDialect = isOpenAiInferenceDialect(segment.dialect);
   const cachedInputTokens = segment.cacheReadTokens;
   const inputTokens = isOpenAiDialect
-    ? segment.inputTokens - cachedInputTokens
+    ? Math.max(0, segment.inputTokens - cachedInputTokens)
     : segment.inputTokens;
   const cacheWriteTokens = isOpenAiDialect ? 0 : segment.cacheCreationTokens;
   const outputTokens = segment.outputTokens;

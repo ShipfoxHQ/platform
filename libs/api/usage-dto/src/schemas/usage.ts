@@ -8,6 +8,26 @@ const usageCountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTE
 
 export const MAX_USAGE_REPLAY_LIMIT = 500;
 export const MAX_INFERENCE_SEGMENTS_BATCH_SIZE = 1_000;
+export const MAX_WEB_SEARCH_REQUESTS = 2_147_483_647;
+
+export const inferenceSegmentDialects = [
+  'anthropic-messages',
+  'openai-completions',
+  'openai-responses',
+] as const;
+export type InferenceSegmentDialect = (typeof inferenceSegmentDialects)[number];
+
+const openAiInferenceDialectSet: ReadonlySet<InferenceSegmentDialect> = new Set([
+  'openai-completions',
+  'openai-responses',
+]);
+
+export function isOpenAiInferenceDialect(dialect: InferenceSegmentDialect): boolean {
+  return openAiInferenceDialectSet.has(dialect);
+}
+
+const inferenceSegmentDialectSchema = z.enum(inferenceSegmentDialects);
+const webSearchRequestCountSchema = usageCountSchema.max(MAX_WEB_SEARCH_REQUESTS).default(0);
 
 export const usageJobExecutionStateSchema = z.enum(['queued', 'running', 'terminated']);
 export const usageJobExecutionStatusSchema = z.enum(['succeeded', 'failed', 'cancelled']);
@@ -69,7 +89,7 @@ const inferenceSegmentInputObjectSchema = z
     stepAttemptId: idSchema,
     upstream: nonEmptyStringSchema,
     model: nonEmptyStringSchema,
-    dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
+    dialect: inferenceSegmentDialectSchema,
     windowStart: inferenceWindowDateTimeSchema,
     windowEnd: inferenceWindowDateTimeSchema,
     requestCount: usageCountSchema,
@@ -78,7 +98,7 @@ const inferenceSegmentInputObjectSchema = z
     cacheCreationTokens: usageCountSchema,
     cacheReadTokens: usageCountSchema,
     reasoningTokens: usageCountSchema,
-    webSearchRequests: usageCountSchema,
+    webSearchRequests: webSearchRequestCountSchema,
   })
   .strict();
 
@@ -144,7 +164,7 @@ const inferenceSegmentUsageHttpObjectSchema = z
     step_attempt_id: idSchema,
     upstream: nonEmptyStringSchema,
     model: nonEmptyStringSchema,
-    dialect: z.enum(['anthropic-messages', 'openai-completions', 'openai-responses']),
+    dialect: inferenceSegmentDialectSchema,
     window_start: inferenceWindowDateTimeSchema,
     window_end: inferenceWindowDateTimeSchema,
     request_count: usageCountSchema,
@@ -153,7 +173,7 @@ const inferenceSegmentUsageHttpObjectSchema = z
     cache_creation_tokens: usageCountSchema,
     cache_read_tokens: usageCountSchema,
     reasoning_tokens: usageCountSchema,
-    web_search_requests: usageCountSchema,
+    web_search_requests: webSearchRequestCountSchema,
     recorded_at: dateTimeSchema,
   })
   .strict();

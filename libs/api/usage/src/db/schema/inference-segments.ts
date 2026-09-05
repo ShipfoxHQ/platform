@@ -1,3 +1,4 @@
+import {inferenceSegmentDialects} from '@shipfox/api-usage-dto';
 import {sql} from 'drizzle-orm';
 import {bigint, index, integer, text, timestamp, uniqueIndex, uuid} from 'drizzle-orm/pg-core';
 import {pgTable} from './common.js';
@@ -18,9 +19,7 @@ export const usageInferenceSegments = pgTable(
     stepAttemptId: uuid('step_attempt_id').notNull(),
     upstream: text('upstream').notNull(),
     model: text('model').notNull(),
-    dialect: text('dialect', {
-      enum: ['anthropic-messages', 'openai-completions', 'openai-responses'],
-    }).notNull(),
+    dialect: text('dialect', {enum: inferenceSegmentDialects}).notNull(),
     windowStart: timestamp('window_start', {withTimezone: true}).notNull(),
     windowEnd: timestamp('window_end', {withTimezone: true}).notNull(),
     requestCount: bigint('request_count', {mode: 'number'}).notNull(),
