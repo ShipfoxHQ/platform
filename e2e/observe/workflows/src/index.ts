@@ -339,12 +339,13 @@ async function findInCursorPagesAcrossProbes<TPage, TItem>(options: {
   };
 
   if (!options.state.initialized) {
-    options.state.initialized = true;
-    return await findInCursorPages({
+    const result = await findInCursorPages({
       ...options,
       cursor: null,
       onNextCursor: updateCursor,
     });
+    options.state.initialized = true;
+    return result;
   }
 
   // Keep the newest page live so a run or event created during the wait is not skipped.
