@@ -4,7 +4,7 @@ import {stopLocalRunner} from '@shipfox/e2e-driver-runner-process';
 import {waitForRunTerminal} from '@shipfox/e2e-observe-workflows';
 import {startSuiteLocalRunner, waitForRunTerminalOrFailedRunner} from '#runner.js';
 import {fireManualAndAwaitRun} from '#triggers.js';
-import {seedAndWaitForDefinition} from '#workflow-project.js';
+import {seedProjectWithApiDefinition} from '#workflow-project.js';
 import {expect, test} from './fixtures.js';
 
 const SELECTION_RESOLVER_WORKFLOW = `
@@ -35,7 +35,7 @@ test('resolves an older step identity through the public selection API', async (
   });
 
   try {
-    const {definition} = await seedAndWaitForDefinition({
+    const {definition} = await seedProjectWithApiDefinition({
       suite,
       token,
       name: 'selection-resolver',
