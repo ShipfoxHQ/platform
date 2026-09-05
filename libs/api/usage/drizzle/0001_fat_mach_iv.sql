@@ -1,0 +1,1 @@
+ALTER TABLE "usage_inference_segments" ADD COLUMN "web_search_requests" integer DEFAULT 0 NOT NULL;

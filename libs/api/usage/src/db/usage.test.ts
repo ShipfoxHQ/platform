@@ -1,9 +1,11 @@
 import type {RunnerJobClaimedEvent, RunnerJobLeaseExpiredEvent} from '@shipfox/api-runners-dto';
+import {inferenceSegmentUsageHttpSchema} from '@shipfox/api-usage-dto';
 import type {
   WorkflowsJobExecutionQueuedEventDto,
   WorkflowsJobExecutionTerminatedEventDto,
 } from '@shipfox/api-workflows-dto';
 import {eq, sql} from 'drizzle-orm';
+import {toInferenceSegmentUsageDto} from '#presentation/dto.js';
 import {db} from './db.js';
 import {
   listInferenceSegments,
@@ -126,6 +128,7 @@ function inferenceSegment(workspaceId = crypto.randomUUID()) {
     cacheCreationTokens: 0,
     cacheReadTokens: 4,
     reasoningTokens: 6,
+    webSearchRequests: 3,
   };
 }
 
@@ -311,7 +314,30 @@ describe('Usage projections', () => {
     expect(nextPage.nextCursor).toBeNull();
     const firstSegment = page.segments[0];
     if (!firstSegment) throw new Error('Expected a first inference segment');
-    expect(toInferenceSegmentUsage(firstSegment)).toMatchObject({workspaceId});
+    expect(toInferenceSegmentUsage(firstSegment)).toMatchObject({
+      workspaceId,
+      webSearchRequests: 3,
+    });
+    expect(toInferenceSegmentUsageDto(firstSegment)).toMatchObject({
+      web_search_requests: 3,
+    });
+    const {web_search_requests: webSearchRequests, ...legacyHttpDto} =
+      toInferenceSegmentUsageDto(firstSegment);
+    void webSearchRequests;
+    expect(inferenceSegmentUsageHttpSchema.parse(legacyHttpDto)).toMatchObject({
+      web_search_requests: 0,
+    });
+
+    const boundaryWorkspaceId = crypto.randomUUID();
+    const boundarySegment = inferenceSegment(boundaryWorkspaceId);
+    boundarySegment.webSearchRequests = 2_147_483_647;
+    await expect(
+      recordInferenceSegments({segments: [boundarySegment], now: recordedAt}),
+    ).resolves.toEqual({recorded: 1, duplicates: 0});
+    const boundaryPage = await listInferenceSegments({workspaceId: boundaryWorkspaceId, limit: 1});
+    const persistedBoundarySegment = boundaryPage.segments[0];
+    if (!persistedBoundarySegment) throw new Error('Expected the boundary inference segment');
+    expect(toInferenceSegmentUsage(persistedBoundarySegment).webSearchRequests).toBe(2_147_483_647);
   });
 
   it('replays terminal job executions by a stable timestamp and id cursor', async () => {

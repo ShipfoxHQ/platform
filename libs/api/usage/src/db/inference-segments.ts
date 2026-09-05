@@ -94,6 +94,7 @@ export function recordInferenceSegments(params: {
           cacheCreationTokens: segment.cacheCreationTokens,
           cacheReadTokens: segment.cacheReadTokens,
           reasoningTokens: segment.reasoningTokens,
+          webSearchRequests: segment.webSearchRequests,
           recordedAt,
         })
         .returning();
@@ -222,6 +223,7 @@ export function toInferenceSegmentUsage(row: UsageInferenceSegmentRow): Inferenc
     cacheCreationTokens: row.cacheCreationTokens,
     cacheReadTokens: row.cacheReadTokens,
     reasoningTokens: row.reasoningTokens,
+    webSearchRequests: row.webSearchRequests,
     recordedAt: row.recordedAt.toISOString(),
   };
 }

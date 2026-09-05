@@ -6,6 +6,7 @@ import {
   usageInferenceSegmentRecordedEventSchema,
   usageJobExecutionRecordedEventSchema,
 } from './events.js';
+import {inferenceSegmentInputSchema} from './schemas/usage.js';
 
 const ids = {
   workspaceId: crypto.randomUUID(),
@@ -67,6 +68,7 @@ const validSegment = {
   cacheCreationTokens: 0,
   cacheReadTokens: 4,
   reasoningTokens: 6,
+  webSearchRequests: 1,
   recordedAt: '2026-09-04T10:01:00.000Z',
 };
 
@@ -86,6 +88,14 @@ describe('Usage event contracts', () => {
       ...validSegment,
       version: 1,
     });
+
+    const {webSearchRequests, ...legacySegment} = validSegment;
+    void webSearchRequests;
+    expect(usageInferenceSegmentRecordedEventSchema.parse({...legacySegment, version: 1})).toEqual({
+      ...legacySegment,
+      webSearchRequests: 0,
+      version: 1,
+    });
   });
 
   it('rejects unknown fields and non-v1 event versions', () => {
@@ -95,6 +105,25 @@ describe('Usage event contracts', () => {
     expect(() =>
       usageInferenceSegmentRecordedEventSchema.parse({...validSegment, version: 1, extra: true}),
     ).toThrow();
+  });
+
+  it('accepts the maximum persisted web-search count', () => {
+    const {id, recordedAt, ...validInputSegment} = validSegment;
+    void id;
+    void recordedAt;
+    expect(
+      inferenceSegmentInputSchema.parse({
+        ...validInputSegment,
+        webSearchRequests: 2_147_483_647,
+      }),
+    ).toEqual({...validInputSegment, webSearchRequests: 2_147_483_647});
+    expect(
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        webSearchRequests: 2_147_483_647,
+        version: 1,
+      }),
+    ).toMatchObject({webSearchRequests: 2_147_483_647});
   });
 
   it('rejects invalid inference windows and unsafe counters', () => {
@@ -123,6 +152,13 @@ describe('Usage event contracts', () => {
       usageInferenceSegmentRecordedEventSchema.parse({
         ...validSegment,
         inputTokens: Number.MAX_SAFE_INTEGER + 1,
+        version: 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      usageInferenceSegmentRecordedEventSchema.parse({
+        ...validSegment,
+        webSearchRequests: 2_147_483_648,
         version: 1,
       }),
     ).toThrow();

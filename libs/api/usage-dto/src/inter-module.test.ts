@@ -23,6 +23,7 @@ const segmentInput = (segmentKey: string) => ({
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
   reasoningTokens: 0,
+  webSearchRequests: 0,
 });
 
 describe('usageInterModuleContract', () => {

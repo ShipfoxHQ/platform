@@ -66,6 +66,7 @@ export function toInferenceSegmentUsageDto(
     cache_creation_tokens: row.cacheCreationTokens,
     cache_read_tokens: row.cacheReadTokens,
     reasoning_tokens: row.reasoningTokens,
+    web_search_requests: row.webSearchRequests,
     recorded_at: row.recordedAt.toISOString(),
   };
 }
