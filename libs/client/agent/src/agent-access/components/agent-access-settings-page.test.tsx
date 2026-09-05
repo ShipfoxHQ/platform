@@ -71,6 +71,38 @@ describe('AgentAccessSettingsPage', () => {
 
     await waitFor(() => expect(screen.getByText('No connected apps')).toBeVisible());
   });
+
+  test('keeps the disconnect dialog retryable when revocation fails', async () => {
+    const user = userEvent.setup();
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      if (request.url.endsWith(`/grants/${GRANT_ID}`) && request.method === 'DELETE') {
+        return Promise.resolve(
+          jsonResponse(
+            {code: 'auth-dependency-unavailable', message: 'Temporarily unavailable'},
+            {status: 503},
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse({grants: [grantDto()]}));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    renderSettings(<AgentAccessSettingsPage workspaceId={WORKSPACE_ID} />);
+
+    expect((await screen.findAllByText('Claude Desktop')).length).toBeGreaterThan(0);
+    const revokeButton = screen.getAllByRole('button', {name: 'Disconnect Claude Desktop'})[0];
+    if (!revokeButton) throw new Error('Disconnect button not rendered');
+    await user.click(revokeButton);
+    const dialog = await screen.findByRole('dialog');
+    const confirmButton = within(dialog).getByRole('button', {name: 'Disconnect app'});
+    await user.click(confirmButton);
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'MCP connections are temporarily unavailable. Try again in a moment.',
+    );
+    expect(dialog).toBeVisible();
+    expect(confirmButton).toBeEnabled();
+  });
 });
 
 function grantDto(overrides: Record<string, unknown> = {}) {

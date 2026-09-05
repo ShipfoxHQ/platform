@@ -148,6 +148,42 @@ describe('OAuthConsentPage', () => {
     expect(onRedirect).toHaveBeenCalledWith('https://agent.example.test/denied');
   });
 
+  test('keeps consent actions retryable when approval fails', async () => {
+    const user = userEvent.setup();
+    let resolveApproval: (response: Response) => void = () => undefined;
+    const approvalResponse = new Promise<Response>((resolve) => {
+      resolveApproval = resolve;
+    });
+    const fetchImpl = vi.fn((input: RequestInfo | URL) => {
+      const request = input as Request;
+      return request.url.endsWith('/approve')
+        ? approvalResponse
+        : Promise.resolve(jsonResponse(consentResponse()));
+    });
+    configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
+    const {onRedirect} = renderConsent();
+
+    await screen.findByText('Claude Desktop');
+    const approveButton = screen.getByRole('button', {name: 'Allow access'});
+    const denyButton = screen.getByRole('button', {name: 'Deny'});
+    await user.click(approveButton);
+    expect(denyButton).toBeDisabled();
+
+    resolveApproval(
+      jsonResponse(
+        {code: 'auth-dependency-unavailable', message: 'Temporarily unavailable'},
+        {status: 503},
+      ),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This connection request is temporarily unavailable. Try again in a moment.',
+    );
+    expect(approveButton).toBeEnabled();
+    expect(denyButton).toBeEnabled();
+    expect(onRedirect).not.toHaveBeenCalled();
+  });
+
   test('preserves loaded consent details when a background refetch fails', async () => {
     let requestCount = 0;
     const fetchImpl = vi.fn(() => {

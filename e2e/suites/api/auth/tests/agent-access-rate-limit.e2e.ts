@@ -8,7 +8,7 @@ import {authorizeAgentAccess} from '@shipfox/e2e-setup-auth';
 import {createWorkspace} from '@shipfox/e2e-setup-workspaces';
 import {expect, test} from './test.js';
 
-test('rate-limits a fresh agent-access credential within one window', async ({request, auth}) => {
+test('rate-limits a fresh agent-access credential during one burst', async ({request, auth}) => {
   const apiOrigin = new URL(config.API_URL).origin;
   const publicOrigin = new URL(config.API_PUBLIC_URL).origin;
   const clientOrigin = new URL(config.CLIENT_BASE_URL).origin;
@@ -36,21 +36,28 @@ test('rate-limits a fresh agent-access credential within one window', async ({re
 
   try {
     await client.connect(transport as unknown as Transport);
-    let wasRateLimited = false;
-    for (let callsRemaining = 61; callsRemaining > 0; callsRemaining -= 1) {
-      const result = await client.callTool(
-        {name: 'list_projects', arguments: {}},
-        CallToolResultSchema,
-      );
-      const envelope = agentAccessEnvelopeSchema.parse(result.structuredContent);
-      if (envelope.ok === false && envelope.error?.code === 'rate-limited') {
+    const envelopes = await Promise.all(
+      Array.from({length: 61}, async () => {
+        const result = await client.callTool(
+          {name: 'list_projects', arguments: {}},
+          CallToolResultSchema,
+        );
+        return agentAccessEnvelopeSchema.parse(result.structuredContent);
+      }),
+    );
+    let allowedCount = 0;
+    let rateLimitedCount = 0;
+    for (const envelope of envelopes) {
+      if (envelope.ok) {
+        allowedCount += 1;
+      } else if (envelope.error?.code === 'rate-limited') {
         expect(envelope.error.retry_after_seconds).toEqual(expect.any(Number));
-        wasRateLimited = true;
-        break;
+        rateLimitedCount += 1;
+      } else {
+        throw new Error(`Unexpected agent-access response: ${JSON.stringify(envelope)}`);
       }
-      expect(envelope.ok).toBe(true);
     }
-    expect(wasRateLimited).toBe(true);
+    expect({allowedCount, rateLimitedCount}).toEqual({allowedCount: 60, rateLimitedCount: 1});
   } finally {
     await client.close();
   }
