@@ -27,7 +27,7 @@ export function OAuthConsentRoutePage({
 
   useEffect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) {
-      const returnUrl = window.location.href;
+      const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
       onGuestRedirect(`/auth/login?redirect=${encodeURIComponent(returnUrl)}`);
     }
   }, [auth.isAuthenticated, auth.isLoading, onGuestRedirect]);

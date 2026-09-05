@@ -8,6 +8,7 @@ import {
 } from '@shipfox/node-fastify';
 
 export {
+  hasOAuthControlCharacter,
   InvalidOAuthPublicOriginError,
   isOAuthLoopbackHostname,
   normalizeOAuthPublicOrigin,

@@ -78,6 +78,8 @@ describe('OAuthConsentPage', () => {
     runtimeMocks.useRouteSearch.mockReturnValue({requestId: REQUEST_ID});
   });
 
+  afterEach(() => window.history.replaceState({}, '', '/'));
+
   test('waits for the auth session before loading the connection request', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse(consentResponse()));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
@@ -109,6 +111,7 @@ describe('OAuthConsentPage', () => {
   });
 
   test('redirects a guest to sign in before loading the connection request', async () => {
+    window.history.replaceState({}, '', `/oauth/consent?request_id=${REQUEST_ID}#review`);
     const fetchImpl = vi.fn(async () => jsonResponse({code: 'unauthorized'}, {status: 401}));
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     runtimeMocks.useAuthState.mockReturnValue({
@@ -120,7 +123,9 @@ describe('OAuthConsentPage', () => {
 
     await waitFor(() =>
       expect(onGuestRedirect).toHaveBeenCalledWith(
-        `/auth/login?redirect=${encodeURIComponent(window.location.href)}`,
+        `/auth/login?redirect=${encodeURIComponent(
+          `/oauth/consent?request_id=${REQUEST_ID}#review`,
+        )}`,
       ),
     );
     expect(fetchImpl).not.toHaveBeenCalled();
