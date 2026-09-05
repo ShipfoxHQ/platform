@@ -1,5 +1,11 @@
 # @shipfox/api-integration-core-dto
 
+## 22.0.0
+
+### Minor Changes
+
+- c392dfb: Adds typed synthetic listener dispatch and shared payload limits for production-shaped E2E coverage.
+
 ## 21.0.0
 
 ### Major Changes

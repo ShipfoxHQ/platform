@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/api-integration-slack",
   "license": "MIT",
-  "version": "21.2.0",
+  "version": "22.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

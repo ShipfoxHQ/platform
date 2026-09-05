@@ -1,5 +1,12 @@
 # @shipfox/api-integration-gitea
 
+## 22.0.0
+
+### Patch Changes
+
+- @shipfox/api-integration-gitea-dto@22.0.0
+- @shipfox/api-integration-spi@4.1.1
+
 ## 21.2.0
 
 ### Minor Changes

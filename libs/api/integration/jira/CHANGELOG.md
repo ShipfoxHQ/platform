@@ -1,5 +1,12 @@
 # @shipfox/api-integration-jira
 
+## 22.0.0
+
+### Patch Changes
+
+- @shipfox/api-integration-jira-dto@22.0.0
+- @shipfox/api-integration-spi@4.1.1
+
 ## 21.2.0
 
 ### Patch Changes

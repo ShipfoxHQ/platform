@@ -1,7 +1,7 @@
 {
   "name": "@shipfox/runner-agent",
   "license": "MIT",
-  "version": "0.2.29",
+  "version": "0.2.30",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShipfoxHQ/shipfox.git",

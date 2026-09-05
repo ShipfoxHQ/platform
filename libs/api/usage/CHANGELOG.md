@@ -1,5 +1,19 @@
 # @shipfox/api-usage
 
+## 22.0.0
+
+### Minor Changes
+
+- 88d28f4: Adds web-search quantities to Usage segments and exports shared per-dialect token-class normalization.
+
+### Patch Changes
+
+- Updated dependencies [c392dfb]
+- Updated dependencies [e390533]
+- Updated dependencies [88d28f4]
+  - @shipfox/api-workflows-dto@22.0.0
+  - @shipfox/api-usage-dto@22.0.0
+
 ## 21.2.0
 
 ### Minor Changes

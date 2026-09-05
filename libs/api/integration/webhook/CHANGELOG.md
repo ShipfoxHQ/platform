@@ -1,5 +1,12 @@
 # @shipfox/api-integration-webhook
 
+## 22.0.0
+
+### Patch Changes
+
+- @shipfox/api-integration-spi@4.1.1
+- @shipfox/api-integration-webhook-dto@22.0.0
+
 ## 21.2.0
 
 ### Patch Changes
