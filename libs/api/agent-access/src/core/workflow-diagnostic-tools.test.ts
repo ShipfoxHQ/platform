@@ -520,6 +520,11 @@ describe('workflow diagnostic agent-access tools', () => {
     });
     const result = success<GetWorkflowRunSourceResultDto>(response);
 
+    expect(mocks.getWorkflowRunSource.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      workflowRunId: runId,
+      attempt: 1,
+    });
     expect(result.kind).toBe('available');
     if (result.kind !== 'available') throw new Error('Expected source');
     expect(result.source_snapshot_truncated).toBe(true);

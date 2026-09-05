@@ -31,6 +31,13 @@ describe('signup gate configuration', () => {
     expect(config.API_PUBLIC_URL).toBe('https://api.example.test');
   });
 
+  test('rejects a public API URL without a scheme', async () => {
+    vi.stubEnv('API_PUBLIC_URL', 'api.example.test');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('process.exit unexpectedly called with "1"');
+  });
+
   test('fails startup when the enabled gate has no allowlist', async () => {
     vi.stubEnv('AUTH_SIGNUP_GATE_ENABLED', 'true');
     vi.stubEnv('AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS', ',  ');
