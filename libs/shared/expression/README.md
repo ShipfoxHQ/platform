@@ -38,6 +38,8 @@ CEL checks and run-time evaluation for Shipfox workflow expressions.
 - **`analyzeContextPathAccess`**: Returns exact literal context paths per root and
   reports dynamic access as unknown for conservative snapshot planning. Its
   `ContextPath*` types describe path segments, references, and unknown accesses.
+  Comprehensions used only for cardinality by `size()` remain projectable; element
+  inspection remains unknown when it cannot be represented by literal paths.
 - **Typed errors**: Reports bad text and run failures with stable error classes.
 - **`workflowContextDefinitions`**: Names the workflow contexts (`run`,
   `trigger`, `event`, `inputs`, `job`, `executions`, `execution`, `jobs`, `step`) and

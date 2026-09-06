@@ -51,6 +51,11 @@ interface RecordPathOptions {
   readonly wholeElement?: boolean;
 }
 
+/**
+ * Analyzes literal context paths and marks accesses that cannot be projected
+ * safely. A comprehension result used only for cardinality by `size()` stays
+ * projectable; consumers that inspect its elements remain dynamic.
+ */
 export function analyzeContextPathAccess(
   expression: WorkflowExpression | string,
   roots?: readonly string[],
@@ -153,6 +158,8 @@ function collectContextPathChildren(
         selectedRoots,
         references,
         unknown,
+        // `size()` consumes only cardinality, so its comprehension result does
+        // not need to retain whole elements in a snapshot.
         node.args[0] !== 'size',
       );
       return;
@@ -259,7 +266,17 @@ function collectRelativeCallContextPaths(
       unknown,
     );
   } else {
-    collectContextPaths(receiver, source, scopedPaths, selectedRoots, references, unknown, true);
+    collectContextPaths(
+      receiver,
+      source,
+      scopedPaths,
+      selectedRoots,
+      references,
+      unknown,
+      // The member form `filtered.size()` has the same cardinality-only
+      // semantics as `size(filtered)`.
+      method !== 'size',
+    );
   }
 
   const binding = bindComprehensionAlias(method, args, scopedPaths, receiver);

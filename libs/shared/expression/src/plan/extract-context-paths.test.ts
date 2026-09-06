@@ -185,12 +185,11 @@ describe('analyzeContextPathAccess', () => {
     });
   });
 
-  it('keeps cardinality-only comprehension results projectable', () => {
-    expect(
-      analyzeContextPathAccess('size(jobs.build.executions.filter(e, e.status == "failed")) > 0', [
-        'jobs',
-      ]),
-    ).toEqual({
+  it.each([
+    'size(jobs.build.executions.filter(e, e.status == "failed")) > 0',
+    'jobs.build.executions.filter(e, e.status == "failed").size() > 0',
+  ])('keeps cardinality-only comprehension results projectable: %s', (source) => {
+    expect(analyzeContextPathAccess(source, ['jobs'])).toEqual({
       references: [
         {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
         {
