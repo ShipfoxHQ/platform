@@ -338,6 +338,7 @@ function isBroadJobsPathReference(reference: ContextPathReference): boolean {
 function isWholeElementJobsPathReference(reference: ContextPathReference): boolean {
   return (
     reference.root === 'jobs' &&
+    reference.segments.at(-2) === 'executions' &&
     reference.segments.at(-1) === '*' &&
     simpleIdentifierPattern.test(reference.source.trim())
   );
