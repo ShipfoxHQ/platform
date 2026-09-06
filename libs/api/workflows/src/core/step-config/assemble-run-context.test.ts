@@ -1538,30 +1538,36 @@ describe('listener filter snapshots', () => {
     });
     expect(plan.on[0]?.jobsAreBroad).toBe(false);
 
+    const dependencyJobs = [
+      {
+        job: {key: 'build', status: 'succeeded', outputs: {pr_number: 42, unrelated: 'large'}},
+        outputTypes: {pr_number: 'int' as const, unrelated: 'string' as const},
+        executions: [
+          jobExecution({name: 'Build #0', status: 'succeeded', outputs: {pr_number: 42}}),
+        ],
+      },
+      {
+        job: {key: 'review', status: 'failed', outputs: {reason: 'unrelated'}},
+        executions: [jobExecution({name: 'Review #0', status: 'failed'})],
+      },
+      {
+        job: {key: 'deploy', status: 'succeeded', outputs: {image: 'unrelated'}},
+        executions: [jobExecution({name: 'Deploy #0', status: 'succeeded'})],
+      },
+    ] as const;
     const context = assembleListenerSnapshotContext({
       job: {key: 'await'},
       run,
       triggerPayload,
       plan,
-      dependencyJobs: [
-        {
-          job: {key: 'build', status: 'succeeded', outputs: {pr_number: 42, unrelated: 'large'}},
-          executions: [
-            jobExecution({name: 'Build #0', status: 'succeeded', outputs: {pr_number: 42}}),
-          ],
-        },
-        {
-          job: {key: 'review', status: 'failed', outputs: {reason: 'unrelated'}},
-          executions: [jobExecution({name: 'Review #0', status: 'failed'})],
-        },
-        {
-          job: {key: 'deploy', status: 'succeeded', outputs: {image: 'unrelated'}},
-          executions: [jobExecution({name: 'Deploy #0', status: 'succeeded'})],
-        },
-      ],
+      dependencyJobs,
     });
 
-    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
 
     expect(matcher?.filter_snapshot).toEqual({
       jobs: {
@@ -1584,6 +1590,9 @@ describe('listener filter snapshots', () => {
       },
     });
     expect(matcher?.filter_snapshot?.jobs).not.toHaveProperty('deploy');
+    expect(matcher?.filter_output_types).toEqual({
+      build: {pr_number: 'int', unrelated: 'string'},
+    });
   });
 
   it('preserves whole-element projections for list outputs', () => {

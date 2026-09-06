@@ -694,15 +694,20 @@ function outputTypePathsForJob(
 
   const paths: (readonly ContextPathSegment[])[] = [];
   const wholeElementPaths: (readonly ContextPathSegment[])[] = [];
+  let hasWholeElementWithoutOutputPath = false;
   for (const reference of plan.jobPaths) {
     const [referenceJobKey, ...jobPath] = reference.segments;
     if (referenceJobKey !== jobKey) continue;
     const outputPath = outputPathFromJobPath(jobPath);
+    if (reference.wholeElement === true && outputPath === undefined) {
+      hasWholeElementWithoutOutputPath = true;
+    }
     if (outputPath !== undefined) {
       paths.push(outputPath);
       if (reference.wholeElement === true) wholeElementPaths.push(outputPath);
     }
   }
+  if (hasWholeElementWithoutOutputPath) return [[]];
   return paths.length === 0 ? undefined : compactProjectionPaths(paths, wholeElementPaths);
 }
 
