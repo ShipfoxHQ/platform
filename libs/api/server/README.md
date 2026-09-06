@@ -73,6 +73,10 @@ it needs. The legacy `agentModule`, `authModule`, and `runnersModule` factory
 options remain supported as deprecated aliases. Migrate configuration-only
 factories to the matching `*ModuleOptions` field.
 
+A replacement Auth module must register `AUTH_AGENT_ACCESS`, including
+`createAgentAccessAuthMethod` from `@shipfox/api-auth` in its auth methods. The
+default MCP route requires that method to authenticate agent-access credentials.
+
 The standard Agent module validates its configuration during composition. Its
 additive options cannot provide or replace the composition-owned Secrets and
 Workflows clients. The returned standard module therefore keeps the
@@ -92,6 +96,7 @@ node --import @shipfox/api-server/instrumentation ./dist/index.js
 | --- | --- | --- |
 | `E2E_ENABLED` | `false` | Enables routes under `/__e2e` when `E2E_ADMIN_API_KEY` is set. |
 | `E2E_ADMIN_API_KEY` | none | Required to enable and protect E2E routes. |
+| `API_PUBLIC_URL` | none | Required public API origin used by MCP OAuth metadata and redirect flows. Local development may use `http://localhost:16101`; use HTTPS elsewhere. |
 | `API_PORT` | shared `PORT` | Sets the listener port. |
 | `API_TRUST_PROXY` | `false` | Sets proxy IP checks. |
 

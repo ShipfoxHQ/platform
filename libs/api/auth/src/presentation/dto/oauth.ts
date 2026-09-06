@@ -5,14 +5,20 @@ import type {AgentClient} from '#core/entities/agent-access.js';
 import {isOAuthLoopbackRedirectUri} from '#core/oauth-client.js';
 import type {OAuthConsentDetail, OAuthTokenExchangeResult} from '#core/oauth-flow.js';
 
-function identityOrigin(client: AgentClient): string {
-  if (client.kind === 'registered') return 'registered client';
+type OAuthConsentIdentity =
+  | {client_identity_kind: 'cimd'; client_identity_origin: string}
+  | {client_identity_kind: 'self-registered'; client_identity_origin: null};
+
+function consentIdentity(client: AgentClient): OAuthConsentIdentity {
+  if (client.kind === 'registered') {
+    return {client_identity_kind: 'self-registered', client_identity_origin: null};
+  }
   try {
-    return new URL(client.clientId).origin;
+    return {client_identity_kind: 'cimd', client_identity_origin: new URL(client.clientId).origin};
   } catch {
     // A CIMD client was validated before it was stored. Keep an invalid row
     // from becoming a request-time crash if old data predates that check.
-    return client.clientId;
+    return {client_identity_kind: 'cimd', client_identity_origin: client.clientId};
   }
 }
 
@@ -24,7 +30,7 @@ export function toOAuthConsentResponse(detail: OAuthConsentDetail): OAuthConsent
     scope: OAUTH_READ_SCOPE,
     expires_at: detail.request.expiresAt.toISOString(),
     redirect_uri_hostname: redirectUrl.hostname,
-    client_identity_origin: identityOrigin(detail.client),
+    ...consentIdentity(detail.client),
     is_loopback_redirect: isOAuthLoopbackRedirectUri(detail.request.redirectUri),
     workspaces: detail.workspaces.map(({workspaceId, role}) => ({
       workspace_id: workspaceId,

@@ -15,6 +15,7 @@ export default defineWorktreeServices({
     return {
       ...standardAppEnv(ports),
       API_PORT: String(ports.api),
+      API_PUBLIC_URL: `http://localhost:${ports.api}`,
       CLIENT_BASE_URL: `http://localhost:${ports.client}`,
       VITE_API_URL: `http://localhost:${ports.api}`,
     };

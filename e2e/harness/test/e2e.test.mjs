@@ -76,6 +76,7 @@ describe('e2eEnv', () => {
     });
 
     assert.equal(env.API_URL, 'http://localhost:55351');
+    assert.equal(env.API_PUBLIC_URL, 'http://localhost:55351');
     assert.equal(env.CLIENT_BASE_URL, 'http://localhost:55350');
     assert.equal(env.CLIENT_URL, 'http://localhost:55350');
     assert.equal(env.E2E_GITEA_URL, 'http://localhost:55356');
@@ -107,6 +108,7 @@ describe('e2eEnv', () => {
   test('keeps explicit CI URLs over local-service defaults', () => {
     const env = e2eEnv({
       API_URL: 'http://localhost:16101',
+      API_PUBLIC_URL: 'https://api.example.test',
       CLIENT_URL: 'http://localhost:5173',
       E2E_GITEA_URL: 'http://localhost:3001',
       GITEA_CLONE_BASE_URL: 'http://localhost:3000',
@@ -123,6 +125,7 @@ describe('e2eEnv', () => {
     });
 
     assert.equal(env.API_URL, 'http://localhost:16101');
+    assert.equal(env.API_PUBLIC_URL, 'https://api.example.test');
     assert.equal(env.CLIENT_URL, 'http://localhost:5173');
     assert.equal(env.E2E_GITEA_URL, 'http://localhost:3001');
     assert.equal(env.GITEA_CLONE_BASE_URL, 'http://localhost:3000');

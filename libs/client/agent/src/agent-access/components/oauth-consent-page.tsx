@@ -9,6 +9,7 @@ import {Code, Text} from '@shipfox/react-ui/typography';
 import {useEffect, useState} from 'react';
 import type {OAuthConsent} from '#agent-access/core/agent-access.js';
 import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
+import {createOAuthConsentLoginRedirect} from '#agent-access/routes/login-redirect.js';
 import {
   useApproveOAuthConsentMutation,
   useDenyOAuthConsentMutation,
@@ -17,19 +18,34 @@ import {
 import {oauthConsentErrorMessage} from './errors.js';
 import {formatAgentAccessTimestamp} from './format.js';
 
-export function OAuthConsentRoutePage() {
+export function OAuthConsentRoutePage({
+  onGuestRedirect = redirectGuestToLogin,
+}: {
+  onGuestRedirect?: (url: string) => void;
+} = {}) {
+  const auth = useAuthState();
   const search = useRouteSearch(validateOAuthConsentSearch);
+
+  useEffect(() => {
+    if (!auth.isLoading && !auth.isAuthenticated) {
+      const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      onGuestRedirect(createOAuthConsentLoginRedirect(returnUrl).href);
+    }
+  }, [auth.isAuthenticated, auth.isLoading, onGuestRedirect]);
+
+  if (auth.isLoading || !auth.isAuthenticated) return <OAuthConsentLoading />;
+
   if (!search.requestId) {
     return (
       <AuthShell
-        title="Access request unavailable"
+        title="Connection request unavailable"
         description="The link is missing its request identifier."
       >
         <Panel>
           <EmptyState
             icon="linkUnlink"
-            title="Open a new access request"
-            description="Return to the agent and start the connection again."
+            title="Open a new connection request"
+            description="Return to your MCP client and start the connection again."
             variant="panel"
           />
         </Panel>
@@ -37,6 +53,10 @@ export function OAuthConsentRoutePage() {
     );
   }
   return <OAuthConsentPage requestId={search.requestId} />;
+}
+
+function redirectGuestToLogin(url: string) {
+  window.location.assign(url);
 }
 
 export function OAuthConsentPage({
@@ -53,13 +73,13 @@ export function OAuthConsentPage({
   if (consentQuery.data === undefined) {
     return (
       <AuthShell
-        title="Access request unavailable"
-        description="Shipfox could not open this agent access request."
+        title="Connection request unavailable"
+        description="Shipfox could not open this connection request."
       >
         <Panel>
           <EmptyState
             icon="linkUnlink"
-            title="Could not load access request"
+            title="Could not load connection request"
             description={oauthConsentErrorMessage(consentQuery.error)}
             action={
               <Button
@@ -127,11 +147,11 @@ function OAuthConsentLoaded({
         <Panel>
           <div className="flex flex-col gap-section p-panel">
             <div className="min-w-0">
-              <Text bold className="truncate">
+              <Text bold className="break-words">
                 {consent.clientName}
               </Text>
               <Text size="sm" className="text-foreground-neutral-muted">
-                External agent client
+                External MCP client
               </Text>
             </div>
 
@@ -150,9 +170,15 @@ function OAuthConsentLoaded({
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
                 <dt className="text-foreground-neutral-muted">Client identity</dt>
                 <dd className="min-w-0">
-                  <Code variant="paragraph" className="block break-all">
-                    {consent.clientIdentityOrigin}
-                  </Code>
+                  {consent.clientIdentity.kind === 'cimd' ? (
+                    <Code variant="paragraph" className="block break-all">
+                      {consent.clientIdentity.origin}
+                    </Code>
+                  ) : (
+                    <Text size="sm">
+                      Self-registered MCP client. Identity not verified by Shipfox.
+                    </Text>
+                  )}
                 </dd>
               </div>
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
@@ -206,7 +232,9 @@ function OAuthConsentLoaded({
           ) : null}
           {consent.workspaces.length === 0 ? (
             <Callout type="warning">
-              <Text size="sm">No eligible workspaces are available for this request.</Text>
+              <Text size="sm">
+                No eligible workspaces are available for this connection request.
+              </Text>
             </Callout>
           ) : null}
 
@@ -234,7 +262,7 @@ function OAuthConsentLoaded({
             </Button>
           </div>
           <Text size="sm" className="text-center text-foreground-neutral-muted">
-            You can revoke this connection later in workspace settings.
+            You can disconnect this app later in workspace settings.
           </Text>
         </div>
       </div>
@@ -244,8 +272,11 @@ function OAuthConsentLoaded({
 
 function OAuthConsentLoading() {
   return (
-    <AuthShell title="Review agent access" description="Loading the verified access request.">
-      <Panel role="status" aria-label="Loading access request" className="p-panel">
+    <AuthShell
+      title="Review connection request"
+      description="Loading the verified connection request."
+    >
+      <Panel role="status" aria-label="Loading connection request" className="p-panel">
         <div className="flex flex-col gap-group">
           <Skeleton className="h-20 w-192" />
           <Skeleton className="h-80 w-full" />

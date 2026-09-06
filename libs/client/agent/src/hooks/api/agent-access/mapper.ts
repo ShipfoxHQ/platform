@@ -8,7 +8,10 @@ export function toOAuthConsent(dto: OAuthConsentResponseDto): OAuthConsent {
     scope: dto.scope,
     expiresAt: dto.expires_at,
     redirectHostname: dto.redirect_uri_hostname,
-    clientIdentityOrigin: dto.client_identity_origin,
+    clientIdentity:
+      dto.client_identity_kind === 'cimd'
+        ? {kind: 'cimd', origin: dto.client_identity_origin}
+        : {kind: 'self-registered'},
     isLoopbackRedirect: dto.is_loopback_redirect,
     workspaces: dto.workspaces.map((workspace) => ({
       id: workspace.workspace_id,

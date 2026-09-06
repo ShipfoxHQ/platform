@@ -1,8 +1,14 @@
 import {StreamableHTTPServerTransport} from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
-import {AUTH_AGENT_ACCESS, requireAgentAccessContext} from '@shipfox/api-auth-context';
+import {
+  AUTH_AGENT_ACCESS,
+  InvalidOAuthPublicOriginError,
+  normalizeOAuthPublicOrigin,
+  requireAgentAccessContext,
+} from '@shipfox/api-auth-context';
 import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {LogsModuleClient} from '@shipfox/api-logs-dto/inter-module';
 import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
 import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
@@ -19,14 +25,15 @@ import {
 } from '@shipfox/node-fastify';
 import {logger} from '@shipfox/node-opentelemetry';
 import {AGENT_ACCESS_MCP_PATH, AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH} from '#constants.js';
+import {createAgentAccessDiagnosticTools} from '#core/diagnostic-tools.js';
+import {createAgentAccessLogTools} from '#core/log-tools.js';
 import {createAgentAccessTools} from '#core/paged-tools.js';
 import {type AgentAccessRateLimiter, createAgentAccessRateLimiter} from '#core/rate-limiter.js';
 import {type AgentAccessTool, createAgentAccessFixtureTool} from '#core/tools.js';
+import {createAgentAccessWorkflowDiagnosticTools} from '#core/workflow-diagnostic-tools.js';
 import {recordAgentAccessAuthFailure} from '#metrics/index.js';
 import {type AgentAccessToolCallRecorder, createAgentAccessToolCallRecorder} from './audit.js';
 import {buildAgentAccessMcpServer} from './mcp-server.js';
-
-const TRAILING_SLASHES_RE = /\/+$/u;
 
 export interface CreateAgentAccessRoutesOptions {
   apiPublicUrl?: string | undefined;
@@ -40,6 +47,7 @@ export interface CreateAgentAccessRoutesOptions {
   workflows?: WorkflowsModuleClient | undefined;
   annotations?: AnnotationsInterModuleClient | undefined;
   triggers?: TriggersInterModuleClient | undefined;
+  logs?: LogsModuleClient | undefined;
 }
 
 export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions = {}): RouteGroup {
@@ -121,13 +129,14 @@ export function createAgentAccessRoutes(options: CreateAgentAccessRoutesOptions 
 function toolsFromProducerClients(
   options: CreateAgentAccessRoutesOptions,
 ): readonly AgentAccessTool[] {
-  const {projects, definitions, workflows, annotations, triggers} = options;
+  const {projects, definitions, workflows, annotations, triggers, logs} = options;
   if (
     projects === undefined &&
     definitions === undefined &&
     workflows === undefined &&
     annotations === undefined &&
-    triggers === undefined
+    triggers === undefined &&
+    logs === undefined
   ) {
     return [createAgentAccessFixtureTool()];
   }
@@ -138,9 +147,16 @@ function toolsFromProducerClients(
     annotations === undefined ||
     triggers === undefined
   ) {
-    throw new Error('Agent-access producer clients must be configured together');
+    throw new Error(
+      'Agent-access core producer clients must be configured together: projects, definitions, workflows, annotations, and triggers',
+    );
   }
-  return createAgentAccessTools({projects, definitions, workflows, annotations, triggers});
+  const tools = [
+    ...createAgentAccessTools({projects, definitions, workflows, annotations, triggers}),
+    ...createAgentAccessDiagnosticTools({triggers}),
+    ...createAgentAccessWorkflowDiagnosticTools(workflows),
+  ];
+  return logs === undefined ? tools : [...tools, ...createAgentAccessLogTools({logs, workflows})];
 }
 
 function methodNotAllowed(_request: FastifyRequest, reply: FastifyReply) {
@@ -174,7 +190,21 @@ function resourceMetadataUrl(options: CreateAgentAccessRoutesOptions): string {
     return options.protectedResourceMetadataUrl;
   }
   if (options.apiPublicUrl === undefined) return AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH;
-  return `${options.apiPublicUrl.replace(TRAILING_SLASHES_RE, '')}${AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH}`;
+  const apiPublicOrigin = validateAgentAccessApiPublicOrigin(options.apiPublicUrl);
+  return `${apiPublicOrigin}${AGENT_ACCESS_PROTECTED_RESOURCE_METADATA_PATH}`;
+}
+
+function validateAgentAccessApiPublicOrigin(value: string): string {
+  try {
+    return normalizeOAuthPublicOrigin(value);
+  } catch (error) {
+    if (error instanceof InvalidOAuthPublicOriginError) return rejectInvalidApiPublicOrigin();
+    throw error;
+  }
+}
+
+function rejectInvalidApiPublicOrigin(): never {
+  throw new Error('Agent-access API public URL configuration is invalid');
 }
 
 function escapeHeaderValue(value: string): string {

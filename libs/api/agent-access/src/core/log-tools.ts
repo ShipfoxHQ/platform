@@ -13,6 +13,11 @@ import {type LogsModuleClient, logsInterModuleContract} from '@shipfox/api-logs-
 import type {StepAttemptDetailResponseDto} from '@shipfox/api-workflows-dto';
 import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {isInterModuleKnownError} from '@shipfox/inter-module';
+import {logger} from '@shipfox/node-opentelemetry';
+import {
+  type AgentAccessLogSectionUnavailableReason,
+  recordAgentAccessLogSectionUnavailable,
+} from '#metrics/index.js';
 import {agentAccessError, agentAccessSuccess} from './envelope.js';
 import {fitAgentAccessResponseToCeiling} from './response.js';
 import {invalidRequest, notFound, optionalField, parseInput} from './tool-utils.js';
@@ -125,7 +130,7 @@ async function readFailedStepLogs(
   const sectionBudget = equalSectionBudget(coordinates.length);
   const logReads = await Promise.all(
     coordinates.map((coordinate) =>
-      logs.readStepLogTail({
+      readFailedStepLog(logs, {
         stepId: coordinate.step_id,
         attempt: coordinate.step_attempt,
         tailLines: input.tail_lines,
@@ -141,6 +146,27 @@ async function readFailedStepLogs(
     workflow_run_attempt: page.workflow_run_attempt,
     sections,
   });
+}
+
+async function readFailedStepLog(
+  logs: LogsModuleClient,
+  input: {stepId: string; attempt: number; tailLines: number},
+): Promise<FailedStepLogRead> {
+  try {
+    return await logs.readStepLogTail(input);
+  } catch (error) {
+    // A compacted stream can disappear between the workflow listing and the log read. Keep the
+    // coordinate so one unavailable section does not discard the other readable failures.
+    if (isInterModuleKnownError(logsInterModuleContract.methods.readStepLogTail, error)) {
+      recordAgentAccessLogSectionUnavailable(error.code);
+      logger().debug(
+        {stepId: input.stepId, attempt: input.attempt, errorCode: error.code},
+        'Agent-access log section unavailable',
+      );
+      return {unavailableReason: error.code};
+    }
+    throw error;
+  }
 }
 
 function projectDetailSection(
@@ -165,28 +191,29 @@ function projectDetailSection(
 
 function projectCoordinateSection(
   coordinate: FailedStepAttemptCoordinate,
-  log: StepLogTailRead | null,
+  logRead: FailedStepLogRead,
   budget: number,
 ): Record<string, unknown> {
-  return projectSection(
-    {
-      workflow_run_id: coordinate.workflow_run_id,
-      workflow_run_attempt: coordinate.workflow_run_attempt,
-      job_id: coordinate.job_id,
-      job_execution_id: coordinate.job_execution_id,
-      step_id: coordinate.step_id,
-      step_attempt_id: coordinate.step_attempt_id,
-      attempt: coordinate.step_attempt,
-    },
-    log,
-    budget,
-  );
+  const coordinates = {
+    workflow_run_id: coordinate.workflow_run_id,
+    workflow_run_attempt: coordinate.workflow_run_attempt,
+    job_id: coordinate.job_id,
+    job_execution_id: coordinate.job_execution_id,
+    step_id: coordinate.step_id,
+    step_attempt_id: coordinate.step_attempt_id,
+    attempt: coordinate.step_attempt,
+  };
+  if (isUnavailableStepLogRead(logRead)) {
+    return projectSection(coordinates, null, budget, logRead.unavailableReason);
+  }
+  return projectSection(coordinates, logRead, budget);
 }
 
 function projectSection(
   coordinates: Record<string, string | number | undefined>,
   log: StepLogTailRead | null,
   budget: number,
+  unavailableReason?: AgentAccessLogSectionUnavailableReason,
 ): Record<string, unknown> {
   const bounded = boundLogContent(log?.content ?? '', budget);
   return {
@@ -196,6 +223,7 @@ function projectSection(
     ...(bounded.truncated
       ? {content_truncated: true, content_total_bytes: bounded.totalBytes}
       : {}),
+    ...(unavailableReason === undefined ? {} : {unavailable_reason: unavailableReason}),
   };
 }
 
@@ -216,6 +244,16 @@ function equalSectionBudget(sectionCount: number): number {
 interface StepLogTailRead {
   content: string;
   totalLines?: number | undefined;
+}
+
+interface UnavailableStepLogRead {
+  unavailableReason: AgentAccessLogSectionUnavailableReason;
+}
+
+type FailedStepLogRead = StepLogTailRead | UnavailableStepLogRead | null;
+
+function isUnavailableStepLogRead(logRead: FailedStepLogRead): logRead is UnavailableStepLogRead {
+  return logRead !== null && 'unavailableReason' in logRead;
 }
 
 interface FailedStepAttemptCoordinate {
@@ -243,6 +281,7 @@ interface BoundedLogContent {
 }
 
 const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder('utf-8', {ignoreBOM: true});
 
 function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
   const totalBytes = utf8Encoder.encode(value).byteLength;
@@ -258,7 +297,12 @@ function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
     const line = lines[index] ?? '';
     const lineBytes = utf8Encoder.encode(line).byteLength;
     const separatorBytes = selected.length > 0 || hasTrailingNewline ? 1 : 0;
-    if (selectedBytes + separatorBytes + lineBytes > maxBytes) break;
+    if (selectedBytes + separatorBytes + lineBytes > maxBytes) {
+      if (selected.length === 0) {
+        selected.push(utf8Suffix(line, maxBytes - separatorBytes));
+      }
+      break;
+    }
     selected.push(line);
     selectedBytes += separatorBytes + lineBytes;
   }
@@ -268,4 +312,14 @@ function boundLogContent(value: string, maxBytes: number): BoundedLogContent {
     truncated: true,
     totalBytes,
   };
+}
+
+function utf8Suffix(value: string, maxBytes: number): string {
+  if (maxBytes <= 0) return '';
+  const encoded = utf8Encoder.encode(value);
+  if (encoded.byteLength <= maxBytes) return value;
+
+  let start = encoded.byteLength - maxBytes;
+  while (start < encoded.byteLength && (encoded[start] ?? 0) >> 6 === 2) start += 1;
+  return utf8Decoder.decode(encoded.subarray(start));
 }

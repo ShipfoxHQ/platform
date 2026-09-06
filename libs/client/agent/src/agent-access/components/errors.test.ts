@@ -1,15 +1,15 @@
 import {ApiError} from '@shipfox/client-api';
 import {agentAccessErrorMessage, oauthConsentErrorMessage} from './errors.js';
 
-describe('agent access error copy', () => {
+describe('MCP connection error copy', () => {
   test.each([
     [
       'workspace-suspended',
-      'This workspace is suspended. Restore it before changing agent access.',
+      'This workspace is suspended. Restore it before managing MCP connections.',
     ],
     [
       'auth-dependency-unavailable',
-      'Agent access is temporarily unavailable. Try again in a moment.',
+      'MCP connections are temporarily unavailable. Try again in a moment.',
     ],
   ])('owns copy for %s', (code, expected) => {
     expect(agentAccessErrorMessage(new ApiError({code, message: 'Server copy', status: 409}))).toBe(
@@ -29,8 +29,31 @@ describe('agent access error copy', () => {
     );
   });
 
-  test('gives expired consent requests a recovery path', () => {
-    const error = new ApiError({code: 'not-found', message: 'Not found', status: 404});
-    expect(oauthConsentErrorMessage(error)).toContain('Return to the agent and start again.');
+  test.each([
+    [
+      'workspace-suspended',
+      'This workspace is suspended. Restore it before approving this connection request.',
+    ],
+    [
+      'workspace-inactive',
+      'This workspace is not active, so this connection request cannot be approved.',
+    ],
+    ['forbidden', "You don't have permission to approve this connection for this workspace."],
+    [
+      'auth-dependency-unavailable',
+      'This connection request is temporarily unavailable. Try again in a moment.',
+    ],
+    [
+      'not-found',
+      'This connection request expired or is no longer available. Return to your MCP client and start again.',
+    ],
+    [
+      'invalid-request',
+      'This connection request is invalid. Return to your MCP client and start again.',
+    ],
+  ])('keeps consent copy contextual for %s', (code, expected) => {
+    expect(
+      oauthConsentErrorMessage(new ApiError({code, message: 'Server copy', status: 409})),
+    ).toBe(expected);
   });
 });

@@ -106,7 +106,7 @@ function createGetWorkflowRunSourceTool(workflows: WorkflowsModuleClient): Agent
       const source = await workflows.getWorkflowRunSource({
         workspaceId: context.workspaceId,
         workflowRunId: input.run_id,
-        attempt: input.attempt,
+        ...optionalField('attempt', input.attempt),
       });
       if (source === null) return notFound();
 

@@ -314,7 +314,7 @@ describe('paged agent-access tools', () => {
       workspaceId,
       workflowRunId: runId,
     });
-    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       workflowRunId: runId,
       workflowRunAttempt: 2,
@@ -371,7 +371,7 @@ describe('paged agent-access tools', () => {
     });
 
     expect(response).toEqual({ok: true, result: {annotations: [], next_cursor: null}});
-    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt).toHaveBeenCalledWith({
+    expect(mocks.annotationHandlers.listAnnotationsForRunAttempt.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       workflowRunId: runId,
       workflowRunAttempt: 2,

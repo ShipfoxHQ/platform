@@ -15,6 +15,29 @@ describe('signup gate configuration', () => {
     expect(config.AUTH_SIGNUP_NOT_ALLOWED_MESSAGE).toBeUndefined();
   });
 
+  test('requires the public API URL', async () => {
+    vi.stubEnv('API_PUBLIC_URL', undefined);
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('process.exit unexpectedly called with "1"');
+  });
+
+  test('accepts an HTTPS public API URL', async () => {
+    vi.stubEnv('API_PUBLIC_URL', 'https://api.example.test');
+    vi.resetModules();
+
+    const {config} = await import('#config.js');
+
+    expect(config.API_PUBLIC_URL).toBe('https://api.example.test');
+  });
+
+  test('rejects a public API URL without a scheme', async () => {
+    vi.stubEnv('API_PUBLIC_URL', 'api.example.test');
+    vi.resetModules();
+
+    await expect(import('#config.js')).rejects.toThrow('process.exit unexpectedly called with "1"');
+  });
+
   test('fails startup when the enabled gate has no allowlist', async () => {
     vi.stubEnv('AUTH_SIGNUP_GATE_ENABLED', 'true');
     vi.stubEnv('AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS', ',  ');

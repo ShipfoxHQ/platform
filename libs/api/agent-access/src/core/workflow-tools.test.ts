@@ -77,7 +77,7 @@ describe('bounded workflow agent-access tools', () => {
     });
     const result = expectSuccess<GetWorkflowRunResultDto>(response);
 
-    expect(mocks.workflowHandlers.getWorkflowRunOverview).toHaveBeenCalledWith({
+    expect(mocks.workflowHandlers.getWorkflowRunOverview.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       workflowRunId: runId,
     });

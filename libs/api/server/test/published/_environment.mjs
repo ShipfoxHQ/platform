@@ -8,6 +8,7 @@ export function publishedTestEnvironment() {
   const postgresDatabase = 'api_test';
 
   return {
+    API_PUBLIC_URL: 'https://api.example.test',
     AUTH_ROOT_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
     DATABASE_URL: `postgres://${postgresUsername}:${postgresPassword}@${postgresHost}:${postgresPort}/${postgresDatabase}`,
     GITEA_BASE_URL: 'https://gitea.example.com',

@@ -843,6 +843,10 @@ describe('waitForRunByDeliveryId', () => {
 });
 
 describe('waitForRunTerminal', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test.each([
     'succeeded',
     'failed',
@@ -893,6 +897,8 @@ describe('waitForRunTerminal', () => {
   });
 
   test('reports the last bounded resource on timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     const result = waitForRunTerminal({
       fetch: (input) => {
         const url = new URL(input);
@@ -905,9 +911,13 @@ describe('waitForRunTerminal', () => {
       token: 'user-token',
     });
 
-    await expect(result).rejects.toThrow(RUN_TERMINAL_TIMEOUT_RE);
-    await expect(result).rejects.toThrow(RUN_TERMINAL_OBSERVED_RE);
-    await expect(result).rejects.toThrow('lastBoundedResource=workflow run overview attempt 1');
+    const assertions = Promise.all([
+      expect(result).rejects.toThrow(RUN_TERMINAL_TIMEOUT_RE),
+      expect(result).rejects.toThrow(RUN_TERMINAL_OBSERVED_RE),
+      expect(result).rejects.toThrow('lastBoundedResource=workflow run overview attempt 1'),
+    ]);
+    await vi.advanceTimersByTimeAsync(1);
+    await assertions;
   });
 
   test('follows only the bounded pages needed for a selected execution and step', async () => {

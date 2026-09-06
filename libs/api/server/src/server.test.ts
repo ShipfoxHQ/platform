@@ -40,9 +40,15 @@ const mocks = vi.hoisted(() => {
       API_TRUST_PROXY: 'false',
       E2E_ENABLED: false,
     },
+    authConfig: {API_PUBLIC_URL: 'https://api.example.test/'},
+    validateOAuthPublicOrigin: vi.fn(),
   };
 });
 
+vi.mock('@shipfox/api-auth', () => ({
+  validateOAuthPublicOrigin: mocks.validateOAuthPublicOrigin,
+}));
+vi.mock('@shipfox/api-auth/config', () => ({config: mocks.authConfig}));
 vi.mock('@shipfox/node-error-monitoring', () => ({
   closeErrorMonitoring: mocks.closeErrorMonitoring,
   markErrorReported: mocks.markErrorReported,
@@ -139,6 +145,7 @@ function resetMocks(): void {
   mocks.startModuleServices.mockReset();
   mocks.startModuleWorkers.mockReset();
   mocks.startServiceMetrics.mockReset();
+  mocks.validateOAuthPublicOrigin.mockReset();
   mocks.workersHandle.stop.mockReset();
   mocks.servicesHandle.stop.mockReset();
   mocks.apiConfig.API_PORT = undefined;
@@ -165,6 +172,7 @@ function resetMocks(): void {
   mocks.shutdownServiceMetrics.mockResolvedValue(undefined);
   mocks.startModuleWorkers.mockResolvedValue(mocks.workersHandle);
   mocks.startModuleServices.mockResolvedValue(mocks.servicesHandle);
+  mocks.validateOAuthPublicOrigin.mockReturnValue('https://api.example.test');
   mocks.workersHandle.stop.mockResolvedValue(undefined);
   mocks.servicesHandle.stop.mockResolvedValue(undefined);
 }
@@ -200,6 +208,11 @@ describe('createServer', () => {
     expect(mocks.startServiceMetrics).toHaveBeenCalledWith({serviceName: 'api'});
     expect(mocks.aggregateLoginMethods).toHaveBeenCalledWith({modules});
     expect(mocks.createPostgresClient).toHaveBeenCalledOnce();
+    expect(mocks.validateOAuthPublicOrigin).toHaveBeenCalledWith('https://api.example.test/');
+    expect(mocks.logger.info).toHaveBeenCalledWith(
+      {apiPublicOrigin: 'https://api.example.test'},
+      'Configured OAuth public API origin',
+    );
     expect(mocks.initializeModules).toHaveBeenCalledWith({modules});
     expect(mocks.registerModuleMetrics).toHaveBeenCalledWith({
       modules,

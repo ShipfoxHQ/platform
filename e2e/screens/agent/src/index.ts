@@ -92,15 +92,79 @@ export class CustomModelProviderScreen {
   }
 }
 
+export class AgentAccessSettingsScreen {
+  constructor(private readonly page: Page) {}
+
+  async goto(workspaceSlug: string): Promise<void> {
+    await this.page.goto(`/w/${workspaceSlug}/settings/agent-access`);
+  }
+
+  heading(): Locator {
+    return this.page.getByRole('heading', {name: 'MCP connections', exact: true});
+  }
+
+  connectedAppsHeading(): Locator {
+    return this.page.getByRole('heading', {name: 'Connected apps', exact: true});
+  }
+
+  emptyState(): Locator {
+    return this.page.getByText('No connected apps', {exact: true});
+  }
+
+  connectedAppRow(clientName: string): Locator {
+    return this.page.getByRole('row').filter({hasText: clientName});
+  }
+
+  async openDisconnectDialog(clientName: string): Promise<Dialog> {
+    await this.connectedAppRow(clientName)
+      .getByRole('button', {name: `Disconnect ${clientName}`, exact: true})
+      .click();
+    const dialog = new Dialog(this.page, `Disconnect ${clientName}?`);
+    await dialog.expectVisible();
+    return dialog;
+  }
+}
+
+export class OAuthConsentScreen {
+  constructor(private readonly page: Page) {}
+
+  heading(clientName: string): Locator {
+    return this.page.getByRole('heading', {
+      name: `Allow ${clientName} to access Shipfox?`,
+      exact: true,
+    });
+  }
+
+  identityText(text: string): Locator {
+    return this.page.getByText(text, {exact: true});
+  }
+
+  denyButton(): Locator {
+    return this.page.getByRole('button', {name: 'Deny', exact: true});
+  }
+
+  allowButton(): Locator {
+    return this.page.getByRole('button', {name: 'Allow access', exact: true});
+  }
+}
+
 export interface AgentScreenFixtures {
+  agentAccessSettings: AgentAccessSettingsScreen;
   customModelProviders: CustomModelProviderScreen;
+  oauthConsent: OAuthConsentScreen;
 }
 
 export const agentScreens = {
+  agentAccessSettings: async ({page}: {page: Page}, use: FixtureUse<AgentAccessSettingsScreen>) => {
+    await use(new AgentAccessSettingsScreen(page));
+  },
   customModelProviders: async (
     {page}: {page: Page},
     use: FixtureUse<CustomModelProviderScreen>,
   ) => {
     await use(new CustomModelProviderScreen(page));
+  },
+  oauthConsent: async ({page}: {page: Page}, use: FixtureUse<OAuthConsentScreen>) => {
+    await use(new OAuthConsentScreen(page));
   },
 };

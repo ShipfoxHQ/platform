@@ -217,6 +217,7 @@ export function e2eEnv(sourceEnv) {
   return {
     ...sourceEnv,
     API_URL: apiUrl,
+    API_PUBLIC_URL: valueOr(sourceEnv.API_PUBLIC_URL, apiUrl),
     CLIENT_BASE_URL: valueOr(sourceEnv.CLIENT_BASE_URL, clientUrl),
     CLIENT_URL: clientUrl,
     E2E_ADMIN_API_KEY: valueOr(sourceEnv.E2E_ADMIN_API_KEY, defaultE2eAdminApiKey),

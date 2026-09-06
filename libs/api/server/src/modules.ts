@@ -1,6 +1,7 @@
 import {annotationsModule} from '@shipfox/annotations';
 import {annotationsInterModuleContract} from '@shipfox/annotations-dto/inter-module';
 import {type CreateAgentModuleOptions, createAgentModule} from '@shipfox/api-agent';
+import {createAgentAccessModule} from '@shipfox/api-agent-access';
 import {agentInterModuleContract} from '@shipfox/api-agent-dto/inter-module';
 import {type CreateAuthModuleOptions, createAuthModule} from '@shipfox/api-auth';
 import {config as authConfig} from '@shipfox/api-auth/config';
@@ -26,6 +27,7 @@ import {
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
 import {createTriggersModule} from '@shipfox/api-triggers';
+import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
 import {createUsageModule} from '@shipfox/api-usage';
 import {type CreateWorkflowsModuleOptions, createWorkflowsModule} from '@shipfox/api-workflows';
 import {
@@ -135,6 +137,7 @@ export async function defaultModules(
   const workspacesClient = interModuleTransport.createClient(workspacesInterModuleContract);
   const integrationsClient = interModuleTransport.createClient(integrationsInterModuleContract);
   const logsClient = interModuleTransport.createClient(logsInterModuleContract);
+  const triggersClient = interModuleTransport.createClient(triggersInterModuleContract);
   const integrations = await createIntegrationsContext({
     workspaces: workspacesClient,
     secrets: {
@@ -305,6 +308,15 @@ export async function defaultModules(
           ...options.authModuleOptions,
           workspaces: workspacesClient,
         }),
+    createAgentAccessModule({
+      annotations: annotationsClient,
+      apiPublicUrl: authConfig.API_PUBLIC_URL,
+      definitions: definitionsClient,
+      logs: logsClient,
+      projects: projectsClient,
+      triggers: triggersClient,
+      workflows: workflowsClient,
+    }),
     createWorkspacesModule({auth: authClient, projects: projectsClient, runners: runnersClient}),
     createSecretsModule(projectsClient),
     agentModule,

@@ -325,7 +325,7 @@ async function resolveRunAttempt(
   const overview = await workflows.getWorkflowRunOverview({
     workspaceId: context.workspaceId,
     workflowRunId: input.run_id,
-    attempt: input.attempt,
+    ...optionalField('attempt', input.attempt),
   });
   return overview === null ? null : input.attempt;
 }

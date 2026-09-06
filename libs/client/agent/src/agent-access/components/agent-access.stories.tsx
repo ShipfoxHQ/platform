@@ -15,6 +15,7 @@ const REQUEST_ID = '33333333-3333-4333-8333-333333333333';
 
 type View =
   | 'consent'
+  | 'consent-self-registered'
   | 'consent-multiple-workspaces'
   | 'settings-populated'
   | 'settings-empty'
@@ -31,7 +32,11 @@ const STORY_WORKSPACES = [
 ] as const;
 
 function AgentAccessStory({view}: {view: View}) {
-  if (view === 'consent' || view === 'consent-multiple-workspaces') {
+  if (
+    view === 'consent' ||
+    view === 'consent-self-registered' ||
+    view === 'consent-multiple-workspaces'
+  ) {
     return <OAuthConsentPage requestId={REQUEST_ID} onRedirect={() => undefined} />;
   }
 
@@ -85,7 +90,7 @@ function StoryProviders({children, view}: {children: ReactNode; view: View}) {
 }
 
 const meta = {
-  title: 'Agent access/Surfaces',
+  title: 'MCP connections/Surfaces',
   component: AgentAccessStory,
   parameters: {layout: 'fullscreen'},
   decorators: [withStoryProviders],
@@ -106,6 +111,14 @@ export const Consent: Story = {
   },
 };
 
+export const SelfRegisteredConsent: Story = {
+  args: {view: 'consent-self-registered'},
+  play: async ({canvasElement}) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText('Self-registered MCP client. Identity not verified by Shipfox.');
+  },
+};
+
 export const MultipleWorkspaces: Story = {
   args: {view: 'consent-multiple-workspaces'},
   play: async ({canvasElement}) => {
@@ -120,7 +133,7 @@ export const Settings: Story = {
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
     await canvas.findAllByText('Claude Desktop');
-    await canvas.findByRole('heading', {name: 'Authorized apps'});
+    await canvas.findByRole('heading', {name: 'Connected apps'});
   },
 };
 
@@ -128,7 +141,7 @@ export const EmptySettings: Story = {
   args: {view: 'settings-empty'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText('No authorized apps');
+    await canvas.findByText('No connected apps');
   },
 };
 
@@ -136,7 +149,7 @@ export const SettingsErrors: Story = {
   args: {view: 'settings-errors'},
   play: async ({canvasElement}) => {
     const canvas = within(canvasElement);
-    await canvas.findByText("Couldn't load authorized apps");
+    await canvas.findByText("Couldn't load connected apps");
   },
 };
 
@@ -160,7 +173,14 @@ function fetchForView(view: View): typeof fetch {
       );
     }
     if (request.url.includes('/oauth/consents/')) {
-      return Promise.resolve(jsonResponse(consentDto(view === 'consent-multiple-workspaces')));
+      return Promise.resolve(
+        jsonResponse(
+          consentDto({
+            multipleWorkspaces: view === 'consent-multiple-workspaces',
+            selfRegistered: view === 'consent-self-registered',
+          }),
+        ),
+      );
     }
     if (request.url.endsWith('/grants')) {
       return Promise.resolve(jsonResponse({grants: view === 'settings-empty' ? [] : [grantDto()]}));
@@ -177,14 +197,21 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-function consentDto(multipleWorkspaces = false) {
+function consentDto({
+  multipleWorkspaces,
+  selfRegistered,
+}: {
+  multipleWorkspaces: boolean;
+  selfRegistered: boolean;
+}) {
   return {
     request_id: REQUEST_ID,
     client_name: 'Claude Desktop',
     scope: 'read',
     expires_at: '2026-09-02T12:30:00.000Z',
     redirect_uri_hostname: '127.0.0.1',
-    client_identity_origin: 'https://claude.ai',
+    client_identity_kind: selfRegistered ? 'self-registered' : 'cimd',
+    client_identity_origin: selfRegistered ? null : 'https://claude.ai',
     is_loopback_redirect: true,
     workspaces: [
       {workspace_id: WORKSPACE_ID, role: 'owner'},

@@ -2,11 +2,16 @@ import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type {Transport} from '@modelcontextprotocol/sdk/shared/transport.js';
 import {CallToolResultSchema} from '@modelcontextprotocol/sdk/types.js';
+import type {AnnotationsInterModuleClient} from '@shipfox/annotations-dto/inter-module';
 import {
   type AgentAccessContext,
   AUTH_AGENT_ACCESS,
   setAgentAccessContext,
 } from '@shipfox/api-auth-context';
+import type {DefinitionsInterModuleClient} from '@shipfox/api-definitions-dto/inter-module';
+import type {ProjectsModuleClient} from '@shipfox/api-projects-dto/inter-module';
+import type {TriggersInterModuleClient} from '@shipfox/api-triggers-dto/inter-module';
+import type {WorkflowsModuleClient} from '@shipfox/api-workflows-dto/inter-module';
 import {
   type AuthMethod,
   ClientError,
@@ -15,7 +20,7 @@ import {
   type FastifyRequest,
 } from '@shipfox/node-fastify';
 import {createAgentAccessRateLimiter} from '#core/rate-limiter.js';
-import {createAgentAccessRoutes} from './routes.js';
+import {type CreateAgentAccessRoutesOptions, createAgentAccessRoutes} from './routes.js';
 
 const context: AgentAccessContext = {
   userId: 'user-1',
@@ -48,6 +53,52 @@ describe('agent-access MCP routes', () => {
 
   afterEach(async () => {
     await closeApp();
+  });
+
+  test('rejects a partial core producer composition at startup', () => {
+    expect(() =>
+      createAgentAccessRoutes({
+        projects: {} as unknown as ProjectsModuleClient,
+        definitions: {} as unknown as DefinitionsInterModuleClient,
+      }),
+    ).toThrow(
+      'Agent-access core producer clients must be configured together: projects, definitions, workflows, annotations, and triggers',
+    );
+  });
+
+  test('keeps diagnostic tools when optional log reads are not configured', async () => {
+    const app = await createTestApp(createAgentAccessRateLimiter(), {
+      projects: {} as unknown as ProjectsModuleClient,
+      definitions: {} as unknown as DefinitionsInterModuleClient,
+      workflows: {} as unknown as WorkflowsModuleClient,
+      annotations: {} as unknown as AnnotationsInterModuleClient,
+      triggers: {} as unknown as TriggersInterModuleClient,
+    });
+    const address = await app.listen({port: 0, host: '127.0.0.1'});
+    const client = new Client({name: 'test-http-client', version: '0.0.0'});
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', address), {
+      requestInit: {headers: {authorization: 'Bearer valid-token'}},
+    });
+
+    try {
+      await client.connect(transport as unknown as Transport);
+      const tools = await client.listTools();
+      const toolNames = tools.tools.map((tool) => tool.name);
+
+      expect(toolNames).toEqual(
+        expect.arrayContaining([
+          'get_trigger_event',
+          'get_trigger_event_facets',
+          'get_workflow_run_source',
+          'get_workflow_execution_context',
+          'get_step_attempt',
+          'list_workflow_run_job_explanations',
+        ]),
+      );
+      expect(toolNames).not.toContain('get_step_logs');
+    } finally {
+      await client.close();
+    }
   });
 
   test('returns 405 for allowed GET and DELETE requests', async () => {
@@ -118,6 +169,25 @@ describe('agent-access MCP routes', () => {
     expect(authCalls).toBe(1);
   });
 
+  test.each([
+    'http://api.example.test',
+    'https://api.example.test/v1',
+    'https://user:password@api.example.test',
+  ])('rejects an invalid public API origin at startup: %s', (apiPublicUrl) => {
+    expect(() => createAgentAccessRoutes({apiPublicUrl})).toThrow(
+      'Agent-access API public URL configuration is invalid',
+    );
+  });
+
+  test.each([
+    'https://api.example.test/',
+    'http://localhost:16101/',
+    'http://127.0.0.1:16101',
+    'http://[::1]:16101',
+  ])('accepts a secure or loopback public API origin: %s', (apiPublicUrl) => {
+    expect(() => createAgentAccessRoutes({apiPublicUrl})).not.toThrow();
+  });
+
   test('serves stateless Streamable HTTP with the fixture tool', async () => {
     const app = await createTestApp();
     const address = await app.listen({port: 0, host: '127.0.0.1'});
@@ -175,15 +245,22 @@ describe('agent-access MCP routes', () => {
   });
 });
 
-async function createTestApp(rateLimiter = createAgentAccessRateLimiter()) {
+async function createTestApp(
+  rateLimiter = createAgentAccessRateLimiter(),
+  routeOptions: Omit<
+    CreateAgentAccessRoutesOptions,
+    'apiPublicUrl' | 'isOriginAllowed' | 'rateLimiter'
+  > = {},
+) {
   const app = await createApp({
     auth: [testAuth],
     routes: [
       createAgentAccessRoutes({
-        apiPublicUrl: 'https://api.example.test',
+        apiPublicUrl: 'https://api.example.test/',
         isOriginAllowed: (origin) =>
           origin === undefined || origin === 'https://allowed.example.test',
         rateLimiter,
+        ...routeOptions,
       }),
     ],
     swagger: false,

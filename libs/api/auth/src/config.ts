@@ -1,10 +1,13 @@
-import {bool, createConfig, num, str} from '@shipfox/config';
+import {bool, createConfig, num, str, url} from '@shipfox/config';
 import {SIGNUP_DENIAL_MESSAGE_MAX_LENGTH} from '#core/ports.js';
 
 export const config = createConfig({
   ADMIN_BOOTSTRAP_TOKEN: str({
     desc: 'Deployment secret accepted once to create the first administrator owner. Set it before bootstrap and remove or rotate it after successful bootstrap.',
     default: undefined,
+  }),
+  API_PUBLIC_URL: url({
+    desc: 'Public origin of the API used by Agent Access OAuth metadata and redirect flows. Required. Set an externally reachable URL including the scheme. Use HTTPS outside localhost.',
   }),
   AUTH_JWT_EXPIRES_IN: str({
     desc: 'How long an access token stays valid. Accepts a duration string such as 15m, 1h, or 7d.',

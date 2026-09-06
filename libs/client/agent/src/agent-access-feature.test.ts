@@ -21,8 +21,8 @@ describe('agentAccessFeature', () => {
       {
         id: 'settings.agent-access',
         pathSegment: 'agent-access',
-        label: 'Agent access',
-        icon: 'key2Line',
+        label: 'MCP connections',
+        icon: 'terminalBoxLine',
         order: 450,
       },
     ]);

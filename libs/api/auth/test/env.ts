@@ -5,4 +5,5 @@ process.env.POSTGRES_PASSWORD ??= 'password';
 process.env.POSTGRES_DATABASE = 'api_test';
 process.env.POSTGRES_MAX_CONNECTIONS ??= '5';
 process.env.AUTH_ROOT_KEY = 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=';
+process.env.API_PUBLIC_URL ??= 'http://localhost:16101';
 process.env.TZ = 'UTC';

@@ -44,6 +44,7 @@ vi.mock('#config.js', () => ({
     AUTH_SIGNUP_ALLOWED_EMAIL_DOMAINS: 'example.com',
     AUTH_SIGNUP_ALLOWED_EMAILS: '',
     AUTH_SIGNUP_NOT_ALLOWED_MESSAGE: undefined,
+    API_PUBLIC_URL: 'https://api.example.test',
     CLIENT_BASE_URL: 'https://app.example.test',
   },
 }));
@@ -87,7 +88,7 @@ describe('authModule', () => {
         getWorkspaceOperatingState: vi.fn(),
       },
     });
-    expect(module.routes).toHaveLength(5);
+    expect(module.routes).toHaveLength(8);
     expect(module.routes).toEqual(
       expect.arrayContaining([expect.objectContaining({prefix: '/admin/auth'})]),
     );
@@ -138,10 +139,29 @@ describe('authModule', () => {
     expect(worker?.activities).toBe(createAuthMaintenanceActivities);
   });
 
-  test('keeps agent access routes and authentication opt-in', () => {
-    expect(authModule.auth?.map(({name}) => name)).not.toContain('agent-access');
-    expect(authModule.routes).not.toEqual(
+  test('activates the agent access authentication and route surface', () => {
+    expect(authModule.auth?.map(({name}) => name)).toContain('agent-access');
+    expect(authModule.routes).toEqual(
       expect.arrayContaining([expect.objectContaining({prefix: '/agent-access'})]),
+    );
+    expect(authModule.routes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prefix: '',
+          routes: expect.arrayContaining([
+            expect.objectContaining({path: '/.well-known/oauth-protected-resource'}),
+            expect.objectContaining({path: '/.well-known/oauth-authorization-server'}),
+            expect.objectContaining({path: '/oauth/register'}),
+          ]),
+        }),
+        expect.objectContaining({
+          prefix: '',
+          routes: expect.arrayContaining([
+            expect.objectContaining({path: '/oauth/authorize'}),
+            expect.objectContaining({path: '/oauth/token'}),
+          ]),
+        }),
+      ]),
     );
   });
 });

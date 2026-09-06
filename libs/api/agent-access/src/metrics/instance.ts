@@ -15,17 +15,25 @@ export type AgentAccessAuthFailureReason =
   | 'origin-not-allowed'
   | 'dependency-unavailable';
 
+export type AgentAccessLogSectionUnavailableReason = 'compacted-log-unavailable';
+
 const toolCallCount = meter.createCounter<{
   tool: string;
   outcome: AgentAccessToolCallOutcome;
 }>('agent_access_tool_calls', {
-  description: 'MCP tool calls served by this instance',
+  description: 'MCP tool-call requests received by this instance',
 });
 
 const authFailureCount = meter.createCounter<{
   reason: AgentAccessAuthFailureReason;
 }>('agent_access_auth_failures', {
   description: 'agent-access authentication rejections on this instance',
+});
+
+const logSectionUnavailableCount = meter.createCounter<{
+  reason: AgentAccessLogSectionUnavailableReason;
+}>('agent_access_log_sections_unavailable', {
+  description: 'Agent-access log sections unavailable on this instance',
 });
 
 export function recordAgentAccessToolCall(params: {
@@ -44,5 +52,15 @@ export function recordAgentAccessAuthFailure(reason: AgentAccessAuthFailureReaso
     authFailureCount.add(1, {reason});
   } catch {
     // Metrics must not affect HTTP authentication responses.
+  }
+}
+
+export function recordAgentAccessLogSectionUnavailable(
+  reason: AgentAccessLogSectionUnavailableReason,
+): void {
+  try {
+    logSectionUnavailableCount.add(1, {reason});
+  } catch {
+    // Metrics must not affect MCP responses.
   }
 }

@@ -10,6 +10,7 @@ import {
   type SecretsInterModuleClient,
   secretsInterModuleContract,
 } from '@shipfox/api-secrets-dto/inter-module';
+import {triggersInterModuleContract} from '@shipfox/api-triggers-dto/inter-module';
 import {usageInterModuleContract} from '@shipfox/api-usage-dto/inter-module';
 import {workflowsInterModuleContract} from '@shipfox/api-workflows-dto/inter-module';
 import {
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   buildAgentToolCatalogs: vi.fn(),
   buildAgentToolSelectionCatalogs: vi.fn(),
   createAgentModule: vi.fn(),
+  createAgentAccessModule: vi.fn(),
   createAuthModule: vi.fn(),
   createDefinitionsModule: vi.fn(),
   createIntegrationsContext: vi.fn(),
@@ -69,8 +71,11 @@ vi.mock('@shipfox/api-auth', () => ({
   createAuthModule: mocks.createAuthModule,
 }));
 vi.mock('@shipfox/api-agent', () => ({createAgentModule: mocks.createAgentModule}));
+vi.mock('@shipfox/api-agent-access', () => ({
+  createAgentAccessModule: mocks.createAgentAccessModule,
+}));
 vi.mock('@shipfox/api-auth/config', () => ({
-  config: {AUTH_JOB_LEASE_TOKEN_EXPIRES_IN: '90m'},
+  config: {API_PUBLIC_URL: 'https://api.example.test', AUTH_JOB_LEASE_TOKEN_EXPIRES_IN: '90m'},
 }));
 vi.mock('@shipfox/api-definitions', () => ({
   createDefinitionsModule: mocks.createDefinitionsModule,
@@ -109,6 +114,7 @@ describe('defaultModules', () => {
     mocks.buildAgentToolCatalogs.mockReset();
     mocks.buildAgentToolSelectionCatalogs.mockReset();
     mocks.createAgentModule.mockReset();
+    mocks.createAgentAccessModule.mockReset();
     mocks.createAuthModule.mockReset();
     mocks.createDefinitionsModule.mockReset();
     mocks.createIntegrationsContext.mockReset();
@@ -306,7 +312,17 @@ describe('defaultModules', () => {
         },
       ],
     });
-    mocks.createTriggersModule.mockReturnValue({name: 'triggers'});
+    mocks.createAgentAccessModule.mockReturnValue({name: 'agent-access'});
+    mocks.createTriggersModule.mockReturnValue({
+      name: 'triggers',
+      interModulePresentations: [
+        defineInterModulePresentation(triggersInterModuleContract, {
+          listTriggerEvents: vi.fn(),
+          getTriggerEvent: vi.fn(),
+          getTriggerEventFacets: vi.fn(),
+        }),
+      ],
+    });
     mocks.createUsageModule.mockReturnValue({
       name: 'usage',
       interModulePresentations: [
@@ -344,6 +360,7 @@ describe('defaultModules', () => {
     expect(modules.map((module) => module.name)).toEqual([
       'email-challenges',
       'auth',
+      'agent-access',
       'workspaces',
       'secrets',
       'agent',
@@ -375,6 +392,7 @@ describe('defaultModules', () => {
       projectsInterModuleContract,
       runnersInterModuleContract,
       secretsInterModuleContract,
+      triggersInterModuleContract,
       usageInterModuleContract,
       workflowsInterModuleContract,
       workspacesInterModuleContract,
@@ -387,6 +405,20 @@ describe('defaultModules', () => {
     await defaultModules();
 
     expect(mocks.createRunnersModule).toHaveBeenCalledWith({auth: expect.any(Object)});
+  });
+
+  it('composes Agent Access with every producer client and the public API URL', async () => {
+    await defaultModules();
+
+    expect(mocks.createAgentAccessModule).toHaveBeenCalledWith({
+      annotations: expect.any(Object),
+      apiPublicUrl: 'https://api.example.test',
+      definitions: expect.any(Object),
+      logs: expect.any(Object),
+      projects: expect.any(Object),
+      triggers: expect.any(Object),
+      workflows: expect.any(Object),
+    });
   });
 
   it('uses the default Auth module factory when none is supplied', async () => {
@@ -509,6 +541,7 @@ describe('defaultModules', () => {
     expect(modules.map((module) => module.name)).toEqual([
       'email-challenges',
       'auth',
+      'agent-access',
       'workspaces',
       'secrets',
       'agent',
@@ -757,6 +790,7 @@ describe('defaultModules', () => {
     expect(modules.map((module) => module.name)).toEqual([
       'email-challenges',
       'auth',
+      'agent-access',
       'workspaces',
       'secrets',
       'agent',

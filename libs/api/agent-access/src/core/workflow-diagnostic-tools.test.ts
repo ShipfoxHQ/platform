@@ -6,6 +6,7 @@ import type {
   ListWorkflowRunJobExplanationsResultDto,
 } from '@shipfox/api-agent-access-dto';
 import {
+  AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
   AGENT_ACCESS_PAGE_LIMIT_MAX,
   AGENT_ACCESS_RESPONSE_MAX_BYTES,
   AGENT_ACCESS_TEXT_MAX_BYTES,
@@ -58,6 +59,24 @@ function success<T>(response: AgentAccessEnvelopeDto): T {
 }
 
 describe('workflow diagnostic agent-access tools', () => {
+  test('omits an absent cursor from first-page execution trigger event requests', async () => {
+    const mocks = clients();
+    mocks.listExecutionTriggerEvents.mockResolvedValue(null);
+
+    const response = await tool(mocks, 'list_execution_trigger_events').execute({
+      context,
+      arguments: {job_id: jobId, execution_id: executionId},
+    });
+
+    expect(mocks.listExecutionTriggerEvents.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      jobId,
+      executionId,
+      limit: AGENT_ACCESS_EXECUTION_TRIGGER_EVENT_PAGE_LIMIT,
+    });
+    expect(response).toEqual({ok: false, error: {code: 'not-found'}});
+  });
+
   test('preserves closed, open, and schema-less values as structured content', async () => {
     const mocks = clients();
     mocks.getWorkflowJobExecutionContext.mockResolvedValue({
@@ -312,7 +331,7 @@ describe('workflow diagnostic agent-access tools', () => {
       arguments: {step_id: stepId},
     });
 
-    expect(mocks.getWorkflowStepAttemptDetail).toHaveBeenCalledWith({
+    expect(mocks.getWorkflowStepAttemptDetail.mock.calls[0]?.[0]).toStrictEqual({
       workspaceId,
       stepId,
     });
@@ -501,6 +520,11 @@ describe('workflow diagnostic agent-access tools', () => {
     });
     const result = success<GetWorkflowRunSourceResultDto>(response);
 
+    expect(mocks.getWorkflowRunSource.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      workflowRunId: runId,
+      attempt: 1,
+    });
     expect(result.kind).toBe('available');
     if (result.kind !== 'available') throw new Error('Expected source');
     expect(result.source_snapshot_truncated).toBe(true);
@@ -512,6 +536,26 @@ describe('workflow diagnostic agent-access tools', () => {
     );
     expect(result.source_snapshot.content.endsWith('�')).toBe(false);
     expect(getWorkflowRunSourceResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  test('omits an absent workflow run attempt from the producer request', async () => {
+    const mocks = clients();
+    mocks.getWorkflowRunSource.mockResolvedValue({
+      kind: 'unavailable',
+      workflow_run_id: runId,
+      workflow_run_attempt: 1,
+      reason: 'pre_snapshot_run',
+    });
+
+    await tool(mocks, 'get_workflow_run_source').execute({
+      context,
+      arguments: {run_id: runId},
+    });
+
+    expect(mocks.getWorkflowRunSource.mock.calls[0]?.[0]).toStrictEqual({
+      workspaceId,
+      workflowRunId: runId,
+    });
   });
 
   test('preserves the unavailable source branch', async () => {

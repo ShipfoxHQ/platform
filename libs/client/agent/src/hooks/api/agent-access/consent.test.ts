@@ -21,6 +21,7 @@ describe('OAuth consent adapter', () => {
         scope: 'read',
         expires_at: '2026-09-02T12:30:00.000Z',
         redirect_uri_hostname: '127.0.0.1',
+        client_identity_kind: 'cimd',
         client_identity_origin: 'https://claude.ai',
         is_loopback_redirect: true,
         workspaces: [{workspace_id: WORKSPACE_ID, role: 'owner'}],
@@ -32,7 +33,7 @@ describe('OAuth consent adapter', () => {
       requestId: REQUEST_ID,
       clientName: 'Claude Desktop',
       redirectHostname: '127.0.0.1',
-      clientIdentityOrigin: 'https://claude.ai',
+      clientIdentity: {kind: 'cimd', origin: 'https://claude.ai'},
       isLoopbackRedirect: true,
       workspaces: [{id: WORKSPACE_ID, role: 'owner'}],
     });

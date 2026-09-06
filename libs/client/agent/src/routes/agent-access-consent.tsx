@@ -2,6 +2,7 @@ import {defineRoute, type RouterContext} from '@shipfox/client-shell/runtime';
 import {redirect} from '@tanstack/react-router';
 import {OAuthConsentRoutePage} from '#agent-access/components/oauth-consent-page.js';
 import {validateOAuthConsentSearch} from '#agent-access/routes/inputs.js';
+import {createOAuthConsentLoginRedirect} from '#agent-access/routes/login-redirect.js';
 
 export default defineRoute({
   staticData: {frame: 'focused'},
@@ -10,7 +11,8 @@ export default defineRoute({
     const auth = context.auth;
     if (!auth || auth.isLoading) return;
     if (!auth.isAuthenticated) {
-      throw redirect({to: '/auth/login', search: {redirect: location.href}});
+      const target = createOAuthConsentLoginRedirect(location.href);
+      throw redirect({to: target.to, search: target.search});
     }
   },
   component: OAuthConsentRoutePage,

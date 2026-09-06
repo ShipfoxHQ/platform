@@ -9,7 +9,7 @@ export interface OAuthConsent {
   scope: 'read';
   expiresAt: string;
   redirectHostname: string;
-  clientIdentityOrigin: string;
+  clientIdentity: {kind: 'cimd'; origin: string} | {kind: 'self-registered'};
   isLoopbackRedirect: boolean;
   workspaces: ConsentWorkspace[];
 }

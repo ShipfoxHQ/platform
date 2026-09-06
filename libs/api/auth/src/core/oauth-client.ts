@@ -1,4 +1,10 @@
 import {
+  hasOAuthControlCharacter,
+  InvalidOAuthPublicOriginError,
+  isOAuthLoopbackHostname,
+  normalizeOAuthPublicOrigin,
+} from '@shipfox/api-auth-context';
+import {
   OAUTH_READ_SCOPE,
   type OAuthClientMetadataDocumentDto,
   type OAuthDynamicClientRegistrationRequestDto,
@@ -16,13 +22,6 @@ const URI_SUFFIX_PATTERN = /[/?#]/u;
 const PORT_PATTERN = /^\d+$/u;
 const BRACKETED_PORT_PATTERN = /^:\d+$/u;
 const OAUTH_HOSTNAME_MAX_LENGTH = 253;
-
-function hasControlCharacter(value: string): boolean {
-  return [...value].some((character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint < 0x20 || codePoint === 0x7f;
-  });
-}
 
 export const OAUTH_CLIENT_ID_MAX_BYTES = 2048;
 export const OAUTH_CLIENT_NAME_MAX_BYTES = 256;
@@ -62,11 +61,6 @@ function parseUrl(value: string): URL {
   }
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, '');
-  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
-}
-
 function validateUrlShape(url: URL): void {
   if (
     url.username ||
@@ -74,7 +68,7 @@ function validateUrlShape(url: URL): void {
     url.hash ||
     url.hostname.length === 0 ||
     url.hostname.length > OAUTH_HOSTNAME_MAX_LENGTH ||
-    hasControlCharacter(url.href)
+    hasOAuthControlCharacter(url.href)
   ) {
     rejectInvalidMetadata();
   }
@@ -86,7 +80,7 @@ export function validateOAuthRedirectUri(value: string): URL {
     !hasByteLengthAtMost(value, OAUTH_REDIRECT_URI_MAX_BYTES) ||
     value.length === 0 ||
     value.trim() !== value ||
-    hasControlCharacter(value)
+    hasOAuthControlCharacter(value)
   ) {
     return rejectInvalidMetadata();
   }
@@ -95,7 +89,7 @@ export function validateOAuthRedirectUri(value: string): URL {
   validateUrlShape(url);
 
   if (url.protocol === 'https:') return url;
-  if (url.protocol !== 'http:' || !isLoopbackHostname(url.hostname)) {
+  if (url.protocol !== 'http:' || !isOAuthLoopbackHostname(url.hostname)) {
     return rejectInvalidMetadata();
   }
   return url;
@@ -104,7 +98,7 @@ export function validateOAuthRedirectUri(value: string): URL {
 export function isOAuthLoopbackRedirectUri(value: string): boolean {
   try {
     const url = validateOAuthRedirectUri(value);
-    return url.protocol === 'http:' && isLoopbackHostname(url.hostname);
+    return url.protocol === 'http:' && isOAuthLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
@@ -122,8 +116,8 @@ export function oauthRedirectUriMatches(registered: string, requested: string): 
     if (
       registeredUrl.protocol !== 'http:' ||
       requestedUrl.protocol !== 'http:' ||
-      !isLoopbackHostname(registeredUrl.hostname) ||
-      !isLoopbackHostname(requestedUrl.hostname)
+      !isOAuthLoopbackHostname(registeredUrl.hostname) ||
+      !isOAuthLoopbackHostname(requestedUrl.hostname)
     ) {
       return false;
     }
@@ -172,7 +166,7 @@ export function validateOAuthClientId(value: string): URL {
   if (
     !hasByteLengthAtMost(value, OAUTH_CLIENT_ID_MAX_BYTES) ||
     value.trim() !== value ||
-    hasControlCharacter(value)
+    hasOAuthControlCharacter(value)
   ) {
     return rejectInvalidMetadata();
   }
@@ -185,34 +179,22 @@ export function validateOAuthClientId(value: string): URL {
   return url;
 }
 
-/** Validates the public origin injected into the dormant route factory. */
+/** Preserves the Auth boundary's typed configuration error. */
 export function validateOAuthPublicOrigin(value: string): string {
-  let url: URL;
   try {
-    url = new URL(value);
-  } catch {
-    return rejectInvalidConfiguration();
+    return normalizeOAuthPublicOrigin(value);
+  } catch (error) {
+    if (error instanceof InvalidOAuthPublicOriginError) return rejectInvalidConfiguration();
+    throw error;
   }
-
-  if (
-    (url.protocol !== 'https:' &&
-      !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))) ||
-    value.trim() !== value ||
-    hasControlCharacter(value) ||
-    url.username ||
-    url.password ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash ||
-    url.hostname.length === 0
-  ) {
-    return rejectInvalidConfiguration();
-  }
-  return url.origin;
 }
 
 function validateByteBoundedString(value: string, maxBytes: number): void {
-  if (!hasByteLengthAtMost(value, maxBytes) || value.length === 0 || hasControlCharacter(value)) {
+  if (
+    !hasByteLengthAtMost(value, maxBytes) ||
+    value.length === 0 ||
+    hasOAuthControlCharacter(value)
+  ) {
     rejectInvalidMetadata();
   }
 }
