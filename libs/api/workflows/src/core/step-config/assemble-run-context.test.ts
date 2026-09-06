@@ -1080,6 +1080,55 @@ describe('listener filter snapshots', () => {
     });
   });
 
+  it('preserves prototype-named output values and types', () => {
+    const outputs = Object.fromEntries([
+      ['__proto__', 42],
+      ['unrelated', 'large'],
+    ]);
+    const outputTypes = Object.fromEntries([['__proto__', 'int' as const]]);
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.outputs["__proto__"] == 42',
+        },
+      ],
+      until: null,
+    });
+    const dependencyJobs = [
+      {
+        job: {key: 'build', status: 'succeeded' as const, outputs},
+        outputTypes,
+        executions: [],
+      },
+    ];
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs,
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(
+      plan.on,
+      context,
+      listenerFilterOutputTypesForJobs(dependencyJobs),
+    );
+    const snapshotOutputs = matcher?.filter_snapshot?.jobs as
+      | Record<string, {outputs: Record<string, unknown>}>
+      | undefined;
+    const snapshotTypes = matcher?.filter_output_types?.build;
+
+    expect(Object.hasOwn(snapshotOutputs?.build?.outputs ?? {}, '__proto__')).toBe(true);
+    expect(
+      Object.getOwnPropertyDescriptor(snapshotOutputs?.build?.outputs ?? {}, '__proto__')?.value,
+    ).toBe(42);
+    expect(Object.hasOwn(snapshotTypes ?? {}, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(snapshotTypes ?? {}, '__proto__')?.value).toBe('int');
+  });
+
   it('projects list and map output types', () => {
     const plan = planListenerFilterSnapshots({
       on: [
@@ -1087,7 +1136,7 @@ describe('listener filter snapshots', () => {
           source: 'github',
           event: 'pull_request',
           filter:
-            'jobs.build.outputs.items[0] + 1 == 43 && jobs.build.outputs.metadata["key"] == "value"',
+            'jobs.build.outputs.items[0].count == 1 && jobs.build.outputs.metadata["key"] == "value"',
         },
       ],
       until: null,
@@ -1097,10 +1146,20 @@ describe('listener filter snapshots', () => {
         job: {
           key: 'build',
           status: 'succeeded' as const,
-          outputs: {items: [42], metadata: {key: 'value'}, unrelated: 'large'},
+          outputs: {
+            items: [{count: 1, createdAt: '2026-06-30T12:00:00.000Z'}],
+            metadata: {key: 'value'},
+            unrelated: 'large',
+          },
         },
         outputTypes: {
-          items: {kind: 'list' as const, element: 'int' as const},
+          items: {
+            kind: 'list' as const,
+            element: {
+              kind: 'object' as const,
+              fields: {count: 'int' as const, createdAt: 'timestamp' as const},
+            },
+          },
           metadata: {kind: 'map' as const},
           unrelated: 'string' as const,
         },
@@ -1123,7 +1182,7 @@ describe('listener filter snapshots', () => {
 
     expect(matcher?.filter_output_types).toEqual({
       build: {
-        items: {kind: 'list', element: 'int'},
+        items: {kind: 'list', element: {kind: 'object', fields: {count: 'int'}}},
         metadata: {kind: 'map'},
       },
     });
@@ -1308,6 +1367,43 @@ describe('listener filter snapshots', () => {
     });
   });
 
+  it('does not pad indexed execution projections beyond the available array', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.executions[5].status != "failed"',
+        },
+      ],
+      until: null,
+    });
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {key: 'build', status: 'succeeded', outputs: {}},
+          executions: [jobExecution({status: 'succeeded'})],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          executions: [{}],
+        },
+      },
+    });
+  });
+
   it('snapshots all jobs for access after a filtered comprehension', () => {
     const plan = planListenerFilterSnapshots({
       on: [
@@ -1356,7 +1452,79 @@ describe('listener filter snapshots', () => {
     });
   });
 
-  it('snapshots full jobs when a comprehension uses a whole element alias', () => {
+  it('snapshots all jobs when a comprehension result is compared as a value', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs.build.executions.filter(e, e.status == "failed") == jobs.review.executions',
+        },
+      ],
+      until: null,
+    });
+    expect(plan.on[0]?.jobsAreBroad).toBe(true);
+
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {
+            key: 'build',
+            status: 'succeeded',
+            outputs: {unrelated: 'build-output'},
+          },
+          executions: [
+            jobExecution({
+              status: 'failed',
+              outputs: {pr_number: 42, unrelated: 'build-execution-output'},
+            }),
+          ],
+        },
+        {
+          job: {key: 'review', status: 'failed', outputs: {reason: 'review-output'}},
+          executions: [
+            jobExecution({
+              name: 'Review #0',
+              status: 'failed',
+              outputs: {reason: 'review-execution-output'},
+            }),
+          ],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: expect.objectContaining({
+          outputs: {unrelated: 'build-output'},
+          executions: [
+            expect.objectContaining({
+              status: 'failed',
+              outputs: {pr_number: 42, unrelated: 'build-execution-output'},
+            }),
+          ],
+        }),
+        review: expect.objectContaining({
+          outputs: {reason: 'review-output'},
+          executions: [
+            expect.objectContaining({
+              name: 'Review #0',
+              status: 'failed',
+              outputs: {reason: 'review-execution-output'},
+            }),
+          ],
+        }),
+      },
+    });
+  });
+
+  it('preserves whole-element projections without broadening unrelated jobs', () => {
     const plan = planListenerFilterSnapshots({
       on: [
         {
@@ -1368,7 +1536,7 @@ describe('listener filter snapshots', () => {
       ],
       until: null,
     });
-    expect(plan.on[0]?.jobsAreBroad).toBe(true);
+    expect(plan.on[0]?.jobsAreBroad).toBe(false);
 
     const context = assembleListenerSnapshotContext({
       job: {key: 'await'},
@@ -1386,6 +1554,10 @@ describe('listener filter snapshots', () => {
           job: {key: 'review', status: 'failed', outputs: {reason: 'unrelated'}},
           executions: [jobExecution({name: 'Review #0', status: 'failed'})],
         },
+        {
+          job: {key: 'deploy', status: 'succeeded', outputs: {image: 'unrelated'}},
+          executions: [jobExecution({name: 'Deploy #0', status: 'succeeded'})],
+        },
       ],
     });
 
@@ -1396,7 +1568,6 @@ describe('listener filter snapshots', () => {
         build: expect.objectContaining({
           key: 'build',
           status: 'succeeded',
-          outputs: {pr_number: 42, unrelated: 'large'},
           executions: [
             expect.objectContaining({
               name: 'Build #0',
@@ -1408,8 +1579,80 @@ describe('listener filter snapshots', () => {
         review: expect.objectContaining({
           key: 'review',
           status: 'failed',
-          outputs: {reason: 'unrelated'},
+          executions: [expect.objectContaining({name: 'Review #0', status: 'failed'})],
         }),
+      },
+    });
+    expect(matcher?.filter_snapshot?.jobs).not.toHaveProperty('deploy');
+  });
+
+  it('preserves whole-element projections for list outputs', () => {
+    const plan = planListenerFilterSnapshots({
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter:
+            'jobs.build.outputs.items.exists(i, i.count == 1 || i in jobs.review.outputs.items)',
+        },
+      ],
+      until: null,
+    });
+    expect(plan.on[0]?.jobsAreBroad).toBe(false);
+
+    const context = assembleListenerSnapshotContext({
+      job: {key: 'await'},
+      run,
+      triggerPayload,
+      plan,
+      dependencyJobs: [
+        {
+          job: {
+            key: 'build',
+            status: 'succeeded',
+            outputs: {
+              items: [{count: 1, createdAt: '2026-06-30T12:00:00.000Z', extra: 'build'}],
+              unrelated: 'large',
+            },
+          },
+          executions: [],
+        },
+        {
+          job: {
+            key: 'review',
+            status: 'succeeded',
+            outputs: {
+              items: [{count: 2, createdAt: '2026-06-30T12:01:00.000Z', extra: 'review'}],
+              unrelated: 'large',
+            },
+          },
+          executions: [],
+        },
+        {
+          job: {key: 'deploy', status: 'succeeded', outputs: {unrelated: 'large'}},
+          executions: [],
+        },
+      ],
+    });
+
+    const [matcher] = applyListenerFilterSnapshots(plan.on, context);
+
+    expect(matcher?.filter_snapshot).toEqual({
+      jobs: {
+        build: {
+          key: 'build',
+          status: 'succeeded',
+          outputs: {
+            items: [{count: 1, createdAt: '2026-06-30T12:00:00.000Z', extra: 'build'}],
+          },
+        },
+        review: {
+          key: 'review',
+          status: 'succeeded',
+          outputs: {
+            items: [{count: 2, createdAt: '2026-06-30T12:01:00.000Z', extra: 'review'}],
+          },
+        },
       },
     });
   });

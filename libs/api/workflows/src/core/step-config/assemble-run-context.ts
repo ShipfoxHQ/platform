@@ -226,7 +226,6 @@ export function assembleJobActivationContext(
 
 type ListenerPredicateField = 'listener.on' | 'listener.until';
 type ListenerSnapshotRoot = Exclude<WorkflowPredicateContextRoot<ListenerPredicateField>, 'event'>;
-const simpleIdentifierPattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export interface MatcherSnapshotPlan {
   readonly matcher: JobListeningTrigger;
@@ -297,9 +296,7 @@ function planMatcherFilterSnapshot(
       const analysis = analyzeContextPathAccess(matcher.filter, ['jobs']);
       jobPaths = analysis.references;
       jobsAreBroad =
-        analysis.unknown.length > 0 ||
-        analysis.references.some(isBroadJobsPathReference) ||
-        analysis.references.some(isWholeElementJobsPathReference);
+        analysis.unknown.length > 0 || analysis.references.some(isBroadJobsPathReference);
     }
   } catch {
     return {
@@ -333,15 +330,6 @@ function planMatcherFilterSnapshot(
 function isBroadJobsPathReference(reference: ContextPathReference): boolean {
   const [jobKey] = reference.segments;
   return jobKey === undefined || jobKey === '*' || typeof jobKey !== 'string';
-}
-
-function isWholeElementJobsPathReference(reference: ContextPathReference): boolean {
-  return (
-    reference.root === 'jobs' &&
-    reference.segments.at(-2) === 'executions' &&
-    reference.segments.at(-1) === '*' &&
-    simpleIdentifierPattern.test(reference.source.trim())
-  );
 }
 
 function isListenerSnapshotRoot(
@@ -566,7 +554,11 @@ function projectJobsContext(
         const [referenceJobKey, ...path] = reference.segments;
         return referenceJobKey === jobKey ? [path] : [];
       });
-      return [[jobKey, projectJobContext(job, paths)] as const];
+      const wholeElementPaths = plan.jobPaths.flatMap((reference) => {
+        const [referenceJobKey, ...path] = reference.segments;
+        return referenceJobKey === jobKey && reference.wholeElement === true ? [path] : [];
+      });
+      return [[jobKey, projectJobContext(job, paths, wholeElementPaths)] as const];
     }),
   );
 }
@@ -574,9 +566,10 @@ function projectJobsContext(
 function projectJobContext(
   job: unknown,
   paths: readonly (readonly ContextPathSegment[])[],
+  wholeElementPaths: readonly (readonly ContextPathSegment[])[] = [],
 ): unknown {
   if (!isRecord(job)) return job;
-  const compactPaths = compactProjectionPaths(paths);
+  const compactPaths = compactProjectionPaths(paths, wholeElementPaths);
   if (compactPaths.some((path) => path.length === 0)) return {...job};
 
   const projected = projectValueByPaths(job, compactPaths);
@@ -591,13 +584,16 @@ function projectJobContext(
 
 function compactProjectionPaths(
   paths: readonly (readonly ContextPathSegment[])[],
+  preservedPaths: readonly (readonly ContextPathSegment[])[] = [],
 ): readonly (readonly ContextPathSegment[])[] {
   const unique = new Map<string, readonly ContextPathSegment[]>();
   for (const path of paths) unique.set(JSON.stringify(path), path);
 
   const values = [...unique.values()];
+  const preserved = new Set(preservedPaths.map((path) => JSON.stringify(path)));
   return values.filter(
     (path) =>
+      preserved.has(JSON.stringify(path)) ||
       !values.some(
         (candidate) =>
           candidate.length > path.length && isPathPrefix(path, candidate) && path.at(-1) === '*',
@@ -624,7 +620,7 @@ function projectValueByPaths(
     if (typeof segment !== 'string' || !Object.hasOwn(value, segment)) continue;
 
     const child = projectValueByPaths(value[segment], [path.slice(1)]);
-    projected[segment] = mergeProjectedValues(projected[segment], child);
+    setOwnRecordValue(projected, segment, mergeProjectedValues(projected[segment], child));
   }
   return projected;
 }
@@ -653,7 +649,7 @@ function projectArrayByPaths(
     );
   }
 
-  const lastIndex = Math.max(...indexedPaths.keys(), -1);
+  const lastIndex = Math.min(Math.max(...indexedPaths.keys(), -1), value.length - 1);
   return value.slice(0, lastIndex + 1).map((element, index) => {
     const pathsForIndex = indexedPaths.get(index);
     return pathsForIndex === undefined ? {} : projectValueByPaths(element, pathsForIndex);
@@ -672,13 +668,22 @@ function mergeProjectedValues(left: unknown, right: unknown): unknown {
 
   const merged: Record<string, unknown> = {...left};
   for (const [key, value] of Object.entries(right)) {
-    merged[key] = mergeProjectedValues(merged[key], value);
+    setOwnRecordValue(merged, key, mergeProjectedValues(merged[key], value));
   }
   return merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function setOwnRecordValue<T>(record: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(record, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 function outputTypePathsForJob(
@@ -688,13 +693,17 @@ function outputTypePathsForJob(
   if (plan.jobsAreBroad) return [[]];
 
   const paths: (readonly ContextPathSegment[])[] = [];
+  const wholeElementPaths: (readonly ContextPathSegment[])[] = [];
   for (const reference of plan.jobPaths) {
     const [referenceJobKey, ...jobPath] = reference.segments;
     if (referenceJobKey !== jobKey) continue;
     const outputPath = outputPathFromJobPath(jobPath);
-    if (outputPath !== undefined) paths.push(outputPath);
+    if (outputPath !== undefined) {
+      paths.push(outputPath);
+      if (reference.wholeElement === true) wholeElementPaths.push(outputPath);
+    }
   }
-  return paths.length === 0 ? undefined : compactProjectionPaths(paths);
+  return paths.length === 0 ? undefined : compactProjectionPaths(paths, wholeElementPaths);
 }
 
 function outputPathFromJobPath(
@@ -726,7 +735,11 @@ function projectExpressionTypeRecord(
     if (type === undefined) continue;
     const projectedType = projectExpressionType(type, [rest]);
     if (projectedType !== undefined) {
-      projected[key] = mergeProjectedExpressionTypes(projected[key], projectedType);
+      setOwnRecordValue(
+        projected,
+        key,
+        mergeProjectedExpressionTypes(projected[key], projectedType),
+      );
     }
   }
   return projected;
@@ -757,7 +770,7 @@ function mergeProjectedExpressionTypeRecords(
 ): Record<string, ExpressionType> {
   const merged: Record<string, ExpressionType> = {...left};
   for (const [key, value] of Object.entries(right)) {
-    merged[key] = mergeProjectedExpressionTypes(merged[key], value);
+    setOwnRecordValue(merged, key, mergeProjectedExpressionTypes(merged[key], value));
   }
   return merged;
 }

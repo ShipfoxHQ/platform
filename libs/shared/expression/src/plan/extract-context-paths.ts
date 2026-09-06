@@ -25,6 +25,7 @@ export interface ContextPathReference {
   readonly root: string;
   readonly segments: readonly ContextPathSegment[];
   readonly source: string;
+  readonly wholeElement?: true;
 }
 
 export interface ContextPathAccessUnknown {
@@ -45,6 +46,10 @@ interface PathChain {
 }
 
 type ScopedPaths = ReadonlyMap<string, PathChain | null>;
+
+interface RecordPathOptions {
+  readonly wholeElement?: boolean;
+}
 
 export function analyzeContextPathAccess(
   expression: WorkflowExpression | string,
@@ -67,6 +72,7 @@ function collectContextPaths(
   selectedRoots: ReadonlySet<string> | undefined,
   references: ContextPathReference[],
   unknown: ContextPathAccessUnknown[],
+  allowComprehensionResultUnknown = false,
 ): void {
   if (binaryOperators.has(node.op as BinaryOperator) || node.op === '||' || node.op === '&&') {
     collectBinaryContextPaths(
@@ -82,7 +88,9 @@ function collectContextPaths(
 
   const chain = accessChain(node, scopedPaths);
   if (chain !== undefined) {
-    recordPath(chain, sourceForNode(node, source), selectedRoots, references, unknown);
+    recordPath(chain, sourceForNode(node, source), selectedRoots, references, unknown, {
+      wholeElement: node.op === 'id' && scopedPaths.has(node.args) && chain.segments.at(-1) === '*',
+    });
     if (chain.unknown !== undefined) {
       collectDynamicDependencies(node, source, scopedPaths, selectedRoots, references, unknown);
     }
@@ -105,7 +113,15 @@ function collectContextPaths(
     return;
   }
 
-  collectContextPathChildren(node, source, scopedPaths, selectedRoots, references, unknown);
+  collectContextPathChildren(
+    node,
+    source,
+    scopedPaths,
+    selectedRoots,
+    references,
+    unknown,
+    allowComprehensionResultUnknown,
+  );
 }
 
 function collectContextPathChildren(
@@ -115,6 +131,7 @@ function collectContextPathChildren(
   selectedRoots: ReadonlySet<string> | undefined,
   references: ContextPathReference[],
   unknown: ContextPathAccessUnknown[],
+  allowComprehensionResultUnknown = false,
 ): void {
   switch (node.op) {
     case 'id':
@@ -129,62 +146,163 @@ function collectContextPathChildren(
       collectBinaryContextPaths(node.args, source, scopedPaths, selectedRoots, references, unknown);
       return;
     case 'call':
-      for (const argument of node.args[1]) {
-        collectContextPaths(argument, source, scopedPaths, selectedRoots, references, unknown);
-      }
+      collectContextPathArguments(
+        node.args[1],
+        source,
+        scopedPaths,
+        selectedRoots,
+        references,
+        unknown,
+        true,
+      );
       return;
-    case 'rcall': {
-      const [method, receiver, args] = node.args as [string, ASTNode, ASTNode[]];
-      if (comprehensionMethods.has(method) && args[0]?.op === 'id') {
-        collectComprehensionReceiverPath(
-          receiver,
-          source,
-          scopedPaths,
-          selectedRoots,
-          references,
-          unknown,
-        );
-      } else {
-        collectContextPaths(receiver, source, scopedPaths, selectedRoots, references, unknown);
-      }
-      const binding = bindComprehensionAlias(method, args, scopedPaths, receiver);
-      for (const argument of args.slice(binding.skipArgs)) {
-        collectContextPaths(
-          argument,
-          source,
-          binding.scopedPaths,
-          selectedRoots,
-          references,
-          unknown,
-        );
-      }
+    case 'rcall':
+      collectRelativeCallContextPaths(
+        node,
+        source,
+        scopedPaths,
+        selectedRoots,
+        references,
+        unknown,
+        allowComprehensionResultUnknown,
+      );
       return;
-    }
     case 'list':
-      for (const element of node.args) {
-        collectContextPaths(element, source, scopedPaths, selectedRoots, references, unknown);
-      }
+      collectContextPathArguments(
+        node.args,
+        source,
+        scopedPaths,
+        selectedRoots,
+        references,
+        unknown,
+        true,
+      );
       return;
     case 'map':
-      for (const [key, value] of node.args) {
-        if (key.op !== 'id') {
-          collectContextPaths(key, source, scopedPaths, selectedRoots, references, unknown);
-        }
-        collectContextPaths(value, source, scopedPaths, selectedRoots, references, unknown);
-      }
+      collectMapContextPaths(node.args, source, scopedPaths, selectedRoots, references, unknown);
       return;
     case '?:':
-      collectContextPaths(node.args[0], source, scopedPaths, selectedRoots, references, unknown);
-      collectContextPaths(node.args[1], source, scopedPaths, selectedRoots, references, unknown);
-      collectContextPaths(node.args[2], source, scopedPaths, selectedRoots, references, unknown);
+      collectContextPathArguments(
+        node.args,
+        source,
+        scopedPaths,
+        selectedRoots,
+        references,
+        unknown,
+        true,
+      );
       return;
     case '!_':
     case '-_':
-      collectContextPaths(node.args, source, scopedPaths, selectedRoots, references, unknown);
+      collectContextPaths(node.args, source, scopedPaths, selectedRoots, references, unknown, true);
       return;
   }
 
   throw new Error(`Unsupported CEL AST operator: ${(node as {op: string}).op}`);
+}
+
+function collectContextPathArguments(
+  arguments_: readonly ASTNode[],
+  source: string,
+  scopedPaths: ScopedPaths,
+  selectedRoots: ReadonlySet<string> | undefined,
+  references: ContextPathReference[],
+  unknown: ContextPathAccessUnknown[],
+  allowComprehensionResultUnknown: boolean,
+): void {
+  for (const argument of arguments_) {
+    collectContextPaths(
+      argument,
+      source,
+      scopedPaths,
+      selectedRoots,
+      references,
+      unknown,
+      allowComprehensionResultUnknown,
+    );
+  }
+}
+
+function collectMapContextPaths(
+  entries: readonly (readonly [ASTNode, ASTNode])[],
+  source: string,
+  scopedPaths: ScopedPaths,
+  selectedRoots: ReadonlySet<string> | undefined,
+  references: ContextPathReference[],
+  unknown: ContextPathAccessUnknown[],
+): void {
+  for (const [key, value] of entries) {
+    if (key.op !== 'id') {
+      collectContextPaths(key, source, scopedPaths, selectedRoots, references, unknown, true);
+    }
+    collectContextPaths(value, source, scopedPaths, selectedRoots, references, unknown, true);
+  }
+}
+
+function collectRelativeCallContextPaths(
+  node: ASTNode,
+  source: string,
+  scopedPaths: ScopedPaths,
+  selectedRoots: ReadonlySet<string> | undefined,
+  references: ContextPathReference[],
+  unknown: ContextPathAccessUnknown[],
+  allowComprehensionResultUnknown: boolean,
+): void {
+  const [method, receiver, args] = node.args as [string, ASTNode, ASTNode[]];
+  if (comprehensionMethods.has(method) && args[0]?.op === 'id') {
+    collectComprehensionReceiverPath(
+      receiver,
+      source,
+      scopedPaths,
+      selectedRoots,
+      references,
+      unknown,
+    );
+  } else {
+    collectContextPaths(receiver, source, scopedPaths, selectedRoots, references, unknown, true);
+  }
+
+  const binding = bindComprehensionAlias(method, args, scopedPaths, receiver);
+  collectContextPathArguments(
+    args.slice(binding.skipArgs),
+    source,
+    binding.scopedPaths,
+    selectedRoots,
+    references,
+    unknown,
+    !comprehensionMethods.has(method),
+  );
+  if (allowComprehensionResultUnknown && (method === 'filter' || method === 'map')) {
+    collectComprehensionResultUnknown(node, receiver, source, scopedPaths, selectedRoots, unknown);
+  }
+}
+
+function collectComprehensionResultUnknown(
+  node: ASTNode,
+  receiver: ASTNode,
+  source: string,
+  scopedPaths: ScopedPaths,
+  selectedRoots: ReadonlySet<string> | undefined,
+  unknown: ContextPathAccessUnknown[],
+): void {
+  const receiverReferences: ContextPathReference[] = [];
+  const receiverUnknown: ContextPathAccessUnknown[] = [];
+  collectContextPaths(
+    receiver,
+    source,
+    scopedPaths,
+    selectedRoots,
+    receiverReferences,
+    receiverUnknown,
+    false,
+  );
+  const receiverRoots = new Set([
+    ...receiverReferences.map((reference) => reference.root),
+    ...receiverUnknown.map((access) => access.root),
+  ]);
+  for (const root of receiverRoots) {
+    unknown.push({root, source: sourceForNode(node, source), reason: 'dynamic'});
+  }
 }
 
 function collectComprehensionReceiverPath(
@@ -197,7 +315,7 @@ function collectComprehensionReceiverPath(
 ): void {
   const chain = accessChain(receiver, scopedPaths);
   if (chain === undefined) {
-    collectContextPaths(receiver, source, scopedPaths, selectedRoots, references, unknown);
+    collectContextPaths(receiver, source, scopedPaths, selectedRoots, references, unknown, false);
     return;
   }
 
@@ -221,8 +339,8 @@ function collectBinaryContextPaths(
   references: ContextPathReference[],
   unknown: ContextPathAccessUnknown[],
 ): void {
-  collectContextPaths(left, source, scopedPaths, selectedRoots, references, unknown);
-  collectContextPaths(right, source, scopedPaths, selectedRoots, references, unknown);
+  collectContextPaths(left, source, scopedPaths, selectedRoots, references, unknown, true);
+  collectContextPaths(right, source, scopedPaths, selectedRoots, references, unknown, true);
 }
 
 function collectDynamicDependencies(
@@ -255,7 +373,15 @@ function collectDynamicDependencies(
         references,
         unknown,
       );
-      collectContextPaths(node.args[1], source, scopedPaths, selectedRoots, references, unknown);
+      collectContextPaths(
+        node.args[1],
+        source,
+        scopedPaths,
+        selectedRoots,
+        references,
+        unknown,
+        true,
+      );
       return;
     default:
       return;
@@ -268,6 +394,7 @@ function recordPath(
   selectedRoots: ReadonlySet<string> | undefined,
   references: ContextPathReference[],
   unknown: ContextPathAccessUnknown[],
+  options: RecordPathOptions = {},
 ): void {
   if (selectedRoots !== undefined && !selectedRoots.has(chain.root)) return;
 
@@ -276,7 +403,12 @@ function recordPath(
     return;
   }
 
-  references.push({root: chain.root, segments: chain.segments, source: expressionSource});
+  references.push({
+    root: chain.root,
+    segments: chain.segments,
+    source: expressionSource,
+    ...(options.wholeElement === true ? {wholeElement: true} : {}),
+  });
 }
 
 function collectUnresolvedAccessDependencies(
@@ -291,7 +423,15 @@ function collectUnresolvedAccessDependencies(
   if (base === undefined) {
     const baseReferences: ContextPathReference[] = [];
     const baseUnknown: ContextPathAccessUnknown[] = [];
-    collectContextPaths(node, source, scopedPaths, selectedRoots, baseReferences, baseUnknown);
+    collectContextPaths(
+      node,
+      source,
+      scopedPaths,
+      selectedRoots,
+      baseReferences,
+      baseUnknown,
+      false,
+    );
     references.push(...baseReferences);
     unknown.push(...baseUnknown);
     return new Set([

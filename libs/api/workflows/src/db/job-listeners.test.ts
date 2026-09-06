@@ -175,10 +175,11 @@ async function createInactiveListeningJobWithMatchers(params: {
 
 async function createListenerWithDependencies(params: {
   readonly on: readonly JobListeningTrigger[];
+  readonly inputs?: Record<string, unknown>;
 }) {
   const run = await workflowRunFactory.create(
     {
-      inputs: {environment: 'prod'},
+      inputs: {environment: 'prod', ...(params.inputs ?? {})},
       triggerPayload: {
         source: 'github',
         event: 'pull_request',
@@ -393,6 +394,33 @@ describe('activateJobListener', () => {
     const jobs = snapshot?.jobs as Record<string, unknown> | undefined;
     expect(jobs).not.toHaveProperty('review');
     expect(jobs?.build).not.toHaveProperty('executions');
+  });
+
+  it('fetches dependency jobs for a broad filter without literal job keys', async () => {
+    const job = await createListenerWithDependencies({
+      inputs: {target: 'build'},
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs[inputs.target].outputs.pr_number == event.pull_request.number',
+        },
+      ],
+    });
+
+    await activateJobListener({jobId: job.id, expectedVersion: job.version});
+
+    const payload = await activatedPayload(job.id);
+    expectListeningPayload(payload);
+    expect(payload.on[0]?.filter_snapshot).toEqual({
+      inputs: {environment: 'prod', target: 'build'},
+      jobs: expect.objectContaining({
+        build: expect.objectContaining({
+          status: 'succeeded',
+          outputs: {pr_number: 42},
+        }),
+      }),
+    });
   });
 
   it('rejects an oversized filter snapshot before writing activation', async () => {

@@ -161,6 +161,30 @@ describe('analyzeContextPathAccess', () => {
     });
   });
 
+  it('marks a comprehension result used as a value as dynamic', () => {
+    const source =
+      'jobs.build.executions.filter(e, e.status == "failed") == jobs.review.executions';
+
+    expect(analyzeContextPathAccess(source, ['jobs'])).toEqual({
+      references: [
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'status'],
+          source: 'e.status',
+        },
+        {root: 'jobs', segments: ['review', 'executions'], source: 'jobs.review.executions'},
+      ],
+      unknown: [
+        {
+          root: 'jobs',
+          source: 'jobs.build.executions.filter(e, e.status == "failed")',
+          reason: 'dynamic',
+        },
+      ],
+    });
+  });
+
   it('records whole comprehension element aliases', () => {
     const source =
       'jobs.build.executions.exists(e, e.name == "Build #0" || e in jobs.review.executions)';
@@ -173,7 +197,12 @@ describe('analyzeContextPathAccess', () => {
           segments: ['build', 'executions', '*', 'name'],
           source: 'e.name',
         },
-        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'e'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*'],
+          source: 'e',
+          wholeElement: true,
+        },
         {root: 'jobs', segments: ['review', 'executions'], source: 'jobs.review.executions'},
       ],
       unknown: [],
