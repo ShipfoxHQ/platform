@@ -5,7 +5,7 @@
 "@shipfox/api-auth-context": minor
 "@shipfox/api-auth-dto": major
 "@shipfox/api-server": major
-"@shipfox/client-agent": minor
+"@shipfox/client-agent": major
 "@shipfox/client-features": minor
 ---
 
@@ -21,8 +21,11 @@ HTTP origin. Construction rejects paths, queries, fragments, credentials,
 surrounding whitespace, control characters, and non-loopback HTTP origins.
 
 OAuth consent responses now distinguish CIMD identities from self-registered
-clients. Consumers must use `client_identity_kind`; `client_identity_origin` is
-an origin for CIMD clients and `null` for self-registered clients.
+clients. API DTO consumers must use `client_identity_kind`;
+`client_identity_origin` is an origin for CIMD clients and `null` for
+self-registered clients. In `@shipfox/client-agent`, `OAuthConsent` replaces
+`clientIdentityOrigin` with the `clientIdentity` discriminated union; use
+`clientIdentity.kind` and, for CIMD identities, `clientIdentity.origin`.
 
 Applications that previously appended `createOAuthRoutes`,
 `createOAuthAuthorizationRoutes`, or `createAgentAccessManagementRoutes` to

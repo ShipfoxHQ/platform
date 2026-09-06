@@ -80,6 +80,13 @@ describe('OAuth metadata schemas', () => {
         client_identity_origin: 'https://client.example',
       }).success,
     ).toBe(false);
+    expect(
+      oauthConsentResponseSchema.safeParse({
+        ...detail,
+        client_identity_kind: 'cimd',
+        client_identity_origin: null,
+      }).success,
+    ).toBe(false);
   });
 
   it('requires the bounded public-client registration fields', () => {
