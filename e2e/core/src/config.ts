@@ -2,6 +2,8 @@ import {createConfig, str, url} from '@shipfox/config';
 
 const DEFAULT_API_URL = 'http://localhost:16101';
 const DEFAULT_CLIENT_URL = 'http://localhost:5173';
+const TEST_API_PUBLIC_URL = process.env.VITEST === 'true' ? DEFAULT_API_URL : undefined;
+const TEST_CLIENT_BASE_URL = process.env.VITEST === 'true' ? DEFAULT_CLIENT_URL : undefined;
 
 export const config = createConfig({
   API_URL: str({
@@ -10,6 +12,7 @@ export const config = createConfig({
   }),
   API_PUBLIC_URL: url({
     desc: 'Public API URL advertised by OAuth flows during end-to-end tests. The E2E harness exports this absolute URL.',
+    default: TEST_API_PUBLIC_URL,
   }),
   CLIENT_URL: str({
     desc: 'Base URL of the client app that the end-to-end tests run against.',
@@ -17,6 +20,7 @@ export const config = createConfig({
   }),
   CLIENT_BASE_URL: url({
     desc: 'Public client URL accepted by API origin checks during end-to-end tests. The E2E harness exports this absolute URL.',
+    default: TEST_CLIENT_BASE_URL,
   }),
   E2E_ADMIN_API_KEY: str({
     desc: "Bearer token the end-to-end tests use to call the API's E2E admin routes. Must match the API's E2E_ADMIN_API_KEY.",
