@@ -185,6 +185,24 @@ describe('analyzeContextPathAccess', () => {
     });
   });
 
+  it('keeps cardinality-only comprehension results projectable', () => {
+    expect(
+      analyzeContextPathAccess('size(jobs.build.executions.filter(e, e.status == "failed")) > 0', [
+        'jobs',
+      ]),
+    ).toEqual({
+      references: [
+        {root: 'jobs', segments: ['build', 'executions', '*'], source: 'jobs.build.executions'},
+        {
+          root: 'jobs',
+          segments: ['build', 'executions', '*', 'status'],
+          source: 'e.status',
+        },
+      ],
+      unknown: [],
+    });
+  });
+
   it('records whole comprehension element aliases', () => {
     const source =
       'jobs.build.executions.exists(e, e.name == "Build #0" || e in jobs.review.executions)';

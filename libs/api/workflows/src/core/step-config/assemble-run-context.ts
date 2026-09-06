@@ -694,21 +694,39 @@ function outputTypePathsForJob(
 
   const paths: (readonly ContextPathSegment[])[] = [];
   const wholeElementPaths: (readonly ContextPathSegment[])[] = [];
-  let hasWholeElementWithoutOutputPath = false;
+  const jobPaths: (readonly ContextPathSegment[])[] = [];
+  const wholeElementJobPaths: (readonly ContextPathSegment[])[] = [];
   for (const reference of plan.jobPaths) {
     const [referenceJobKey, ...jobPath] = reference.segments;
     if (referenceJobKey !== jobKey) continue;
+    jobPaths.push(jobPath);
     const outputPath = outputPathFromJobPath(jobPath);
-    if (reference.wholeElement === true && outputPath === undefined) {
-      hasWholeElementWithoutOutputPath = true;
-    }
+    if (reference.wholeElement === true) wholeElementJobPaths.push(jobPath);
     if (outputPath !== undefined) {
       paths.push(outputPath);
       if (reference.wholeElement === true) wholeElementPaths.push(outputPath);
     }
   }
-  if (hasWholeElementWithoutOutputPath) return [[]];
+  const compactJobPaths = compactProjectionPaths(jobPaths, wholeElementJobPaths);
+  if (
+    compactJobPaths.some(
+      (path) => outputPathFromJobPath(path) === undefined && retainsWholeExecutionElements(path),
+    )
+  ) {
+    return [[]];
+  }
   return paths.length === 0 ? undefined : compactProjectionPaths(paths, wholeElementPaths);
+}
+
+function retainsWholeExecutionElements(path: readonly ContextPathSegment[]): boolean {
+  if (path.length === 0) return true;
+  if (path[0] !== 'executions') return false;
+
+  const elementPath = path.slice(1);
+  return (
+    elementPath.length === 0 ||
+    (elementPath.length === 1 && (elementPath[0] === '*' || typeof elementPath[0] === 'number'))
+  );
 }
 
 function outputPathFromJobPath(

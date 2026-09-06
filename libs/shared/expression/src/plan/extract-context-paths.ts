@@ -153,7 +153,7 @@ function collectContextPathChildren(
         selectedRoots,
         references,
         unknown,
-        true,
+        node.args[0] !== 'size',
       );
       return;
     case 'rcall':
