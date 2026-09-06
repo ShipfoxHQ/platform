@@ -36,6 +36,7 @@ function consentResponse() {
     scope: 'read',
     expires_at: '2026-09-02T12:30:00.000Z',
     redirect_uri_hostname: '127.0.0.1',
+    client_identity_kind: 'cimd',
     client_identity_origin: 'https://claude.ai',
     is_loopback_redirect: true,
     workspaces: [{workspace_id: WORKSPACE_ID, role: 'owner'}],
@@ -151,7 +152,9 @@ describe('OAuthConsentPage', () => {
         name: 'Allow Claude Desktop to access Shipfox?',
       }),
     ).toBeVisible();
-    expect(screen.getByText('https://claude.ai')).toBeVisible();
+    const clientIdentityOrigin = screen.getByText('https://claude.ai');
+    expect(clientIdentityOrigin).toBeVisible();
+    expect(clientIdentityOrigin).toHaveClass('font-code');
     expect(screen.getByText('Read workspace data')).toBeVisible();
     expect(screen.getByText('Claude Desktop on this device')).toBeVisible();
     expect(screen.queryByText(WORKSPACE_ID)).not.toBeInTheDocument();
@@ -169,16 +172,18 @@ describe('OAuthConsentPage', () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
         ...consentResponse(),
-        client_identity_origin: 'Self-registered MCP client. Identity not verified by Shipfox.',
+        client_identity_kind: 'self-registered',
+        client_identity_origin: null,
       }),
     );
     configureApiClient({baseUrl: 'https://api.example.test', fetchImpl});
     renderConsent();
 
-    expect(
-      await screen.findByText('Self-registered MCP client. Identity not verified by Shipfox.'),
-    ).toBeVisible();
-    expect(screen.queryByText('registered client')).not.toBeInTheDocument();
+    const disclosure = await screen.findByText(
+      'Self-registered MCP client. Identity not verified by Shipfox.',
+    );
+    expect(disclosure).toBeVisible();
+    expect(disclosure).not.toHaveClass('font-code');
   });
 
   test('uses the server redirect for denial', async () => {

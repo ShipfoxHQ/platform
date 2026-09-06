@@ -32,7 +32,7 @@ describe('agent-access instance metrics', () => {
 
   test('declares the bounded tool-call and authentication metrics', () => {
     expect(metricMocks.createCounter).toHaveBeenCalledWith('agent_access_tool_calls', {
-      description: 'MCP tool calls served by this instance',
+      description: 'MCP tool-call requests received by this instance',
     });
     expect(metricMocks.createCounter).toHaveBeenCalledWith('agent_access_auth_failures', {
       description: 'agent-access authentication rejections on this instance',

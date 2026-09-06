@@ -3,6 +3,7 @@ import {
   oauthAuthorizationServerMetadataSchema,
   oauthAuthorizeQuerySchema,
   oauthClientMetadataDocumentSchema,
+  oauthConsentResponseSchema,
   oauthDynamicClientRegistrationRequestSchema,
   oauthProtectedResourceMetadataSchema,
 } from './oauth.js';
@@ -45,6 +46,40 @@ describe('OAuth metadata schemas', () => {
         client_id_metadata_document_supported: true,
       }).success,
     ).toBe(true);
+  });
+
+  it('requires consent identity fields to match their discriminator', () => {
+    const detail = {
+      request_id: '11111111-1111-4111-8111-111111111111',
+      client_name: 'Desktop agent',
+      scope: 'read',
+      expires_at: '2026-09-05T12:00:00.000Z',
+      redirect_uri_hostname: 'client.example',
+      is_loopback_redirect: false,
+      workspaces: [],
+    };
+
+    expect(
+      oauthConsentResponseSchema.safeParse({
+        ...detail,
+        client_identity_kind: 'cimd',
+        client_identity_origin: 'https://client.example',
+      }).success,
+    ).toBe(true);
+    expect(
+      oauthConsentResponseSchema.safeParse({
+        ...detail,
+        client_identity_kind: 'self-registered',
+        client_identity_origin: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      oauthConsentResponseSchema.safeParse({
+        ...detail,
+        client_identity_kind: 'self-registered',
+        client_identity_origin: 'https://client.example',
+      }).success,
+    ).toBe(false);
   });
 
   it('requires the bounded public-client registration fields', () => {

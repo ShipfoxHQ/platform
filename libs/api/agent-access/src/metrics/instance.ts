@@ -21,7 +21,7 @@ const toolCallCount = meter.createCounter<{
   tool: string;
   outcome: AgentAccessToolCallOutcome;
 }>('agent_access_tool_calls', {
-  description: 'MCP tool calls served by this instance',
+  description: 'MCP tool-call requests received by this instance',
 });
 
 const authFailureCount = meter.createCounter<{

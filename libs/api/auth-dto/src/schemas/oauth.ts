@@ -161,19 +161,33 @@ const oauthConsentWorkspaceSchema = z
   })
   .strict();
 
+const oauthConsentResponseBaseShape = {
+  request_id: z.string().uuid(),
+  client_name: oauthClientNameSchema,
+  scope: z.literal(OAUTH_READ_SCOPE),
+  expires_at: z.string().datetime(),
+  redirect_uri_hostname: z.string().min(1).max(253),
+  is_loopback_redirect: z.boolean(),
+  workspaces: z.array(oauthConsentWorkspaceSchema),
+};
+
 /** Detail returned to the authenticated dashboard before a consent decision. */
-export const oauthConsentResponseSchema = z
-  .object({
-    request_id: z.string().uuid(),
-    client_name: oauthClientNameSchema,
-    scope: z.literal(OAUTH_READ_SCOPE),
-    expires_at: z.string().datetime(),
-    redirect_uri_hostname: z.string().min(1).max(253),
-    client_identity_origin: z.string().min(1).max(2048),
-    is_loopback_redirect: z.boolean(),
-    workspaces: z.array(oauthConsentWorkspaceSchema),
-  })
-  .strict();
+export const oauthConsentResponseSchema = z.discriminatedUnion('client_identity_kind', [
+  z
+    .object({
+      ...oauthConsentResponseBaseShape,
+      client_identity_kind: z.literal('cimd'),
+      client_identity_origin: z.string().min(1).max(2048),
+    })
+    .strict(),
+  z
+    .object({
+      ...oauthConsentResponseBaseShape,
+      client_identity_kind: z.literal('self-registered'),
+      client_identity_origin: z.null(),
+    })
+    .strict(),
+]);
 
 export type OAuthConsentResponseDto = z.infer<typeof oauthConsentResponseSchema>;
 

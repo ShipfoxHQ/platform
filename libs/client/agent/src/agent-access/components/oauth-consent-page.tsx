@@ -170,12 +170,14 @@ function OAuthConsentLoaded({
               <div className="contents max-[520px]:flex max-[520px]:flex-col max-[520px]:gap-tight">
                 <dt className="text-foreground-neutral-muted">Client identity</dt>
                 <dd className="min-w-0">
-                  {isOrigin(consent.clientIdentityOrigin) ? (
+                  {consent.clientIdentity.kind === 'cimd' ? (
                     <Code variant="paragraph" className="block break-all">
-                      {consent.clientIdentityOrigin}
+                      {consent.clientIdentity.origin}
                     </Code>
                   ) : (
-                    <Text size="sm">{consent.clientIdentityOrigin}</Text>
+                    <Text size="sm">
+                      Self-registered MCP client. Identity not verified by Shipfox.
+                    </Text>
                   )}
                 </dd>
               </div>
@@ -266,14 +268,6 @@ function OAuthConsentLoaded({
       </div>
     </AuthShell>
   );
-}
-
-function isOrigin(value: string): boolean {
-  try {
-    return new URL(value).origin === value;
-  } catch {
-    return false;
-  }
 }
 
 function OAuthConsentLoading() {

@@ -84,7 +84,8 @@ function agentAccessFlow(overrides?: {
         scope: 'read',
         expires_at: '2026-09-05T12:00:00.000Z',
         redirect_uri_hostname: '127.0.0.1',
-        client_identity_origin: 'http://127.0.0.1:43124',
+        client_identity_kind: 'self-registered',
+        client_identity_origin: null,
         is_loopback_redirect: true,
         workspaces: [
           {

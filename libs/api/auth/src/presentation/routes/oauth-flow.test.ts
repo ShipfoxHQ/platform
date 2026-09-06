@@ -147,7 +147,8 @@ describe('dormant OAuth authorization and token routes', () => {
       client_name: 'Desktop agent',
       scope: 'read',
       redirect_uri_hostname: 'client.example',
-      client_identity_origin: 'Self-registered MCP client. Identity not verified by Shipfox.',
+      client_identity_kind: 'self-registered',
+      client_identity_origin: null,
       is_loopback_redirect: false,
       workspaces: [{workspace_id: workspaceId, role: 'admin'}],
     });

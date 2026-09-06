@@ -3,8 +3,9 @@
 "@shipfox/api-agent-access-dto": major
 "@shipfox/api-auth": major
 "@shipfox/api-auth-context": minor
+"@shipfox/api-auth-dto": major
 "@shipfox/api-server": major
-"@shipfox/client-agent": patch
+"@shipfox/client-agent": minor
 "@shipfox/client-features": minor
 ---
 
@@ -13,6 +14,15 @@ Activates Agent Access OAuth, MCP tools, and settings in the default application
 `API_PUBLIC_URL` is required. Set it to the externally reachable API origin
 before startup. Local development may use `http://localhost:16101`; staging and
 production must use HTTPS.
+
+The `apiPublicUrl` option of `createAgentAccessRoutes` and
+`createAgentAccessModule` now accepts only a bare HTTPS origin or a loopback
+HTTP origin. Construction rejects paths, queries, fragments, credentials,
+surrounding whitespace, control characters, and non-loopback HTTP origins.
+
+OAuth consent responses now distinguish CIMD identities from self-registered
+clients. Consumers must use `client_identity_kind`; `client_identity_origin` is
+an origin for CIMD clients and `null` for self-registered clients.
 
 Applications that previously appended `createOAuthRoutes`,
 `createOAuthAuthorizationRoutes`, or `createAgentAccessManagementRoutes` to
