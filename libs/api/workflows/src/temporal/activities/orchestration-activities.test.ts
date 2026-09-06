@@ -1,14 +1,19 @@
+import {MAX_LISTENER_FILTER_SNAPSHOT_BYTES} from '@shipfox/api-workflows-dto';
 import {ApplicationFailure} from '@temporalio/common';
+import {eq} from 'drizzle-orm';
+import {db} from '#db/db.js';
 import {
   createWorkflowRun,
   getJobExecutionsByJobId,
   getJobsByWorkflowRunId,
   updateJobExecutionStatus,
 } from '#db/index.js';
+import {jobs} from '#db/schema/jobs.js';
 import {createTestSecretsClient} from '#test/fixtures/secrets-inter-module.js';
 import {stripSetupStep} from '#test/fixtures/strip-setup-step.js';
 import {workflowModel} from '#test/index.js';
 import {
+  activateJobListenerActivity,
   queueJobExecutionActivity,
   resolveLeaseExpiredJobExecutionActivity,
   setJobStatus,
@@ -87,6 +92,53 @@ describe('queueJobExecutionActivity', () => {
 
     expect(error).toBeInstanceOf(ApplicationFailure);
     expect((error as ApplicationFailure).nonRetryable).toBe(true);
+  });
+});
+
+describe('activateJobListenerActivity', () => {
+  test('classifies an oversized filter snapshot as non-retryable', async () => {
+    const run = await createWorkflowRun({
+      workspaceId,
+      projectId,
+      definitionId,
+      model: workflowModel({
+        jobs: {
+          build: {steps: [{run: 'echo build'}]},
+          listen: {
+            needs: ['build'],
+            listening: {
+              on: [{source: 'github', event: 'pull_request', filter: 'jobs.build'}],
+              onResolve: 'finish',
+            },
+            steps: [{run: 'echo listen'}],
+          },
+        },
+      }),
+      triggerPayload: {
+        source: 'manual',
+        event: 'fire',
+        subscriptionId: crypto.randomUUID(),
+        userId: crypto.randomUUID(),
+      },
+    });
+    const runJobs = await getJobsByWorkflowRunId(run.id);
+    const build = runJobs.find((job) => job.key === 'build');
+    const listener = runJobs.find((job) => job.key === 'listen');
+    if (!build || !listener) throw new Error('Expected listener fixture jobs');
+
+    await db()
+      .update(jobs)
+      .set({outputs: {payload: 'x'.repeat(MAX_LISTENER_FILTER_SNAPSHOT_BYTES)}})
+      .where(eq(jobs.id, build.id));
+
+    const error = await activateJobListenerActivity({
+      jobId: listener.id,
+      expectedVersion: listener.version,
+    }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ApplicationFailure);
+    expect((error as ApplicationFailure).nonRetryable).toBe(true);
+    expect((error as ApplicationFailure).type).toBe('WorkflowExecutionPayloadTooLargeError');
   });
 });
 

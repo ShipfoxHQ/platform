@@ -15,6 +15,8 @@ const MATERIALIZED_OUTPUT_FAILURE_DESCRIPTION =
   'A materialized job output could not be persisted: it exceeded a size or entry cap, contained a non-JSON-safe value, or referenced an unresolved value. Check the output mapping and values before re-running the workflow.';
 const OUTPUT_TOO_LARGE_FAILURE_DESCRIPTION =
   'The materialized job output exceeded its configured size limit. Review the failure details before re-running the workflow.';
+const LISTENER_FILTER_SNAPSHOT_TOO_LARGE_DESCRIPTION =
+  'The listener filter snapshot exceeded its configured size limit. Review the listener filter and dependency data before re-running the workflow.';
 
 export function outputFailureDescriptionForExecution(
   jobExecution: JobExecution,
@@ -176,7 +178,7 @@ export function emptyStateForMissingExecution(job: Job): StepListEmptyState {
   if (job.status === 'failed') {
     return {
       title: 'Job failed before an execution was created',
-      description: preStepFailureDescription(job.statusReason, job.runner),
+      description: missingExecutionFailureDescription(job),
       status: 'failed',
     };
   }
@@ -186,6 +188,13 @@ export function emptyStateForMissingExecution(job: Job): StepListEmptyState {
     description: 'This job finished, but no job execution record is available.',
     status: job.status,
   };
+}
+
+function missingExecutionFailureDescription(job: Job): string {
+  if (job.mode === 'listening' && job.statusReason === 'output_too_large') {
+    return LISTENER_FILTER_SNAPSHOT_TOO_LARGE_DESCRIPTION;
+  }
+  return preStepFailureDescription(job.statusReason, job.runner);
 }
 
 export function skippedJobDescription(reason: Job['statusReason']): string {

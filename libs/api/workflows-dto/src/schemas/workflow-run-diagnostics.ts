@@ -45,6 +45,7 @@ const CONTEXT_DIAGNOSTIC_FIELDS = [
   'execution_evaluation_trace',
   'condition',
   'trigger_events',
+  'filter_snapshot',
 ] as const;
 
 export const stepDiagnosticFieldSchema = z.enum(STEP_DIAGNOSTIC_FIELDS);

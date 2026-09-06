@@ -1,5 +1,6 @@
 import {MAX_WORKFLOW_FILE_BYTES} from '@shipfox/api-definitions-dto';
 import {
+  MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
   MAX_LISTENER_TRIGGER_EVENTS_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,
   STEP_RESPONSE_MAX_LENGTH,
@@ -178,6 +179,8 @@ export function diagnosticByteLimit(field: WorkflowDiagnosticFieldDto): number {
       return WORKFLOW_DIAGNOSTIC_CONDITION_MAX_BYTES;
     case 'trigger_events':
       return WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES;
+    case 'filter_snapshot':
+      return MAX_LISTENER_FILTER_SNAPSHOT_BYTES;
   }
 }
 
@@ -191,6 +194,8 @@ function executionPayloadByteLimit(field: WorkflowExecutionPayloadFieldDto): num
       return MAX_WORKFLOW_FILE_BYTES;
     case 'listener_batch':
       return MAX_LISTENER_TRIGGER_EVENTS_BYTES;
+    case 'filter_snapshot':
+      return MAX_LISTENER_FILTER_SNAPSHOT_BYTES;
   }
 }
 
@@ -202,6 +207,8 @@ function diagnosticFieldForExecutionPayload(
       return 'condition';
     case 'listener_batch':
       return 'trigger_events';
+    case 'filter_snapshot':
+      return 'filter_snapshot';
     case 'resolved_config':
     case 'config_plan':
       return 'config';

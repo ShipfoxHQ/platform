@@ -59,5 +59,7 @@ export function diagnosticFieldLabel(field: WorkflowDiagnosticField): string {
       return 'Condition';
     case 'trigger_events':
       return 'Trigger events';
+    case 'filter_snapshot':
+      return 'Listener filter snapshot';
   }
 }

@@ -1,4 +1,5 @@
 import {
+  MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
   MAX_RESOLVED_STEP_CONFIG_BYTES,
   STEP_RESPONSE_MAX_LENGTH,
   WORKFLOW_DIAGNOSTIC_CONFIG_MAX_BYTES,
@@ -62,6 +63,18 @@ describe('workflow payload policies', () => {
       expect.objectContaining({
         field: 'resolved_config',
         limitBytes: MAX_RESOLVED_STEP_CONFIG_BYTES,
+      }),
+    );
+  });
+
+  test('bounds listener filter snapshots with their own execution budget', () => {
+    const value = {payload: 'x'.repeat(MAX_LISTENER_FILTER_SNAPSHOT_BYTES)};
+
+    expect(() => assertWorkflowExecutionPayloadSize('filter_snapshot', value)).toThrow(
+      expect.objectContaining({
+        field: 'filter_snapshot',
+        limitBytes: MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
+        measuredBytes: expect.any(Number),
       }),
     );
   });

@@ -265,9 +265,35 @@ async function failListenerJob(
     jobId: job.id,
     status: 'failed',
     version: runtimeJobVersion(job, progress),
-    statusReason: 'unknown',
+    statusReason: listenerFailureStatusReason(error),
   });
   return {job, result: {status: 'failed', jobVersion: failed.newVersion}};
+}
+
+function listenerFailureStatusReason(error: unknown): 'output_too_large' | 'unknown' {
+  return hasErrorType(error, 'WorkflowExecutionPayloadTooLargeError')
+    ? 'output_too_large'
+    : 'unknown';
+}
+
+function hasErrorType(error: unknown, type: string): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as {
+    readonly type?: unknown;
+    readonly cause?: unknown;
+    readonly failure?: unknown;
+  };
+  if (candidate.type === type) return true;
+  if (hasApplicationFailureType(candidate.failure, type)) return true;
+  return hasErrorType(candidate.cause, type) || hasErrorType(candidate.failure, type);
+}
+
+function hasApplicationFailureType(failure: unknown, type: string): boolean {
+  if (typeof failure !== 'object' || failure === null) return false;
+  const applicationFailureInfo = (failure as {readonly applicationFailureInfo?: unknown})
+    .applicationFailureInfo;
+  if (typeof applicationFailureInfo !== 'object' || applicationFailureInfo === null) return false;
+  return (applicationFailureInfo as {readonly type?: unknown}).type === type;
 }
 
 function launchOneShotJob(

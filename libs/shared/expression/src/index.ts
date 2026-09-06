@@ -76,6 +76,13 @@ export {
   evaluationTraceEntry,
   predicateTraceEntry,
 } from './plan/evaluation-trace.js';
+export {
+  analyzeContextPathAccess,
+  type ContextPathAccessAnalysis,
+  type ContextPathAccessUnknown,
+  type ContextPathReference,
+  type ContextPathSegment,
+} from './plan/extract-context-paths.js';
 export {extractExactContextRoots} from './plan/extract-exact-context-roots.js';
 export {
   type FrozenResolvedField,

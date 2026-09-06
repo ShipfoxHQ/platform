@@ -228,6 +228,11 @@ describe('StepInspectorSheet', () => {
                 stored_bytes: 70_000,
                 reason: 'legacy_value_exceeds_inline_limit',
               },
+              {
+                field: 'filter_snapshot',
+                stored_bytes: 524_300,
+                reason: 'value_exceeds_inline_limit',
+              },
             ],
           }),
         ),
@@ -241,6 +246,7 @@ describe('StepInspectorSheet', () => {
     expect(unavailable).toHaveTextContent('Resolved configuration unavailable');
     expect(unavailable).toHaveTextContent('Step output unavailable');
     expect(unavailable).toHaveTextContent('Evaluation unavailable');
+    expect(unavailable).toHaveTextContent('Listener filter snapshot unavailable');
     expect(unavailable).toHaveTextContent('300,000 bytes');
   });
 

@@ -343,6 +343,27 @@ describe('runOrchestration', () => {
     expect(callsNamed('queueJobExecutionActivity')).toHaveLength(0);
   });
 
+  test('classifies oversized listener activation as an output-size failure', async () => {
+    const jobs = [dagJob('j1', 'listen', [], {mode: 'listening'})];
+    setCfg({
+      dag: makeDag(jobs, 'r-listen-too-large'),
+      jobResults: new Map(),
+      listenerActivationError: 'filter snapshot is too large',
+    });
+
+    await executeRun();
+
+    expect(setJobStatusCalls()).toContainEqual({
+      name: 'setJobStatus',
+      params: expect.objectContaining({
+        jobId: 'j1',
+        status: 'failed',
+        statusReason: 'output_too_large',
+      }),
+    });
+    expect(setRunAttemptStatusCalls().map((c) => c.params.status)).toEqual(['running', 'failed']);
+  });
+
   test('aborts early when the initial running write reports an already-terminal run', async () => {
     const jobs = [dagJob('j1', 'build')];
     setCfg({

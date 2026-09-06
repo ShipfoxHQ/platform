@@ -1,4 +1,5 @@
 import {
+  MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
   WORKFLOW_DIAGNOSTIC_TRIGGER_EVENTS_MAX_BYTES,
   WORKFLOWS_JOB_ACTIVATED,
   type WorkflowsJobActivatedEventDto,
@@ -174,10 +175,11 @@ async function createInactiveListeningJobWithMatchers(params: {
 
 async function createListenerWithDependencies(params: {
   readonly on: readonly JobListeningTrigger[];
+  readonly inputs?: Record<string, unknown>;
 }) {
   const run = await workflowRunFactory.create(
     {
-      inputs: {environment: 'prod'},
+      inputs: {environment: 'prod', ...(params.inputs ?? {})},
       triggerPayload: {
         source: 'github',
         event: 'pull_request',
@@ -225,7 +227,7 @@ async function createListenerWithDependencies(params: {
 
   const updated = await readJob(listener.id);
   if (!updated) throw new Error('Expected listener fixture job');
-  return updated;
+  return {...updated, buildId: build.id};
 }
 
 function template(source: string): string {
@@ -385,12 +387,103 @@ describe('activateJobListener', () => {
         build: expect.objectContaining({
           status: 'succeeded',
           outputs: {pr_number: 42},
-          executions: expect.any(Array),
         }),
       },
     });
     expect(snapshot).not.toHaveProperty('event');
-    expect(snapshot?.jobs).not.toHaveProperty('review');
+    const jobs = snapshot?.jobs as Record<string, unknown> | undefined;
+    expect(jobs).not.toHaveProperty('review');
+    expect(jobs?.build).not.toHaveProperty('executions');
+  });
+
+  it('fetches dependency jobs for a broad filter without literal job keys', async () => {
+    const job = await createListenerWithDependencies({
+      inputs: {target: 'build'},
+      on: [
+        {
+          source: 'github',
+          event: 'pull_request',
+          filter: 'jobs[inputs.target].outputs.pr_number == event.pull_request.number',
+        },
+      ],
+    });
+
+    await activateJobListener({jobId: job.id, expectedVersion: job.version});
+
+    const payload = await activatedPayload(job.id);
+    expectListeningPayload(payload);
+    expect(payload.on[0]?.filter_snapshot).toEqual({
+      inputs: {environment: 'prod', target: 'build'},
+      jobs: expect.objectContaining({
+        build: expect.objectContaining({
+          status: 'succeeded',
+          outputs: {pr_number: 42},
+        }),
+      }),
+    });
+  });
+
+  it('rejects an oversized filter snapshot before writing activation', async () => {
+    const job = await createListenerWithDependencies({
+      on: [{source: 'github', event: 'pull_request', filter: 'jobs.build'}],
+    });
+    await db()
+      .update(jobs)
+      .set({outputs: {payload: 'x'.repeat(MAX_LISTENER_FILTER_SNAPSHOT_BYTES)}})
+      .where(eq(jobs.id, job.buildId));
+
+    await expect(
+      activateJobListener({jobId: job.id, expectedVersion: job.version}),
+    ).rejects.toMatchObject({
+      name: 'WorkflowExecutionPayloadTooLargeError',
+      field: 'filter_snapshot',
+      limitBytes: MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
+      measuredBytes: expect.any(Number),
+      overshootBytes: expect.any(Number),
+    });
+
+    const stored = await readJob(job.id);
+    expect(stored).toMatchObject({status: 'pending', listenerStatus: 'inactive'});
+    const activatedEvents = await db()
+      .select()
+      .from(workflowsOutbox)
+      .where(eq(workflowsOutbox.eventType, WORKFLOWS_JOB_ACTIVATED));
+    expect(
+      activatedEvents.filter((row) => (row.payload as Record<string, unknown>).jobId === job.id),
+    ).toHaveLength(0);
+  });
+
+  it('rejects aggregate filter snapshots before writing activation', async () => {
+    const job = await createListenerWithDependencies({
+      on: [
+        {source: 'github', event: 'pull_request', filter: 'jobs.build'},
+        {source: 'github', event: 'pull_request', filter: 'jobs.build'},
+      ],
+    });
+    await db()
+      .update(jobs)
+      .set({outputs: {payload: 'x'.repeat(Math.floor(MAX_LISTENER_FILTER_SNAPSHOT_BYTES / 2))}})
+      .where(eq(jobs.id, job.buildId));
+
+    await expect(
+      activateJobListener({jobId: job.id, expectedVersion: job.version}),
+    ).rejects.toMatchObject({
+      name: 'WorkflowExecutionPayloadTooLargeError',
+      field: 'filter_snapshot',
+      limitBytes: MAX_LISTENER_FILTER_SNAPSHOT_BYTES,
+      measuredBytes: expect.any(Number),
+      overshootBytes: expect.any(Number),
+    });
+
+    const stored = await readJob(job.id);
+    expect(stored).toMatchObject({status: 'pending', listenerStatus: 'inactive'});
+    const activatedEvents = await db()
+      .select()
+      .from(workflowsOutbox)
+      .where(eq(workflowsOutbox.eventType, WORKFLOWS_JOB_ACTIVATED));
+    expect(
+      activatedEvents.filter((row) => (row.payload as Record<string, unknown>).jobId === job.id),
+    ).toHaveLength(0);
   });
 
   it('snapshots an empty jobs root when referenced job keys are absent', async () => {

@@ -245,7 +245,9 @@ async function writeListenerActivatedEvent(
   };
   const snapshotPlan = planListenerFilterSnapshots(matchers);
   const dependencyJobs =
-    snapshotPlan.jobKeys.size === 0 ? [] : await getDirectDependencyJobContexts(jobId, tx);
+    snapshotPlan.jobKeys.size === 0 && !snapshotPlan.jobsAreBroad
+      ? []
+      : await getDirectDependencyJobContexts(jobId, tx);
   const snapshotContext = assembleListenerSnapshotContext({
     job: toJob(target.job),
     run: toWorkflowRun(target.run),
@@ -256,6 +258,25 @@ async function writeListenerActivatedEvent(
     dependencyJobs,
   });
   const listenerOutputTypes = listenerFilterOutputTypesForJobs(dependencyJobs);
+  const on = applyActivatedListenerFilterSnapshots(
+    snapshotPlan.on,
+    snapshotContext,
+    listenerOutputTypes,
+  );
+  const until =
+    matchers.until === null
+      ? null
+      : applyActivatedListenerFilterSnapshots(
+          snapshotPlan.until,
+          snapshotContext,
+          listenerOutputTypes,
+        );
+  const filterSnapshots = [...on, ...(until ?? [])].flatMap(({filter_snapshot}) =>
+    filter_snapshot === undefined ? [] : [filter_snapshot],
+  );
+  if (filterSnapshots.length > 0) {
+    assertWorkflowExecutionPayloadSize('filter_snapshot', filterSnapshots);
+  }
 
   await writeWorkflowsOutboxEvent(tx, {
     type: WORKFLOWS_JOB_ACTIVATED,
@@ -264,19 +285,8 @@ async function writeListenerActivatedEvent(
       workflowRunId: target.run.id,
       workspaceId: target.run.workspaceId,
       mode: 'listening',
-      on: applyActivatedListenerFilterSnapshots(
-        snapshotPlan.on,
-        snapshotContext,
-        listenerOutputTypes,
-      ),
-      until:
-        matchers.until === null
-          ? null
-          : applyActivatedListenerFilterSnapshots(
-              snapshotPlan.until,
-              snapshotContext,
-              listenerOutputTypes,
-            ),
+      on,
+      until,
     },
   });
 }
