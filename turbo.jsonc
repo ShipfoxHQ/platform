@@ -113,6 +113,7 @@
       "dependsOn": ["^build"],
       "passThroughEnv": [
         "ADMIN_BOOTSTRAP_TOKEN",
+        "CLIENT_BASE_URL",
         "SLACK_API_BASE_URL",
         "SLACK_SIGNING_SECRET"
       ]
